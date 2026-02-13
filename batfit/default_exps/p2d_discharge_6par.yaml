@@ -1,0 +1,74 @@
+cycling mode: discharge
+degradation parameter names: i0_a, ds_c, cs0_a, cs0_c, i0_c, eps_s_c_am
+
+min degradation parameter:
+    i0_a:       0.1
+    ds_c:       0.2
+    cs0_a:      0.6
+    cs0_c:      0.88
+    i0_c:       0.1
+    eps_s_c_am:    0.7
+
+
+max degradation parameter:
+    i0_a:       4
+    ds_c:       10
+    cs0_a:      1.0769
+    cs0_c:      1.6
+    i0_c:       1.6
+    eps_s_c_am:    1.0
+
+macroscopic:
+    vmin:       3
+    vmax:       4.1
+    C:          0.5026548517235131
+    tmax:       5700
+    cap:        1.89e-2               # Nominal capacity                       [A*h]
+    model:      P2D
+    temp:       303.15                # Temperature                              [K]
+    area:       1.4e-3                # Cell area                              [m^2]
+
+electrolyte:
+    Li_0:       1.2                   # Initial Li+ conc.                 [kmol/m^3]
+
+anode:
+    Nx:         32                    # Number of x discretizations              [-]
+    Nr:         30                    # Number of r discretizations              [-]
+    thick:      44.0e-6               # Thickness                                [m]
+    R_s:        4.0e-6                # Secondary particle radius                [m]
+    eps_s:      0.6          # Solid-phase volume frac.                 [-]
+    eps_el:     0.4                   # Electrolyte volume frac.                 [-]
+    eps_CBD:    0.0569272237          # Carbon-binder-domain volume frac.        [-]
+    alpha_a:    0.5                   # Anodic charge transfer coeff.            [-]
+    alpha_c:    0.5                   # Cathodic charge transfer coeff.          [-]
+    p_sol:      2.                    # Solid-phase Bruggeman factor (eps**p)    [-]
+    p_liq:      2.                    # Liquid-phase Bruggeman factor (eps**p)   [-]
+    Li_max:     30.53                 # Maximum solid-phase Li conc.      [kmol/m^3]
+    x_0:        0.91                  # Initial intercalation frac.              [-]
+    i0_deg:     0.5                   # Degradation factor for i0                [-]
+    Ds_deg:     1.0                   # Degradation factor for Ds                [-]
+
+separator:
+    Nx:         32                    # Number of x discretizations              [-]
+    thick:      20.0e-6               # Thickness                                [m]
+    eps_el:     0.4                   # Electrolyte volume frac.                 [-]
+    p_liq:      2.                    # Liquid-phase Bruggeman factor (eps**p)   [-]
+
+cathode:
+    Nx:         32                    # Number of x discretizations              [-]
+    Nr:         30                    # Number of r discretizations              [-]
+    thick:      42.0e-6               # Thickness                                [m]
+    R_s:        1.8e-6                # Secondary particle radius                [m]
+    eps_s:      0.6               # Solid-phase volume frac.                 [-]
+    eps_el:     0.4                   # Electrolyte volume frac.                 [-]
+    eps_CBD:    0.12338               # Carbon-binder-domain volume frac.        [-]
+    alpha_a:    0.5                   # Anodic charge transfer coeff.            [-]
+    alpha_c:    0.5                   # Cathodic charge transfer coeff.          [-]
+    p_sol:      2.                    # Solid-phase Bruggeman factor (eps**p)    [-]
+    p_liq:      2.                    # Liquid-phase Bruggeman factor (eps**p)   [-]
+    Li_max:     49.6                  # Maximum solid-phase Li conc.      [kmol/m^3]
+    x_0:        0.39                  # Initial intercalation frac.              [-]
+    i0_deg:     1.0                   # Degradation factor for i0                [-]
+    Ds_deg:     1.0                   # Degradation factor for Ds                [-]
+
+    

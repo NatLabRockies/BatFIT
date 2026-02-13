@@ -10,7 +10,7 @@ nox.options.sessions = []
 
 
 @nox.session(name="cleanup", python=False)
-def run_cleanup(_) -> None:
+def run_cleanup(session: nox.Session) -> None:
     """Use os/shutil to remove some files/directories"""
 
     if os.path.exists(".coverage"):
@@ -19,12 +19,32 @@ def run_cleanup(_) -> None:
     if os.path.exists("reports"):
         shutil.rmtree("reports")
 
-    folders = [".pytest_cache", "__pycache__"]
+    folders = [".pytest_cache"]
     for f in folders:
         if os.path.exists(f):
             shutil.rmtree(f)
 
+    # Recursively delete all __pycache__ folders and .pyc files
+    session.run(
+        "find",
+        ".",
+        "-type",
+        "d",
+        "-name",
+        "__pycache__",
+        "-exec",
+        "rm",
+        "-r",
+        "{}",
+        "+",
+        external=True,
+    )
+    session.run(
+        "find", ".", "-type", "f", "-name", "*.pyc", "-delete", external=True
+    )
 
+
+@nox.session(name="lint", python=False)
 @nox.session(name="linter", python=False)
 def run_lint(session: nox.Session) -> None:
     """
@@ -71,6 +91,7 @@ def run_lint(session: nox.Session) -> None:
     session.run(*isort_command)
 
 
+@nox.session(name="spell", python=False)
 @nox.session(name="codespell", python=False)
 def run_codespell(session: nox.Session) -> None:
     """
@@ -91,6 +112,7 @@ def run_codespell(session: nox.Session) -> None:
 
 
 @nox.session(name="tests", python=False)
+@nox.session(name="test", python=False)
 def run_pytest(session: nox.Session) -> None:
     """
     Run pytest and generate test/coverage reports

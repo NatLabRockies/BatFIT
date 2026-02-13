@@ -43,6 +43,7 @@ dependencies = [
     "corner",
     "torchsummary",
     "numpyro",
+    "ruamel.yaml",
 ]
 
 [tool.setuptools.dynamic]

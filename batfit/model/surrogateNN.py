@@ -1,0 +1,431 @@
+import pickle
+
+import numpy as np
+import optuna
+import torch
+import torch.distributions as dist
+import torch.nn as nn
+import torch.nn.functional as F
+from prettyPlot.progressBar import print_progress_bar
+
+from batfit import logger
+from batfit.preprocess.sim_setup import make_params
+from batfit.utils.data_utils import (
+    scale_dataset_from_scaler,
+    scale_input_from_scaler,
+    scale_output_from_scaler,
+    unscale_dataset_from_scaler,
+    unscale_input_from_scaler,
+    unscale_output_from_scaler,
+    unscale_pred_from_scaler,
+)
+from batfit.utils.text_utils import shuffle_substrings
+from batfit.utils.torch_utils import (
+    get_device_type,
+    get_num_parameters,
+    load_model,
+    log_training,
+    make_dataset_from_np,
+    prepare_log,
+    save_model,
+)
+
+
+def mse_loss(output, target):
+    """
+    Custom mean squared error loss function.
+    output: Predicted values.
+    target: Ground truth labels.
+    """
+    loss = torch.mean((output - target) ** 2)
+    return loss
+
+
+def mae_loss(output, target):
+    """
+    Custom mean squared error loss function.
+    output: Predicted values.
+    target: Ground truth labels.
+    """
+    loss = torch.mean(torch.abs(output - target))
+    return loss
+
+
+def create_model_from_log(model_obj_file, model_state_dict_file, verbose=True):
+    if verbose:
+        logger.info(
+            f"loading model from \n\t{model_obj_file} and {model_state_dict_file}"
+        )
+    with open(model_obj_file, "rb") as f:
+        model = pickle.load(f)
+    if not hasattr(model, "dependent_outputs"):
+        model.dependent_outputs = False
+    if not hasattr(model, "enforce_licons"):
+        model.enforce_licons = False
+    num_parameters = get_num_parameters(model)
+    if verbose:
+        print(f"\tNo. Trainable Parameters: {num_parameters}")
+    if model_state_dict_file is not None:
+        model = load_model(
+            model, model_state_dict_file, enable_cuda=False, enable_mps=False
+        )
+    return model
+
+
+def forward_pass(model, np_data_in, scaler_X_file, scaler_Y_file, scale_y):
+    model.eval()
+    model.to("cpu")
+
+    X_scaled = scale_input_from_scaler(np_data_in, scaler_X_file)
+    with torch.no_grad():
+        if isinstance(model, SurrogateFCNN):
+            pred_scaled = model(torch.from_numpy(X_scaled))
+            if model.constrain_output:
+                pred_unscaled = model.inv_transform_output(
+                    pred_scaled,
+                    model.min_v,
+                    model.amp_v,
+                )
+            else:
+                pred_unscaled = pred_scaled
+
+            pred_unscaled = pred_unscaled.numpy()
+            inp_unscaled, _ = unscale_dataset_from_scaler(
+                X_scaled, pred_scaled, scaler_X_file, scaler_Y_file
+            )
+
+        else:
+            raise NotImplementedError
+
+    return pred_unscaled
+
+
+class SurrogateFCNN(nn.Module):
+    def __init__(
+        self,
+        fc_list,
+        n_param_pred=6,
+        loss_fn=mae_loss,
+        constrain_output=False,
+        cyc_mode="discharge",
+        sim_config=None,
+    ):
+        logger.info("Creating Surrogate model")
+        super(SurrogateFCNN, self).__init__()
+        input_shape = (n_param_pred + 1,)
+        self.fc_list = fc_list
+        self.n_param_pred = n_param_pred
+        self.constrain_output = constrain_output
+        self.sim_config = sim_config
+        self.output_dim = 1
+        self.cyc_mode = (cyc_mode,)
+        self.loss_fn = loss_fn
+        assert self.loss_fn in [
+            mae_loss,
+            mse_loss,
+        ]
+
+        if self.sim_config is not None:
+            self.sim_params = make_params(self.sim_config)
+            self.max_v = np.float32(self.sim_params["vmax"]) + 0.5
+            self.min_v = np.float32(self.sim_params["vmin"]) - 0.5
+            self.amp_v = self.max_v - self.min_v
+
+        self.fcnn = []
+        for ihidden, hidden in enumerate(fc_list):
+            if ihidden == 0:
+                self.fcnn.append(
+                    nn.Linear(
+                        in_features=input_shape[0],
+                        out_features=hidden,
+                    )
+                )
+                self.fcnn.append(nn.Tanh())
+            else:
+                self.fcnn.append(
+                    nn.Linear(
+                        in_features=fc_list[ihidden - 1],
+                        out_features=hidden,
+                    )
+                )
+                self.fcnn.append(nn.Tanh())
+
+        self.fcnn.append(nn.Linear(fc_list[-1], self.output_dim))
+        if self.constrain_output:
+            self.fcnn.append(nn.Sigmoid())
+        else:
+            self.fcnn.append(nn.ReLU())
+
+        self.fcnn_layers = nn.Sequential(*self.fcnn)
+
+    def inv_transform_output(self, x_unscaled, min_v, amp_v):
+        x = x_unscaled * amp_v + min_v
+        return x
+
+    def transform_output(self, x_scaled, min_v, amp_v):
+        x = (x_scaled - min_v) / amp_v
+        return x
+
+    def forward(self, x):
+        # for layer in self.fcnn_layers:
+        #    try:
+        #        x = layer(x)
+        #    except RuntimeError:
+        #        breakpoint()
+
+        x = self.fcnn_layers(x)
+        return x
+
+
+def learning_rate_schedule(epoch, epoch_end, lr_beg, lr_end):
+    epoch_delay = epoch_end // 10
+    if epoch < epoch_delay:
+        return lr_beg
+    else:
+        return lr_beg * (lr_end / lr_beg) ** (
+            min((epoch - epoch_delay) / epoch_end, 1.0)
+        )
+
+
+def train_model(
+    model: nn.Module,
+    train_data_loader: torch.utils.data.DataLoader,
+    learning_rate: float,
+    num_epochs: int | None,
+    learning_rate_end: float | None = None,
+    test_data_loader: torch.utils.data.DataLoader | None = None,
+    num_steps: int | None = None,
+    num_steps_test: int | None = None,
+    log_folder: str = "train_log",
+    log_freq: int = 100,
+    save_freq: int = 1000,
+    optimizer_state_dict_filename: str | None = None,
+    enable_cuda: bool = True,
+    enable_mps: bool = True,
+    trial=None,
+):
+    # Device set up
+    device_type = get_device_type(
+        enable_cuda=enable_cuda, enable_mps=enable_mps
+    )
+    device = torch.device(device_type)
+
+    # Save the model config
+    save_model(
+        step=0,
+        model=model,
+        log_folder=log_folder,
+        save_model_obj=True,
+        save_model_weights=False,
+        save_model_opt=False,
+    )
+
+    if learning_rate_end is None:
+        learning_rate_end = learning_rate / 100.0
+
+    print("Device = ", device)
+    model = model.to(device)
+
+    loss_hist = np.array([])
+    optimizer = torch.optim.Adamax(
+        model.parameters(), lr=learning_rate, weight_decay=1e-5
+    )
+    if optimizer_state_dict_filename is not None:
+        optimizer.load_state_dict(
+            torch.load(optimizer_state_dict_filename, weights_only=True)
+        )
+    # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    #    optimizer, num_epochs, 0
+    # )
+
+    num_batch = len(train_data_loader)
+    model.train()
+
+    prepare_log(log_folder)
+    if num_steps is not None:
+        total_steps = num_steps
+        num_epochs = num_steps // num_batch + 1
+    else:
+        total_steps = num_batch * num_epochs
+    # train
+    print_progress_bar(
+        0,
+        total_steps,
+        prefix=f"Loss = ? Step 0 / {total_steps} ",
+        suffix="Complete",
+        length=50,
+    )
+
+    for epoch in range(num_epochs):
+        # Set LR for this epoch
+        for param_group in optimizer.param_groups:
+            param_group["lr"] = learning_rate_schedule(
+                epoch, num_epochs * 3 // 4, learning_rate, learning_rate_end
+            )
+
+        for step, batch in enumerate(train_data_loader):
+            current_step = epoch * num_batch + (step + 1)
+            # Reinitialize grads
+            optimizer.zero_grad()
+            batch_in = batch[0]
+            # Compute loss
+            try:
+                pred = model(batch_in.to(device))
+                if model.constrain_output:
+                    pred = model.inv_transform_output(
+                        pred,
+                        model.min_v,
+                        model.amp_v,
+                    )
+                loss = model.loss_fn(pred, batch[1].to(device))
+                # Do backprop and optimizer step
+                if ~(torch.isnan(loss) | torch.isinf(loss)):
+                    loss.backward()
+                    optimizer.step()
+            except (torch.OutOfMemoryError, RuntimeError) as err:
+                if trial is not None:
+                    # Make sure hyper par tuning can proceed
+                    raise optuna.exceptions.TrialPruned()
+                else:
+                    raise err
+
+            # Log loss
+            loss_hist = np.append(loss_hist, loss.detach().to("cpu").numpy())
+            logged = False
+            if current_step % save_freq == 0:
+                logged = True
+                log_training(
+                    current_step, loss, log_folder, filename="train_loss.csv"
+                )
+                save_model(
+                    step=current_step,
+                    model=model,
+                    optimizer=optimizer,
+                    device_type=device_type,
+                    log_folder=log_folder,
+                )
+            elif current_step % log_freq == 0 and not logged:
+                log_training(
+                    current_step, loss, log_folder, filename="train_loss.csv"
+                )
+
+            logged = False
+
+            print_progress_bar(
+                current_step,
+                total_steps,
+                prefix=f"Loss = {loss.item():.4g} Step {current_step} / {total_steps} ",
+                suffix="Complete",
+                length=50,
+            )
+
+            if current_step >= total_steps:
+                break
+            if trial is not None:
+                # Handle pruning based on the intermediate value.
+                if (
+                    trial.should_prune()
+                    or np.isnan(loss.item())
+                    or np.isinf(loss.item())
+                ):
+                    raise optuna.exceptions.TrialPruned()
+
+        if test_data_loader is not None:
+            test_loss = compute_test_loss(
+                model=model,
+                test_data_loader=test_data_loader,
+                num_steps=num_steps_test,
+                enable_cuda=enable_cuda,
+                enable_mps=enable_mps,
+                verbose=False,
+            )
+            log_training(
+                current_step,
+                test_loss,
+                log_folder,
+                filename="test_loss.csv",
+            )
+            model.train()
+        else:
+            test_loss = None
+        if trial is not None:
+            if test_loss is not None:
+                trial.report(test_loss, epoch)
+            # Handle pruning based on the intermediate value.
+            if trial.should_prune():
+                raise optuna.exceptions.TrialPruned()
+
+    save_model(
+        step=total_steps,
+        model=model,
+        optimizer=optimizer,
+        device_type=device_type,
+        log_folder=log_folder,
+        bypass="final",
+    )
+    return model, loss_hist
+
+
+def compute_test_loss(
+    model,
+    test_data_loader: torch.utils.data.DataLoader,
+    num_steps: int | None = None,
+    enable_cuda: bool = True,
+    enable_mps: bool = True,
+    verbose=True,
+):
+    # Device set up
+    device_type = get_device_type(
+        enable_cuda=enable_cuda, enable_mps=enable_mps
+    )
+    device = torch.device(device_type)
+    if verbose:
+        print("Device = ", device)
+
+    model = model.to(device)
+    num_batch_test = len(test_data_loader)
+
+    model.eval()
+    if num_steps is not None:
+        total_steps = num_steps
+    else:
+        total_steps = num_batch_test
+    # eval loop
+    if verbose:
+        print_progress_bar(
+            0,
+            total_steps,
+            prefix=f"Test Loss = ? Step 0 / {total_steps} ",
+            suffix="Complete",
+            length=50,
+        )
+
+    loss_ave = 0
+    num_el = 0
+    with torch.no_grad():
+        for step, batch in enumerate(test_data_loader):
+            current_step = step + 1
+            batch_in = batch[0]
+            # Compute loss
+            pred = model(batch_in.to(device))
+            if model.constrain_output:
+                pred = model.inv_transform_output(
+                    pred,
+                    model.min_v,
+                    model.amp_v,
+                )
+            loss = model.loss_fn(pred, batch[1].to(device))
+            loss_ave += loss.item() * batch_in.shape[0]
+            num_el += batch_in.shape[0]
+            if verbose:
+                print_progress_bar(
+                    current_step,
+                    total_steps,
+                    prefix=f"Test loss = {loss_ave/current_step:.4g} Step {current_step} / {total_steps} ",
+                    suffix="Complete",
+                    length=50,
+                )
+            if current_step >= total_steps:
+                break
+        loss_ave /= num_el
+    return loss_ave
