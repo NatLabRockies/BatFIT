@@ -56,7 +56,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.10', '3.13']
+        python-version: ['3.10', '3.14']
         os: ['ubuntu-latest', 'macos-latest']
 
     steps:
@@ -86,7 +86,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.10', '3.13']
+        python-version: ['3.10', '3.14']
         os: ['ubuntu-latest', 'macos-latest']
         mpi: ['openmpi']
 
@@ -111,8 +111,12 @@ jobs:
           pip install .[tests]
 
       - name: Generate data in parallel
+        env:
+          MPLBACKEND: Agg
         run: |
           cd scripts/reg_tests/1.gen_data
           bash run.sh
-          cd ../../..
-
+          if [ ! -f "data_spm_discharge/sols.pkl" ]; then
+            exit 1
+          fi 
+          cd ../../../
