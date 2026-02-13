@@ -1337,7 +1337,7 @@ def merge_combined_sols(
         if not parallel_env.irank == parallel_env.iroot:
             return
 
-        logger.info("\n\nmerging all databases")
+        logger.info("Merging all databases")
 
         sols = {}
         offset_arr = np.zeros(parallel_env.nProc, dtype=int)
@@ -1365,7 +1365,7 @@ def merge_combined_sols(
             except FileNotFoundError:
                 logger.warning(f"{file_to_merge} was not found")
 
-        logger.info("writing final database")
+        logger.info("Writing final database")
         for rank in range(
             parallel_env.iroot, parallel_env.nProc + parallel_env.iroot
         ):
@@ -1378,7 +1378,7 @@ def merge_combined_sols(
     else:
 
         assert nProc is not None
-        logger.info("\n\nmerging all databases")
+        logger.info("Merging all databases")
 
         sols = {}
         offset_arr = np.zeros(nProc, dtype=int)
@@ -1405,7 +1405,7 @@ def merge_combined_sols(
             except FileNotFoundError:
                 logger.warning(f"{file_to_merge} was not found")
 
-        logger.info("writing final database")
+        logger.info("Writing final database")
         for rank in range(1, nProc + 1):
             remove_file(os.path.join(folder_save, f"sols_{rank}.pkl"))
         remove_file(os.path.join(folder_save, combined_sols_filename))
