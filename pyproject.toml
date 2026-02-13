@@ -1,0 +1,80 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "batfit"
+readme = "README.md"
+dynamic = ["version"]
+requires-python = ">=3.10,<3.15"
+license = { file = "LICENSE" }
+description = "Battery properties inference tools"
+keywords = ["parameter inference", "Bayesian inference", "battery"]
+authors = [
+    { name = "Malik Hassanaly" },
+    { email = "malik.hassanaly@gmail.com" },
+]
+maintainers = [
+    { name = "Malik Hassanaly" },
+    { email = "malik.hassanaly@gmail.com" },
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+dependencies = [
+    "torch",
+    "torchvision",
+    "numpy",
+    "mpi4py",
+    "prettyPlot",
+    "black",
+    "isort",
+    "codespell",
+    "scikit-learn",
+    "optuna",
+    "plotly",
+    "pandas",
+    "corner",
+    "torchsummary",
+    "numpyro",
+]
+
+[tool.setuptools.dynamic]
+version = { attr = "batfit.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.setuptools.package-data]
+"*" = ["*.yaml", "*.csv"]
+
+[project.optional-dependencies]
+docs = [
+    "sphinx",
+    "sphinx_rtd_theme",
+    "sphinx-autodoc-typehints",
+]
+tests = [
+    "pytest",
+    "pytest-cov",
+]
+dev = [
+    "nox",
+    "black",
+    "isort",
+    "codespell",
+    "batfit[docs,tests]",
+]
+
+
+[project.urls]
+Homepage = "https://github.com/NatLabRockies/BATFIT"
+Documentation = "https://batfit.readthedocs.io/"
+Repository = "https://github.com/NatLabRockies/BATFIT"
+Issues = "https://github.com/NatLabRockies/BATFIT/issues"
