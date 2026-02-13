@@ -89,6 +89,11 @@ jobs:
         python-version: ['3.10', '3.14']
         os: ['ubuntu-latest', 'macos-latest']
         mpi: ['openmpi']
+
+    defaults:
+      run:
+        working-directory: ${{github.workspace}}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
