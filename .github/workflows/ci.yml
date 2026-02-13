@@ -49,8 +49,8 @@ jobs:
       - name: Spell check
         run: nox -s codespell
 
-  Unit Test:
-    name: (Test ${{ matrix.python-version }}, ${{ matrix.os }})
+  Unit-Test:
+    name: (Unit-Test ${{ matrix.python-version }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -79,14 +79,14 @@ jobs:
           MPLBACKEND: Agg
         run: nox -s tests -- no-reports
 
-  Regression Test:
-    name: (Test ${{ matrix.python-version }}, ${{ matrix.os }})
+  Regression-Test:
+    name: (Regression-Test ${{ matrix.python-version }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
 
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.10', '3.13']
+        python-version: ['3.10', '3.14']
         os: ['ubuntu-latest', 'macos-latest']
         mpi: ['openmpi']
     steps:
