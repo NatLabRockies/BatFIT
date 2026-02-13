@@ -49,14 +49,14 @@ jobs:
       - name: Spell check
         run: nox -s codespell
 
-  Test:
-    name: (Test ${{ matrix.python-version }}, ${{ matrix.os }})
+  Unit-Test:
+    name: (Unit-Test ${{ matrix.python-version }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
 
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.10', '3.13']
+        python-version: ['3.10', '3.14']
         os: ['ubuntu-latest', 'macos-latest']
 
     steps:
@@ -78,3 +78,45 @@ jobs:
         env:
           MPLBACKEND: Agg
         run: nox -s tests -- no-reports
+
+  Regression-Test:
+    name: (Regression-Test ${{ matrix.python-version }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.14']
+        os: ['ubuntu-latest', 'macos-latest']
+        mpi: ['openmpi']
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Setup MPI
+        uses: mpi4py/setup-mpi@v1
+        with:
+          mpi: ${{ matrix.mpi }}
+
+      - name: Install batfit
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade nox
+          pip install .[tests]
+
+      - name: Generate data in parallel
+        env:
+          MPLBACKEND: Agg
+        run: |
+          cd scripts/reg_tests/1.gen_data
+          bash run.sh
+          if [ ! -f "data_spm_discharge/sols.pkl" ]; then
+            exit 1
+          fi 
+          cd ../../../
