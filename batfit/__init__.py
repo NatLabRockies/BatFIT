@@ -2,6 +2,7 @@ import os
 
 BATFIT_DIR = os.path.dirname(os.path.realpath(__file__))
 BATFIT_EXP = os.path.join(BATFIT_DIR, "default_exps")
+BATFIT_REG = os.path.join(BATFIT_DIR, "..", "scripts", "reg_tests")
 
 from batfit.logging_config import setup_logging
 

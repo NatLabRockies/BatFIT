@@ -1,0 +1,17 @@
+# DATA
+constrain_output: true
+cyc_mode: discharge
+data_path: 1.gen_data/data_spm_discharge/
+n_param_pred: 6
+n_points: 256
+scaler_path: 1.gen_data/data_spm_discharge/scaler_X.pkl
+sim_config: spm_discharge.yaml
+
+# ARCH
+fc_units: [1024, 2048, 1024]
+
+# TRAIN
+batch_size: 65536
+epochs: 200
+lr: 0.001
+models_dir: spm_discharge_surrogate/models

@@ -162,7 +162,7 @@ def make_surrogate_dataset_from_np(
             assert np_data is not None
             assert np_data_label is not None
             if os.path.isfile(os.path.join(save_path, "data_split.npz")):
-                logger.info(f"Matching param pred split")
+                logger.info(f"Matching NPE split")
                 tmp = np.load(os.path.join(save_path, "data_split.npz"))
                 X_train = tmp["X_train"]
                 Y_train = tmp["Y_train"]
