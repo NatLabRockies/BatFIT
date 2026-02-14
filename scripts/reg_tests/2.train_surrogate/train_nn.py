@@ -2,6 +2,7 @@ import os
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"  # Enable MPS fallback
 import pickle
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -18,13 +19,17 @@ from batfit.utils.torch_utils import *
 def pre_inp(inp):
     if not os.path.isabs(inp.data_path):
         # inp.data_path = os.path.join(BATFIT_REG, inp.data_path)
-        inp.data_path = os.path.join("..", "1.gen_data", inp.data_path)
+        inp.data_path = os.path.join(
+            Path(__file__).parent, "..", "1.gen_data", inp.data_path
+        )
         logger.warning(
             f"Data path not absolute and replaced with {inp.data_path}"
         )
     if not os.path.isabs(inp.scaler_path):
-        # inp.scaler_path = os.path.join(BATFIT_REG, inp.data_path)
-        inp.scaler_path = os.path.join("..", "1.gen_data", inp.data_path)
+        # inp.scaler_path = os.path.join(BATFIT_REG, inp.scaler_path)
+        inp.scaler_path = os.path.join(
+            Path(__file__).parent, "..", "1.gen_data", inp.scaler_path
+        )
         logger.warning(
             f"Scaler path not absolute and replaced with {inp.scaler_path}"
         )
@@ -38,7 +43,7 @@ def pre_inp(inp):
         #    BATFIT_REG, "2.train_surrogate", inp.models_dir
         # )
         inp.models_dir = os.path.join(
-            "..", "2.train_surrogate", inp.models_dir
+            Path(__file__).parent, "..", "2.train_surrogate", inp.models_dir
         )
         logger.warning(
             f"Models dir path not absolute and replaced with {inp.models_dir}"
