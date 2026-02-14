@@ -17,12 +17,14 @@ from batfit.utils.torch_utils import *
 
 def pre_inp(inp):
     if not os.path.isabs(inp.data_path):
-        inp.data_path = os.path.join(BATFIT_REG, inp.data_path)
+        # inp.data_path = os.path.join(BATFIT_REG, inp.data_path)
+        inp.data_path = os.path.join("..", "1.gen_data", inp.data_path)
         logger.warning(
             f"Data path not absolute and replaced with {inp.data_path}"
         )
     if not os.path.isabs(inp.scaler_path):
-        inp.scaler_path = os.path.join(BATFIT_REG, inp.data_path)
+        # inp.scaler_path = os.path.join(BATFIT_REG, inp.data_path)
+        inp.scaler_path = os.path.join("..", "1.gen_data", inp.data_path)
         logger.warning(
             f"Scaler path not absolute and replaced with {inp.scaler_path}"
         )
@@ -32,8 +34,11 @@ def pre_inp(inp):
             f"Sim config path not absolute and replaced with {inp.sim_config}"
         )
     if not os.path.isabs(inp.models_dir):
+        # inp.models_dir = os.path.join(
+        #    BATFIT_REG, "2.train_surrogate", inp.models_dir
+        # )
         inp.models_dir = os.path.join(
-            BATFIT_REG, "2.train_surrogate", inp.models_dir
+            "..", "2.train_surrogate", inp.models_dir
         )
         logger.warning(
             f"Models dir path not absolute and replaced with {inp.models_dir}"

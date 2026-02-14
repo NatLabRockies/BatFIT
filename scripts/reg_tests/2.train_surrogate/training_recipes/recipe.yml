@@ -1,10 +1,10 @@
 # DATA
 constrain_output: true
 cyc_mode: discharge
-data_path: 1.gen_data/data_spm_discharge/
+data_path: data_spm_discharge/
 n_param_pred: 6
 n_points: 256
-scaler_path: 1.gen_data/data_spm_discharge/scaler_X.pkl
+scaler_path: data_spm_discharge/scaler_X.pkl
 sim_config: spm_discharge.yaml
 
 # ARCH
