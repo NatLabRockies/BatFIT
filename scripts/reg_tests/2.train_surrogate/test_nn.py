@@ -52,7 +52,7 @@ def read_test_loss(model_dirs: str) -> str | int:
 
 def find_best_model_file(model_dirs: str) -> str:
     """
-    Get model checkoint that correspond to the best test loss
+    Get model checkpoint that correspond to the best test loss
     """
     best_iter = read_test_loss(model_dirs)
     if best_iter == "final":
