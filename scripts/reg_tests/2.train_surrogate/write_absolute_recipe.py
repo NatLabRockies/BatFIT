@@ -58,7 +58,7 @@ def dict_to_yaml(d: dict, yaml_path: str):
 if __name__ == "__main__":
     input_yaml_file = sys.argv[1]
     output_yaml_file = sys.argv[2]
-    abs_data_path = sys.argv[3]
+    abs_reg_path = sys.argv[3]
     abs_sim_config_path = sys.argv[4]
 
     # Load yaml file with relative path
@@ -67,19 +67,19 @@ if __name__ == "__main__":
 
     # Replace data with absolute path
     input_data["data_path"] = os.path.join(
-        abs_data_path, input_data["data_path"]
+        abs_reg_path, "1.gen_data", input_data["data_path"]
     )
     input_data["data_val_path"] = os.path.join(
-        abs_data_path, input_data["data_val_path"]
+        abs_reg_path, "1.gen_data", input_data["data_val_path"]
     )
     input_data["scaler_path"] = os.path.join(
-        abs_data_path, input_data["scaler_path"]
+        abs_reg_path, "1.gen_data", input_data["scaler_path"]
     )
     input_data["sim_config"] = os.path.join(
         abs_sim_config_path, input_data["sim_config"]
     )
     input_data["models_dir"] = os.path.join(
-        abs_data_path, "2.train_surrogate", input_data["models_dir"]
+        abs_reg_path, "2.train_surrogate", input_data["models_dir"]
     )
 
     # Write new yaml
