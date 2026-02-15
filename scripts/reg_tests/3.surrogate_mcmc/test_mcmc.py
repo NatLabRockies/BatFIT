@@ -6,6 +6,9 @@ import pickle
 import numpy as np
 import torch
 from jax._src import config
+from prettyPlot.plotting import *
+from torch2jax import j2t, t2j
+
 from batfit import BATFIT_DIR, BATFIT_EXP, logger
 from batfit.basicutilityc import ReadInput as ri
 from batfit.model.paramNN import *
@@ -14,8 +17,6 @@ from batfit.utils.data_utils import *
 from batfit.utils.data_utils import scale_input_from_scaler
 from batfit.utils.torch_utils import *
 from batfit.utils.torch_utils import get_device_type
-from prettyPlot.plotting import *
-from torch2jax import j2t, t2j
 
 config.update("jax_platforms", "cpu")
 import sys
@@ -29,10 +30,12 @@ import numpyro.distributions as dist
 from jax import config
 from numpyro.infer import MCMC, NUTS, SA
 from numpyro.infer.initialization import *
+from scipy.stats import norm
+from utils import define_model, find_best_model_file
+
 from batfit.basicutilityc import ReadInput as ri
 from batfit.model.paramNN import apply_noise
-from scipy.stats import norm
-from utils import find_best_model_file, define_model
+
 
 def norm_coverage(n):
     """
@@ -173,12 +176,8 @@ def compute_fit_error(inp, samples, models):
         logger.info(i_sample_test)
         for key in cycle_types:
             data_t[key] = total_data_t[key][i_sample_test, :]
-            data_phis_c[key] = total_data_phi[key][
-                i_sample_test, :
-            ]
-            deg_param_truth[key] = total_truth[key][
-                i_sample_test, :
-            ]
+            data_phis_c[key] = total_data_phi[key][i_sample_test, :]
+            deg_param_truth[key] = total_truth[key][i_sample_test, :]
 
         sim_params_dict = {}
         for key in models:
@@ -271,9 +270,7 @@ if __name__ == "__main__":
     deg_param_truth = {}
     mode = "normal"
     truths = {}
-    samples = np.load(os.path.join(inp.models_dir, "samples.npz"))[
-        "samples"
-    ]
+    samples = np.load(os.path.join(inp.models_dir, "samples.npz"))["samples"]
     for key in cycle_types:
         truths[key] = np.load(os.path.join(inp.models_dir, "samples.npz"))[
             f"truths_{key}"
@@ -364,9 +361,7 @@ if __name__ == "__main__":
     voltage_error_fit = np.mean(voltage_err, axis=1)
 
     post_file = "post"
-    with open(
-        os.path.join(inp.models_dir, f"{post_file}.txt"), "w+"
-    ) as f:
+    with open(os.path.join(inp.models_dir, f"{post_file}.txt"), "w+") as f:
         f.write(f"MAE: {mean_err}\n")
         f.write(f"RMSE: {rmse}\n")
         f.write(f"STD: {mean_std}\n")

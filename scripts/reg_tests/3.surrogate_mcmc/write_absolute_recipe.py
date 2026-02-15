@@ -1,5 +1,6 @@
 import os
 import sys
+
 import yaml
 
 
@@ -23,14 +24,13 @@ def dict_to_yaml(d: dict, yaml_path: str):
     # Optional: define a custom order by sections if desired
     # Otherwise, it will dump keys in arbitrary order
 
-
     with open(yaml_path, "w") as f:
         f.write("# Uncertainty\n")
         yaml.dump(
             {
-                "min_sigma" : d["min_sigma"],
-                "max_sigma" : d["max_sigma"],
-                "calibrate_sigma" : d["calibrate_sigma"],
+                "min_sigma": d["min_sigma"],
+                "max_sigma": d["max_sigma"],
+                "calibrate_sigma": d["calibrate_sigma"],
             },
             f,
             default_flow_style=False,
@@ -85,22 +85,25 @@ def dict_to_yaml(d: dict, yaml_path: str):
         )
 
 
-
 if __name__ == "__main__":
     input_yaml_file = sys.argv[1]
     output_yaml_file = sys.argv[2]
     abs_reg_path = sys.argv[3]
 
     # Load yaml file with relative path
-    with open(input_yaml_file, 'r') as file:
+    with open(input_yaml_file, "r") as file:
         input_data = yaml.safe_load(file)
-   
 
     # Replace data with absolute path
-    input_data["data_path_discharge"] = os.path.join(abs_reg_path, "1.gen_data", input_data["data_path_discharge"])
-    input_data["model_discharge_recipe"] = os.path.join(abs_reg_path, "2.train_surrogate", input_data["model_discharge_recipe"])
-    input_data["models_dir"] = os.path.join(abs_reg_path, "3.surrogate_mcmc", input_data["models_dir"])
-    
+    input_data["data_path_discharge"] = os.path.join(
+        abs_reg_path, "1.gen_data", input_data["data_path_discharge"]
+    )
+    input_data["model_discharge_recipe"] = os.path.join(
+        abs_reg_path, "2.train_surrogate", input_data["model_discharge_recipe"]
+    )
+    input_data["models_dir"] = os.path.join(
+        abs_reg_path, "3.surrogate_mcmc", input_data["models_dir"]
+    )
+
     # Write new yaml
     dict_to_yaml(d=input_data, yaml_path=output_yaml_file)
-

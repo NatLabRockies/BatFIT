@@ -1397,6 +1397,26 @@ def apply_noise(
     return batch_in
 
 
+def apply_noise_unscaled(
+    batch_in: torch.Tensor,
+    noise_levels: torch.Tensor,
+    a_min: torch.Tensor,
+    a_max: torch.Tensor,
+    bias: torch.Tensor | None = None,
+):
+    noise = (torch.rand(batch_in.shape) - 0.5) * torch.reshape(
+        noise_levels, (1, -1, 1)
+    )
+    batch_in += noise
+    if bias is not None:
+        # batch_in += bias.repeat(batch_in.shape[0], 1, 1) * cluster_rand(torch.rand((batch_in.shape[0], 1, 1)))
+        batch_in += bias.repeat(batch_in.shape[0], 1, 1) * torch.rand(
+            (batch_in.shape[0], 1, 1)
+        )
+    batch_in = torch.clamp(batch_in, min=a_min, max=a_max)
+    return batch_in
+
+
 def learning_rate_schedule(epoch, epoch_end, lr_beg, lr_end):
     epoch_delay = epoch_end // 10
     if epoch < epoch_delay:

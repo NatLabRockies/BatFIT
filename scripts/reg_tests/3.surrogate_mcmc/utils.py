@@ -1,9 +1,11 @@
 import os
 import pickle
+
 from batfit.basicutilityc import ReadInput as ri
 from batfit.model.surrogateNN import *
 from batfit.utils.data_utils import *
 from batfit.utils.torch_utils import *
+
 
 def define_model(inp):
     data_root_folder = inp.data_path
@@ -28,6 +30,7 @@ def define_model(inp):
         scaler_X = pickle.load(f)
 
     return model, scaler_X
+
 
 def get_model_it(model_dirs: str) -> np.ndarray:
     """
@@ -76,4 +79,3 @@ def find_best_model_file(model_dirs: str) -> str:
         else:
             ind = np.argmin(abs(iterations - best_iter))
             return os.path.join(model_dirs, f"model_{iterations[ind]}.pt")
-

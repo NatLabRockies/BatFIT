@@ -1,5 +1,6 @@
 import os
 import sys
+
 import yaml
 
 
@@ -53,6 +54,7 @@ def dict_to_yaml(d: dict, yaml_path: str):
             default_flow_style=False,
         )
 
+
 if __name__ == "__main__":
     input_yaml_file = sys.argv[1]
     output_yaml_file = sys.argv[2]
@@ -60,16 +62,25 @@ if __name__ == "__main__":
     abs_sim_config_path = sys.argv[4]
 
     # Load yaml file with relative path
-    with open(input_yaml_file, 'r') as file:
+    with open(input_yaml_file, "r") as file:
         input_data = yaml.safe_load(file)
-    
+
     # Replace data with absolute path
-    input_data["data_path"] = os.path.join(abs_data_path, input_data["data_path"])
-    input_data["data_val_path"] = os.path.join(abs_data_path, input_data["data_val_path"])
-    input_data["scaler_path"] = os.path.join(abs_data_path, input_data["scaler_path"])
-    input_data["sim_config"] = os.path.join(abs_sim_config_path, input_data["sim_config"])
-    input_data["models_dir"] = os.path.join(abs_data_path, "2.train_surrogate", input_data["models_dir"])
-    
+    input_data["data_path"] = os.path.join(
+        abs_data_path, input_data["data_path"]
+    )
+    input_data["data_val_path"] = os.path.join(
+        abs_data_path, input_data["data_val_path"]
+    )
+    input_data["scaler_path"] = os.path.join(
+        abs_data_path, input_data["scaler_path"]
+    )
+    input_data["sim_config"] = os.path.join(
+        abs_sim_config_path, input_data["sim_config"]
+    )
+    input_data["models_dir"] = os.path.join(
+        abs_data_path, "2.train_surrogate", input_data["models_dir"]
+    )
+
     # Write new yaml
     dict_to_yaml(d=input_data, yaml_path=output_yaml_file)
-

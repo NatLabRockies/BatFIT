@@ -6,6 +6,9 @@ import pickle
 import numpy as np
 import torch
 from jax._src import config
+from prettyPlot.plotting import *
+from torch2jax import j2t, t2j
+
 from batfit import BATFIT_DIR, BATFIT_EXP, logger
 from batfit.basicutilityc import ReadInput as ri
 from batfit.model.paramNN import *
@@ -14,8 +17,6 @@ from batfit.utils.data_utils import *
 from batfit.utils.data_utils import scale_input_from_scaler
 from batfit.utils.torch_utils import *
 from batfit.utils.torch_utils import get_device_type
-from prettyPlot.plotting import *
-from torch2jax import j2t, t2j
 
 config.update("jax_platforms", "cpu")
 import sys
@@ -29,6 +30,8 @@ import numpyro.distributions as dist
 from jax import config
 from numpyro.infer import MCMC, NUTS, SA
 from numpyro.infer.initialization import *
+from utils import define_model, find_best_model_file
+
 from batfit.basicutilityc import ReadInput as ri
 from batfit.calibration.cal_utils import (
     mcmc_iter,
@@ -41,7 +44,7 @@ from batfit.calibration.data_utils import (
     obs_filename,
 )
 from batfit.model.paramNN import apply_noise, apply_noise_unscaled
-from utils import find_best_model_file, define_model
+
 
 def make_val_data(inp):
     data_root_folder = inp.data_path_discharge
@@ -61,6 +64,7 @@ def make_val_data(inp):
     )
 
     return
+
 
 def load_model(inp):
     model, scaler = define_model(inp)

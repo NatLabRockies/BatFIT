@@ -1,14 +1,16 @@
 import os
 import sys
+
+from batfit import logger
 from batfit.basicutilityc import ReadInput as ri
 from batfit.utils.data_utils import *
 from batfit.utils.torch_utils import *
-from batfit import logger
+
 
 def pre_proc_data(data_root_folder, cyc_mode, n_points):
-    '''
+    """
     Split data consistently between the surrogate data and the NPE data
-    '''
+    """
 
     # Split data and save the temporal coherence (useful for NPE)
     X_npe_data, Y_npe_data = assemble_all_data(
@@ -63,4 +65,3 @@ if __name__ == "__main__":
     cyc_mode = inp.cyc_mode
     pre_proc_data(data_root_folder, cyc_mode, n_points)
     pre_proc_data(data_root_folder_val, cyc_mode, n_points)
-
