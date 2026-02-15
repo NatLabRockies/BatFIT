@@ -148,3 +148,14 @@ jobs:
             exit 1
           fi 
           cd ../../../
+      - name: Train surrogate
+        run: |
+          cd scripts/reg_tests/2.train_surrogate
+          bash run.sh
+          if [ ! -f "spm_discharge_surrogate/models/model_final.pt" ]; then
+            exit 1
+          fi 
+          if [ ! -f "spm_discharge_surrogate/models/Figures/surr_preds.pdf" ]; then
+            exit 1
+          fi 
+          cd ../../../
