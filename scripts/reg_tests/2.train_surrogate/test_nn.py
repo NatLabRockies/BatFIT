@@ -6,7 +6,7 @@ import pickle
 import numpy as np
 import torch
 from prettyPlot.plotting import *
-from train_nn import define_model, pre_inp
+from train_nn import define_model
 
 from batfit import BATFIT_DIR, BATFIT_EXP, logger
 from batfit.basicutilityc import ReadInput as ri
@@ -223,6 +223,5 @@ if __name__ == "__main__":
     import sys
 
     inp = ri.basic_input(sys.argv[1])
-    inp = pre_inp(inp)
     test_perf(inp, mode="normal")
     plot_perf(inp)
