@@ -119,15 +119,32 @@ jobs:
           if [ ! -f "data_spm_discharge/sols.pkl" ]; then
             exit 1
           fi 
+          bash run_val.sh
+          if [ ! -f "data_spm_discharge_val/sols.pkl" ]; then
+            exit 1
+          fi 
           cd ../../../
       - name: Train surrogate
         run: |
           cd scripts/reg_tests/2.train_surrogate
+          bash run_change_recipe_github.sh
           bash run.sh
           if [ ! -f "spm_discharge_surrogate/models/model_final.pt" ]; then
             exit 1
           fi 
           if [ ! -f "spm_discharge_surrogate/models/Figures/surr_preds.pdf" ]; then
+            exit 1
+          fi 
+          cd ../../../
+      - name: Do MCMC with the surrogate
+        run: |
+          cd scripts/reg_tests/3.surrogate_mcmc
+          bash run_change_recipe_github.sh
+          bash run.sh
+          if [ ! -f "spm_discharge_surrogate_mcmc/models/samples.npz" ]; then
+            exit 1
+          fi 
+          if [ ! -f "spm_discharge_surrogate_mcmc/models/post.txt" ]; then
             exit 1
           fi 
           cd ../../../
