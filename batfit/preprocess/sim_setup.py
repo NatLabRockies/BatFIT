@@ -56,7 +56,7 @@ def parse_input(filename, parallel_env=None):
             for param_name in deg_param_names
         ]
     except KeyError:
-        print("ERROR: mismatch of parameters")
+        logger.error("Mismatch of parameters")
         raise KeyError
 
     if cyc_mode == "discharge-chargecc":
@@ -70,7 +70,7 @@ def parse_input(filename, parallel_env=None):
                 for param_name in deg_param_names_chcc
             ]
         except KeyError:
-            print("ERROR: mismatch of parameters")
+            logger.error("Mismatch of parameters")
             raise KeyError
         deg_param_names += deg_param_names_chcc_new
         deg_param_min += deg_param_min_chcc

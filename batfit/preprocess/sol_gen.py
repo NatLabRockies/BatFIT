@@ -286,7 +286,8 @@ def robust_LHRH(sim, df, charge, protocol, sim_params, bat_model):
         elif bat_model.lower() == "p2d":
             sim_prot = bm.P2D.CycleSolution(*all_solns)
         else:
-            sys.exit("ERROR: battery model not recognized")
+            logger.error("Battery model not recognized")
+            sys.exit()
         rootsol = sim_prot
         assert all(rootsol.success)
     except:
@@ -335,7 +336,8 @@ def robust_LHRH(sim, df, charge, protocol, sim_params, bat_model):
                 elif bat_model.lower() == "p2d":
                     sim_prot = bm.P2D.CycleSolution(*all_solns)
                 else:
-                    sys.exit("ERROR: battery model not recognized")
+                    logger.error("Battery model not recognized")
+                    sys.exit()
                 rootsol = sim_prot
                 assert all(rootsol.success)
                 break
@@ -634,7 +636,8 @@ def single_run_save(
         run_p2d = False
         run_spm = True
     elif rootsol is not None:
-        sys.exit("ERROR: battery model not recognized")
+        logger.error("Battery model not recognized")
+        sys.exit()
     try:
         assert rootsol is not None
         if only_phi_CC:
@@ -713,7 +716,7 @@ def single_run_save(
 
         for key in diff_dict:
             if key in save_dict:
-                raise ValueError(f"ERROR: save_dict already contains {key}")
+                raise ValueError(f"Save_dict already contains {key}")
             save_dict[key] = diff_dict[key]
 
         # Reduce if needed

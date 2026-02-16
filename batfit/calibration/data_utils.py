@@ -183,7 +183,8 @@ def read_cycling_data(
         charging = True
         cccv = True
     else:
-        sys.exit(f"ERROR: mode {cyc_mode} not recognized")
+        logger.error(f"Mode {cyc_mode} not recognized")
+        sys.exit()
     if discharging:
         print("Discharging")
     if charging and cc:
@@ -292,14 +293,16 @@ def read_cycling_data(
         ind_max = np.argmax(c_arr)
         max_c_tmp = c_arr[ind_max]
         if min_c_tmp < 0.4:
-            print(f"ERROR: {cellFolder} for cycle {cyc}")
-            print(f"min c {min_c_tmp} index {ind_min}")
-            print(c_arr)
+            msg = f"ERROR: {cellFolder} for cycle {cyc}"
+            msg += f"\nmin c {min_c_tmp} index {ind_min}"
+            msg += f"\n{c_arr}"
+            logger.error(msg)
             sys.exit()
         if max_c_tmp > 15:
-            print(f"ERROR: {cellFolder} for cycle {cyc}")
-            print(f"max c {max_c_tmp} index {ind_max}")
-            print(c_arr)
+            msg = f"ERROR: {cellFolder} for cycle {cyc}"
+            msg += f"\nmin c {max_c_tmp} index {ind_max}"
+            msg += f"\n{c_arr}"
+            logger.error(msg)
             sys.exit()
 
         if max_c is None or max_c_tmp > max_c:
@@ -435,7 +438,8 @@ def read_cycling_data(
                         print("neighbors = ", neighbors)
                         print("cycle_extract = ", cycle_extract)
                         print("cycles keys ", list(cycles.keys()))
-                        sys.exit("ERROR: missing cycles")
+                        logger.error("Missing cycles")
+                        sys.exit()
                 else:
                     if target == "phis_c":
                         data_ext_x = np.hstack((data_ext_x, t_interp))
@@ -1604,7 +1608,8 @@ def mcmc_iter(
         )
 
     if cal_sigma and read_sigma:
-        sys.exit("ERROR: cal sigma OR read sigma")
+        logger.error("Cal sigma OR read sigma")
+        sys.exit()
     if cal_sigma:
         theta.append(np.random.uniform(min_sigma, max_sigma))
     if read_sigma:

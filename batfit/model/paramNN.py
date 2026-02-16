@@ -1902,9 +1902,10 @@ def compute_post(
                 if post_fn in [accuracy, rel_accuracy]:
                     post_val = post_fn(pred, batch[1].to(device))
                 elif post_fn in [identifiability]:
-                    sys.exit(
-                        "ERROR: identifiability can only be computed with probabilistic model"
+                    logger.error(
+                        "Identifiability can only be computed with probabilistic model"
                     )
+                    sys.exit()
             elif isinstance(model, ProbParamCNN) or isinstance(
                 model, ProbParamFCNN
             ):
