@@ -1207,7 +1207,8 @@ def mcmc_iter(
         )
 
     if cal_sigma and read_sigma:
-        sys.exit("ERROR: cal sigma OR read sigma")
+        logger.error("Cal sigma OR read sigma")
+        sys.exit()
     if cal_sigma:
         theta.append(np.random.uniform(min_sigma, max_sigma))
     if read_sigma:

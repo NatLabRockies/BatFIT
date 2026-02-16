@@ -44,7 +44,7 @@ def get_max_time(data_root_folder):
 
 
 def from_sol_to_data(data_root_folder, filename, n_points):
-    print("ERROR: Use pkl file option instead")
+    logger.error("Use pkl file option instead")
     raise NotImplementedError
     sol = np.load(os.path.join(data_root_folder, filename))
     min_t = np.amin(sol["t"])

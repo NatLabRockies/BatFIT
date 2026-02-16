@@ -3,6 +3,8 @@ import random
 import sys
 import time
 
+from batfit import logger
+
 
 class PickleDB:
     def __init__(self, filename, read_from_existing=False):
@@ -45,9 +47,11 @@ class PickleDB:
                 try_count += 1
                 time.sleep(random.random() + 1)
             except FileNotFoundError:
-                sys.exit("ERROR: database must be created before it is read")
+                logger.error("Database must be created before it is read")
+                sys.exit()
         if try_count >= max_try:
-            sys.exit(f"ERROR: could not read DB after {max_try} tries")
+            logger.error(f"Could not read DB after {max_try} tries")
+            sys.exit()
 
         return records
 
@@ -67,8 +71,10 @@ class PickleDB:
                 try_count += 1
                 time.sleep(random.random() + 1)
             except FileNotFoundError:
-                sys.exit(
-                    "ERROR: database must be created before it is written to"
+                logger.error(
+                    "Database must be created before it is written to"
                 )
+                sys.exit()
         if try_count >= max_try:
-            sys.exit(f"ERROR: could not write to DB after {max_try} tries")
+            logger.error(f"Could not write to DB after {max_try} tries")
+            sys.exit()
