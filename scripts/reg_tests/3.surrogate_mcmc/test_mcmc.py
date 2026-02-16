@@ -121,7 +121,7 @@ class ForwardModel(torch.nn.Module):
         return output[:, 0]
 
 
-def load_synthetic_data(inp, noisy=True):
+def load_synthetic_data(inp):
     t = {}
     phi = {}
     truth = {}
@@ -136,23 +136,16 @@ def load_synthetic_data(inp, noisy=True):
         cyc_mode=inp.cyc_mode,
     )
     data_path = inp.data_path_discharge
-    tmp = np.load(os.path.join(data_path, "data_split.npz"))
-    with open(os.path.join(data_path, "scaler_X.pkl"), "rb") as f:
-        scaler = pickle.load(f)
-    if noisy:
-        batch_in_scaled = apply_noise(
-            torch.tensor(scaler.transform(tmp["X_test"])),
-            scaler_X=scaler,
-            noise_levels=noise_levels,
-            a_min=a_min,
-            a_max=a_max,
-        )
-    else:
-        batch_in_scaled = torch.tensor(scaler.transform(tmp["X_test"]))
-    batch_in_unscaled = scaler.inverse_transform(batch_in_scaled).numpy()
+    tmp = np.load(os.path.join(data_path, "assembled_data.npz"))
+    batch_in_unscaled = apply_noise_unscaled(
+        torch.tensor(tmp["X_data"]),
+        noise_levels=noise_levels,
+        a_min=a_min,
+        a_max=a_max,
+    )
     t["discharge"] = batch_in_unscaled[:, 0, :]
     phi["discharge"] = batch_in_unscaled[:, 1, :]
-    truth["discharge"] = tmp["Y_test"][:, :]
+    truth["discharge"] = tmp["Y_data"][:, :]
 
     return (
         t,
@@ -214,7 +207,7 @@ def compute_fit_error(inp, samples, models):
 
         for key in models:
             # fig=plt.figure()
-            true_v = data_phis_c[key]
+            true_v = np.array(data_phis_c[key])
             # plt.plot(true_v, color="k")
             for j_sample_test in range(samples.shape[1]):
                 pred_v = np.array(
@@ -260,7 +253,7 @@ if __name__ == "__main__":
         total_data_t,
         total_data_phi,
         total_truth,
-    ) = load_synthetic_data(inp, noisy=False)
+    ) = load_synthetic_data(inp)
 
     cycle_types = list(models.keys())
 
