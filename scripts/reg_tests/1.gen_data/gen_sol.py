@@ -46,4 +46,4 @@ else:
     )
 
 time_e = time.time()
-parallel_env.printRoot(f"Total Elapsed {time_e-time_s:.2f}s")
+parallel_env.printRoot(f"Total time elapsed {time_e-time_s:.2f}s")

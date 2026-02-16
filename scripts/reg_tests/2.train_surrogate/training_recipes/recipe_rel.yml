@@ -1,7 +1,8 @@
 # DATA
 constrain_output: true
 cyc_mode: discharge
-data_path: data_spm_discharge/
+data_path: data_spm_discharge
+data_val_path: data_spm_discharge_val
 n_param_pred: 6
 n_points: 256
 scaler_path: data_spm_discharge/scaler_X.pkl

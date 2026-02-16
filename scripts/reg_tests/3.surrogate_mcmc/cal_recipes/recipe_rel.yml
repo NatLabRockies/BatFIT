@@ -1,0 +1,27 @@
+# Uncertainty
+min_sigma : 0.0001
+max_sigma : 0.003
+calibrate_sigma: true
+
+# MCMC
+mcmc_method: "hmc"
+num_chains: 1
+num_warmup: 10
+num_samples: 10
+
+# DATA processing
+noise_factor: 1.0
+data_path_discharge: data_spm_discharge_val
+step_size: 1e-6
+cyc_mode: "discharge"
+target_mode: "phi"
+
+# Surrogate Models
+model_discharge_recipe: training_recipes/recipe.yml
+
+# DATA
+n_param_pred: 6
+n_points: 256
+
+# models
+models_dir: spm_discharge_surrogate_mcmc/models

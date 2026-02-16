@@ -49,6 +49,11 @@ def printAllOrdered(description, item=None):
     return
 
 
+def barrier():
+    comm.Barrier()
+    return
+
+
 def partitionData(nSnap):
     # ~~~~ Partition data snapshots with MPI
     # Simple parallelization across snapshots
