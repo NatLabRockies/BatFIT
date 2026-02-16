@@ -5,13 +5,14 @@ import pickle
 
 import numpy as np
 import torch
+from prettyPlot.plotting import *
+
 from batfit import BATFIT_DIR, BATFIT_EXP, logger
 from batfit.basicutilityc import ReadInput as ri
 from batfit.model.paramNN import *
 from batfit.model.surrogateNN import SurrogateFCNN, mae_loss
 from batfit.utils.data_utils import *
 from batfit.utils.torch_utils import *
-from prettyPlot.plotting import *
 
 
 def make_data_loaders(inp):
@@ -41,7 +42,7 @@ def make_data_loaders(inp):
         X_data = tmp["X_data"]
         Y_data = tmp["Y_data"]
 
-    BATCH_SIZE = min(inp.batch_size, int(Y_data.shape[0]*0.9))
+    BATCH_SIZE = min(inp.batch_size, int(Y_data.shape[0] * 0.9))
     train_data_loader, test_data_loader = make_dataset_from_np(
         batch_size=BATCH_SIZE,
         np_data=X_data,
@@ -143,6 +144,7 @@ def do_training(inp, model, train_data_loader, test_data_loader, scaler_X):
 if __name__ == "__main__":
     import shutil
     import sys
+
     inp = ri.basic_input(sys.argv[1])
     train_data_loader, test_data_loader = make_data_loaders(inp)
     model, scaler_X = define_model(inp)

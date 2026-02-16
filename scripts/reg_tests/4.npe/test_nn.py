@@ -5,15 +5,16 @@ import pickle
 
 import numpy as np
 import torch
+from prettyPlot.plotting import *
+from scipy.stats import norm
+from train_nn import define_model, define_surrogate_model
+
 from batfit import BATFIT_DIR, BATFIT_EXP, logger
 from batfit.basicutilityc import ReadInput as ri
 from batfit.model.paramNN import *
 from batfit.utils.data_utils import *
 from batfit.utils.data_utils import scale_input_from_scaler
 from batfit.utils.torch_utils import *
-from prettyPlot.plotting import *
-from scipy.stats import norm
-from train_nn import define_model, define_surrogate_model
 
 
 class ForwardModel(torch.nn.Module):
@@ -122,6 +123,7 @@ def load_surrogate_model(inp):
     model.eval()
     return model, scaler
 
+
 def load_synthetic_data(inp):
     t = {}
     phi = {}
@@ -153,6 +155,7 @@ def load_synthetic_data(inp):
         phi,
         truth,
     )
+
 
 def test_perf(inp, mode="test"):
     if mode.lower() == "test":
@@ -259,9 +262,7 @@ def test_perf(inp, mode="test"):
     mean_err = np.mean(err, axis=0)
     rmse = np.sqrt(np.mean(err**2, axis=0))
     mean_std = np.mean(sigma_preds, axis=0)
-    amp = np.amax(Y_test, axis=0) - np.amin(
-        Y_test, axis=0
-    )
+    amp = np.amax(Y_test, axis=0) - np.amin(Y_test, axis=0)
     perf_metric = np.sum(mean_err / amp) / Y_test.shape[1]
     coverage = np.mean(abs(mean_std - rmse))
 
@@ -309,7 +310,9 @@ def test_perf(inp, mode="test"):
     truth_phi = []
     truth_time = []
     n_samp_per_obs = 10
-    logger.info(f"Sampling {n_samp_per_obs} (This should match the number of MCMC samples)")
+    logger.info(
+        f"Sampling {n_samp_per_obs} (This should match the number of MCMC samples)"
+    )
     for i in range(mu_preds.shape[0]):
         tmpsamples = from_mom_to_samples(
             mu_preds[i, :], sigma_preds[i, :], n=n_samp_per_obs
@@ -373,9 +376,7 @@ def test_perf(inp, mode="test"):
             )
     voltage_error_fit = np.mean(voltage_error, axis=1)
 
-    with open(
-        os.path.join(inp.models_dir, f"{post_file}.txt"), "w+"
-    ) as f:
+    with open(os.path.join(inp.models_dir, f"{post_file}.txt"), "w+") as f:
         f.write(f"MAE: {mean_err}\n")
         f.write(f"RMSE: {rmse}\n")
         f.write(f"STD: {mean_std}\n")
