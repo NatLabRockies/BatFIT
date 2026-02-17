@@ -8,7 +8,7 @@ readme = "README.md"
 dynamic = ["version"]
 requires-python = ">=3.10,<3.15"
 license = { file = "LICENSE" }
-description = "Battery Feature Identification Toolbox (BatFIT)"
+description = "Battery Feature Inference Toolbox (BatFIT)"
 keywords = ["parameter inference", "Bayesian inference", "battery"]
 authors = [
     { name = "Malik Hassanaly" },
