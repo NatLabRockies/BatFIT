@@ -1,4 +1,4 @@
-# BATFIT
+# <ins>Bat</ins>tery <ins>F</ins>eature <ins>I</ins>dentification <ins>T</ins>oolbox (BatFIT)
 
 ## Summary
 
