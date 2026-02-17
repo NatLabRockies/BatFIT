@@ -1,4 +1,4 @@
-# <ins>Bat</ins>tery <ins>F</ins>eature <ins>I</ins>dentification <ins>T</ins>oolbox (BatFIT)
+# <ins>Bat</ins>tery <ins>F</ins>eature <ins>I</ins>nference <ins>T</ins>oolbox (BatFIT)
 
 ## Summary
 
