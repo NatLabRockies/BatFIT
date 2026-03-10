@@ -12,236 +12,36 @@ import pandas as pd
 from batfit import BATFIT_EXP, logger
 from batfit.preprocess.diff_cap import calc_dqdv_dvdq
 from batfit.preprocess.pickledb import PickleDB
+from .sim_setup import * 
 
+def mod_sim(sim: bm.SPM._simulation.Simulation| bm.P2D._simulation.Simulation, sim_params: dict, deg_param_sample: dict, cyc_mode: str, run_mode: str):
+    """
+    Modify the parameters of a BatMODS-lite simulation
 
-def mod_sim(sim, sim_params, deg_param_sample, cyc_mode, run_mode):
+    Parameters
+    ----------
+    sim: bm.SPM._simulation.Simulation | bm.P2D._simulation.Simulation 
+        BatMODS-lite simulation
+    sim_params: dict
+        Parameters values used by BatMODS-lite
+    deg_param_sample: dict
+        Degradation parameter values: scaling parameters
+    """
 
-    # Discretization
-    sim.an.Nr = sim_params["Nr_a"]
-    sim.ca.Nr = sim_params["Nr_c"]
-    if sim_params["model"].lower() == "p2d":
-        sim.an.Nx = sim_params["Nx_a"]
-        sim.ca.Nx = sim_params["Nx_c"]
-        sim.sep.Nx = sim_params["Nx_s"]
+    sim = set_discretization(sim=sim, sim_params=sim_params)
+    C_rate, sim = set_interc(sim=sim, sim_params=sim_params, deg_param_sample=deg_param_sample, cyc_mode=cyc_mode, run_mode=run_mode)
 
-    # Degradation parameters
-    if cyc_mode.lower() == "discharge-chargecc":
-        if run_mode.lower() == "discharge":
-            if "cs0_c" in deg_param_sample:
-                sim.ca.x_0 = sim_params["x0_c_dis"] * deg_param_sample["cs0_c"]
-            else:
-                sim.ca.x_0 = sim_params["x0_c_dis"]
-            if "cs0_a" in deg_param_sample:
-                sim.an.x_0 = sim_params["x0_a_dis"] * deg_param_sample["cs0_a"]
-            else:
-                sim.an.x_0 = sim_params["x0_a_dis"]
-            C_rate = sim_params["C_dis"]
-        elif run_mode.lower() == "chargecc":
-            if "cs0_c_chcc" in deg_param_sample:
-                sim.ca.x_0 = (
-                    sim_params["x0_c_chcc"] * deg_param_sample["cs0_c_chcc"]
-                )
-            else:
-                sim.ca.x_0 = sim_params["x0_c_chcc"]
-
-            if "cs0_a_chcc" in deg_param_sample:
-                sim.an.x_0 = (
-                    sim_params["x0_a_chcc"] * deg_param_sample["cs0_a_chcc"]
-                )
-            else:
-                sim.an.x_0 = sim_params["x0_a_chcc"]
-            C_rate = sim_params["C_chcc"]
-    elif cyc_mode.lower() in ["discharge", "chargecc", "rh", "lh"]:
-        if "cs0_c" in deg_param_sample:
-            sim.ca.x_0 = sim_params["x0_c"] * deg_param_sample["cs0_c"]
-        else:
-            sim.ca.x_0 = sim_params["x0_c"]
-        if "cs0_a" in deg_param_sample:
-            sim.an.x_0 = sim_params["x0_a"] * deg_param_sample["cs0_a"]
-        else:
-            sim.an.x_0 = sim_params["x0_a"]
-        C_rate = None
-    if cyc_mode.lower() in ["discharge", "chargecc"]:
-        C_rate = sim_params["C"]
-    if "ds_c" in deg_param_sample:
-        sim.ca.Ds_deg = deg_param_sample["ds_c"]
+    if isinstance(sim,  bm.P2D._simulation.Simulation):
+        is_p2d = True
     else:
-        sim.ca.Ds_deg = 1.0
-    if "ds_a" in deg_param_sample:
-        sim.an.Ds_deg = deg_param_sample["ds_a"]
-    else:
-        sim.an.Ds_deg = 1.0
-    if "i0_a" in deg_param_sample:
-        sim.an.i0_deg = deg_param_sample["i0_a"]
-    else:
-        sim.an.i0_deg = 1.0
-    if "i0_c" in deg_param_sample:
-        sim.ca.i0_deg = deg_param_sample["i0_c"]
-    else:
-        sim.ca.i0_deg = 1.0
+        is_p2d = False
 
-    if "eps_cbd_a" in deg_param_sample:
-        sim.an.eps_CBD = (
-            sim_params["eps_CBD_a"] * deg_param_sample["eps_cbd_a"]
-        )
-    else:
-        sim.an.eps_CBD = sim_params["eps_CBD_a"]
-    if "eps_cbd_c" in deg_param_sample:
-        sim.ca.eps_CBD = (
-            sim_params["eps_CBD_c"] * deg_param_sample["eps_cbd_c"]
-        )
-    else:
-        sim.ca.eps_CBD = sim_params["eps_CBD_c"]
-    if "eps_s_c" in deg_param_sample:
-        sim.ca.eps_s = sim_params["eps_s_c"] * deg_param_sample["eps_s_c"]
-    elif "eps_s_c_am" in deg_param_sample:
-        # sim.ca.eps_s = sim.ca.eps_CBD + sim.ca.eps_AM * deg
-        # sim.ca.eps_s = sim.ca.eps_CBD + (sim_params["eps_s_c"] - sim_params["eps_CBD_c"]) * deg
-        sim.ca.eps_s = (
-            sim.ca.eps_CBD
-            + (sim_params["eps_s_c"] - sim_params["eps_CBD_c"])
-            * deg_param_sample["eps_s_c_am"]
-        )
-    else:
-        sim.ca.eps_s = sim_params["eps_s_c"]
-    if "eps_s_a" in deg_param_sample:
-        sim.an.eps_s = sim_params["eps_s_a"] * deg_param_sample["eps_s_a"]
-    elif "eps_s_a_am" in deg_param_sample:
-        # sim.an.eps_s = sim.an.eps_CBD + sim.an.eps_AM * deg
-        # sim.an.eps_s = sim.an.eps_CBD + (sim_params["eps_s_a"] - sim_params["eps_CBD_a"]) * deg
-        sim.an.eps_s = (
-            sim.an.eps_CBD
-            + (sim_params["eps_s_a"] - sim_params["eps_CBD_a"])
-            * deg_param_sample["eps_s_a_am"]
-        )
-    else:
-        sim.an.eps_s = sim_params["eps_s_a"]
-    if "ce" in deg_param_sample:
-        sim.el.Li_0 = sim_params["ce"] * deg_param_sample["ce"]
-    else:
-        sim.el.Li_0 = sim_params["ce"]
-    if "eps_el_a" in deg_param_sample:
-        sim.an.eps_el = sim_params["eps_el_a"] * deg_param_sample["eps_el_a"]
-    else:
-        sim.an.eps_el = sim_params["eps_el_a"]
-    if "eps_el_c" in deg_param_sample:
-        sim.ca.eps_el = sim_params["eps_el_c"] * deg_param_sample["eps_el_c"]
-    else:
-        sim.ca.eps_el = sim_params["eps_el_c"]
-    if "area" in deg_param_sample:
-        sim.bat.area = sim_params["area"] * deg_param_sample["area"]
-    else:
-        sim.bat.area = sim_params["area"]
-    if "l_a" in deg_param_sample:
-        sim.an.thick = sim_params["L_a"] * deg_param_sample["l_a"]
-    else:
-        sim.an.thick = sim_params["L_a"]
-    if "l_c" in deg_param_sample:
-        sim.ca.thick = sim_params["L_c"] * deg_param_sample["l_c"]
-    else:
-        sim.ca.thick = sim_params["L_c"]
-
-    if "rs_a" in deg_param_sample:
-        sim.an.R_s = sim_params["Rs_a"] * deg_param_sample["rs_a"]
-    else:
-        sim.an.R_s = sim_params["Rs_a"]
-
-    if "rs_c" in deg_param_sample:
-        sim.ca.R_s = sim_params["Rs_c"] * deg_param_sample["rs_c"]
-    else:
-        sim.ca.R_s = sim_params["Rs_c"]
-
-    if sim_params["model"].lower() == "p2d":
-        if "l_s" in deg_param_sample:
-            sim.sep.thick = sim_params["L_s"] * deg_param_sample["l_s"]
-        else:
-            sim.sep.thick = sim_params["L_s"]
-
-        if "eps_el" in deg_param_sample:
-            sim.sep.eps_el = sim_params["eps_el"] * deg_param_sample["eps_el"]
-        else:
-            sim.sep.eps_el = sim_params["eps_el"]
-
-        if "p_l" in deg_param_sample:
-            sim.sep.p_liq = sim_params["p_l"] * deg_param_sample["p_l"]
-        else:
-            sim.sep.p_liq = sim_params["p_l"]
-
-        if "p_s_a" in deg_param_sample:
-            sim.an.p_sol = sim_params["p_s_a"] * deg_param_sample["p_s_a"]
-        else:
-            sim.an.p_sol = sim_params["p_s_a"]
-
-        if "p_l_a" in deg_param_sample:
-            sim.an.p_liq = sim_params["p_l_a"] * deg_param_sample["p_l_a"]
-        else:
-            sim.an.p_liq = sim_params["p_l_a"]
-
-        if "p_s_c" in deg_param_sample:
-            sim.ca.p_sol = sim_params["p_s_c"] * deg_param_sample["p_s_c"]
-        else:
-            sim.ca.p_sol = sim_params["p_s_c"]
-
-        if "p_l_c" in deg_param_sample:
-            sim.ca.p_liq = sim_params["p_l_c"] * deg_param_sample["p_l_c"]
-        else:
-            sim.ca.p_liq = sim_params["p_l_c"]
-
-        if "de" in deg_param_sample:
-            sim.el.D_deg = deg_param_sample["de"]
-        else:
-            sim.el.D_deg = 1.0
-
-        if "t0" in deg_param_sample:
-            sim.el.t0_deg = deg_param_sample["t0"]
-        else:
-            sim.el.t0_deg = 1.0
-
-        if "kappa" in deg_param_sample:
-            sim.el.kappa_deg = deg_param_sample["kappa"]
-        else:
-            sim.el.kappa_deg = 1.0
-
-        if "gamma" in deg_param_sample:
-            sim.el.gamma_deg = deg_param_sample["gamma"]
-        else:
-            sim.el.gamma_deg = 1.0
-
+    sim = set_battery(sim=sim, sim_params=sim_params, deg_param_sample=deg_param_sample, cyc_mode=cyc_mode, run_mode=run_mode, is_p2d=is_p2d)
+    sim = set_electrodes(sim=sim, sim_params=sim_params, deg_param_sample=deg_param_sample, cyc_mode=cyc_mode, run_mode=run_mode, is_p2d=is_p2d)
+    sim = set_electrolyte(sim=sim, sim_params=sim_params, deg_param_sample=deg_param_sample, cyc_mode=cyc_mode, run_mode=run_mode, is_p2d=is_p2d)
+    sim = set_separator(sim=sim, sim_params=sim_params, deg_param_sample=deg_param_sample, cyc_mode=cyc_mode, run_mode=run_mode, is_p2d=is_p2d)
+    
     return sim, C_rate
-
-
-def print_an(sim):
-    print("Anode")
-    print(f"\tA_s = {sim.an.A_s}")
-    print(f"\tLi_max = {sim.an.Li_max}")
-    print(f"\tR_s = {sim.an.R_s}")
-    print(f"\tmaterial = {sim.an.material}")
-    print(f"\talpha_a = {sim.an.alpha_a}")
-    print(f"\talpha_c = {sim.an.alpha_c}")
-    print(f"\teps_AM = {sim.an.eps_AM}")
-    print(f"\teps_CBD = {sim.an.eps_CBD}")
-    print(f"\teps_el = {sim.an.eps_el}")
-    print(f"\teps_s = {sim.an.eps_s}")
-    print(f"\teps_void = {sim.an.eps_void}")
-    print(f"\tx_0 = {sim.an.x_0}")
-
-
-def print_ca(sim):
-    print("Anode")
-    print(f"\tA_s = {sim.ca.A_s}")
-    print(f"\tLi_max = {sim.ca.Li_max}")
-    print(f"\tR_s = {sim.ca.R_s}")
-    print(f"\tmaterial = {sim.ca.material}")
-    print(f"\talpha_a = {sim.ca.alpha_a}")
-    print(f"\talpha_c = {sim.ca.alpha_c}")
-    print(f"\teps_AM = {sim.ca.eps_AM}")
-    print(f"\teps_CBD = {sim.ca.eps_CBD}")
-    print(f"\teps_el = {sim.ca.eps_el}")
-    print(f"\teps_s = {sim.ca.eps_s}")
-    print(f"\teps_void = {sim.ca.eps_void}")
-    print(f"\tDs_deg = {sim.ca.Ds_deg}")
-    print(f"\ti0_deg = {sim.ca.i0_deg}")
-    print(f"\tx_0 = {sim.ca.x_0}")
 
 
 def remove_file(filename):
@@ -448,7 +248,7 @@ def single_run(
         else:
             print(f"Success for {deg_param_sample}")
 
-    elif cyc_mode.lower() in ["rh", "lh"]:
+    elif cyc_mode.lower() in ["rh", "lh", "lh2"]:
         df = pd.read_csv(os.path.join(BATFIT_EXP, "LHmax.csv"))
         charge = bm.Experiment()
         charge.add_step(
@@ -458,22 +258,6 @@ def single_run(
             limits=("voltage_V", sim_params["vmax"]),
         )
         charge.add_step("voltage_V", sim_params["vmax"], (3600.0, 30.0))
-        # LHmax = bm.Experiment()
-        # for i in range(40):
-        #    for _, row in df.iterrows():
-        #        dt, P_ratio = row["dt_s"], row["P_ratio"]
-        #        P_scalar = 0.11  # Wh
-        #        LHmax.add_step(
-        #            "power_W",
-        #            P_scalar * P_ratio,
-        #            (dt, 10.0),
-        #            limits=(
-        #                "voltage_V",
-        #                sim_params["vmin"],
-        #                "voltage_V",
-        #                sim_params["vmax"],
-        #            ),
-        #        )
         if cyc_mode.lower() == "rh":
             reg = bm.Experiment(max_step=1.0)
             reg.add_step(
@@ -501,6 +285,32 @@ def single_run(
             else:
                 print(f"Success for {deg_param_sample}")
         if cyc_mode.lower() == "lh":
+            long = bm.Experiment(max_step=1.0)
+            long.add_step(
+                "current_C",
+                -0.4,
+                (3600.0 * 2.0, 10.0),
+                limits=("voltage_V", sim_params["vmax"]),
+            )
+            long.add_step(
+                "voltage_V",
+                sim_params["vmax"],
+                (3600.0 * 2.0, 10.0),
+                limits=("time_h", 2.0),
+            )
+            rootsol = robust_LHRH(
+                sim=sim,
+                df=df,
+                charge=charge,
+                protocol=long,
+                sim_params=sim_params,
+                bat_model=bat_model,
+            )
+            if rootsol is None:
+                print(f"All sim failed for {deg_param_sample}")
+            else:
+                print(f"Success for {deg_param_sample}")
+        if cyc_mode.lower() == "lh2":
             long = bm.Experiment(max_step=1.0)
             long.add_step(
                 "current_C",
@@ -711,7 +521,7 @@ def single_run_save(
                 diff_dict = calc_dqdv_dvdq(t, phis_c[:, -1])
             elif run_spm:
                 diff_dict = calc_dqdv_dvdq(t, phis_c)
-        elif cyc_mode.lower() in ["rh", "lh"]:
+        elif cyc_mode.lower() in ["rh", "lh", "lh2"]:
             diff_dict = {}
 
         for key in diff_dict:
@@ -898,6 +708,24 @@ def save_datapoint(
         if save_dict_lh is None:
             save_separate_sols = False
             save_combined_sols = False
+    if cyc_mode.lower() in ["lh2"]:
+        p_list = params_list
+        rsol = rootsol
+        save_dict_lh, param_string_lh = single_run_save(
+            p_list,
+            rsol,
+            phis_c_min=phis_c_min,
+            phis_c_max=phis_c_max,
+            folder_save=folder_save,
+            bad_par_filename=bad_par_filename,
+            bad_sol_filename=bad_sol_filename,
+            only_phi_CC=only_phi_CC,
+            n_points_reduce=n_points_reduce,
+            cyc_mode=cyc_mode,
+        )
+        if save_dict_lh is None:
+            save_separate_sols = False
+            save_combined_sols = False
 
     if cyc_mode.lower() not in [
         "lh",
@@ -924,6 +752,9 @@ def save_datapoint(
     elif cyc_mode.lower() == "lh":
         param_string = param_string_lh
         save_dict = save_dict_lh
+    elif cyc_mode.lower() == "lh2":
+        param_string = param_string_lh
+        save_dict = save_dict_lh
 
     if save_separate_sols:
         if cyc_mode.lower() == "discharge-chargecc":
@@ -941,7 +772,7 @@ def save_datapoint(
                 ),
                 **save_dict_chcc,
             )
-        elif cyc_mode.lower() in ["discharge", "chargecc", "rh", "lh"]:
+        elif cyc_mode.lower() in ["discharge", "chargecc", "rh", "lh","lh2"]:
             np.savez(
                 os.path.join(folder_save, f"solution{param_string}.npz"),
                 **save_dict,
@@ -959,7 +790,7 @@ def save_datapoint(
         # params_list = [np.float32(entry) for entry in params_list]
 
         combined_data["params"] = params_list
-        if cyc_mode.lower() in ["discharge", "chargecc", "rh", "lh"]:
+        if cyc_mode.lower() in ["discharge", "chargecc", "rh", "lh", "lh2"]:
             combined_data["sol"] = save_dict
         elif cyc_mode.lower() == "discharge-chargecc":
             combined_data["sol_dis"] = save_dict_dis
@@ -1213,7 +1044,7 @@ def multi_run_ser(
     for count, (deg_param_entry, solution_entry) in enumerate(
         zip(deg_parameter_list, solution_list)
     ):
-        if cyc_mode.lower() in ["discharge", "chargecc", "rh", "lh"]:
+        if cyc_mode.lower() in ["discharge", "chargecc", "rh", "lh", "lh2"]:
             params_list, root_sol = single_run(
                 sim_params=sim_params,
                 deg_param_sample=from_degparamlist_to_degparamdict(
@@ -1491,7 +1322,7 @@ def multi_run(
                 solution_list[startSim_ : startSim_ + nsim_],
             )
         ):
-            if cyc_mode.lower() in ["discharge", "chargecc", "rh", "lh"]:
+            if cyc_mode.lower() in ["discharge", "chargecc", "rh", "lh", "lh2"]:
                 params_list, root_sol = single_run(
                     sim_params=sim_params,
                     deg_param_sample=from_degparamlist_to_degparamdict(

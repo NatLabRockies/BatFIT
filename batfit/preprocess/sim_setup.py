@@ -7,7 +7,6 @@ from scipy.stats import qmc
 
 from batfit import logger
 
-
 def parse_input(filename, parallel_env=None):
     yaml = YAML()
     with open(filename, "r") as f:
@@ -41,7 +40,7 @@ def parse_input(filename, parallel_env=None):
         ]
     elif cyc_mode.lower() in ["discharge", "chargecc"]:
         pass
-    elif cyc_mode.lower() in ["rh", "lh"]:
+    elif cyc_mode.lower() in ["rh", "lh", "lh2"]:
         pass
     else:
         raise NotImplementedError
@@ -80,7 +79,7 @@ def parse_input(filename, parallel_env=None):
 
     phy_par = {}
     phy_par["cyc_mode"] = cyc_mode
-    if cyc_mode.lower() in ["discharge", "chargecc", "rh", "lh"]:
+    if cyc_mode.lower() in ["discharge", "chargecc", "rh", "lh", "lh2"]:
         phy_par["model"] = exp["macroscopic"]["model"]
         phy_par["cap"] = exp["macroscopic"]["cap"]
         try:
@@ -344,6 +343,153 @@ def make_params(filename, parallel_env=None):
 
     return params
 
+def set_discretization(sim, sim_params: dict):
+    sim.an.Nr = sim_params["Nr_a"]
+    sim.ca.Nr = sim_params["Nr_c"]
+    if sim_params["model"].lower() == "p2d":
+        sim.an.Nx = sim_params["Nx_a"]
+        sim.ca.Nx = sim_params["Nx_c"]
+        sim.sep.Nx = sim_params["Nx_s"]
+
+    return sim
+
+def read_deg_param(key:str, deg_param_sample:dict):
+    if key in deg_param_sample:
+        return deg_param_sample[key]
+    else:
+        return 1.0
+
+def set_interc_disconnected_discharge(sim, sim_params: dict, deg_param_sample: dict):
+    sim.ca.x_0 = sim_params["x0_c_dis"] * read_deg_param(key="cs0_c", deg_param_sample=deg_param_sample)
+    sim.an.x_0 = sim_params["x0_a_dis"] * read_deg_param(key="cs0_a", deg_param_sample=deg_param_sample)
+    C_rate = sim_params["C_dis"]
+    return sim, C_rate
+
+def set_interc_disconnected_charge(sim, sim_params: dict, deg_param_sample: dict):
+    sim.ca.x_0 = sim_params["x0_c_chcc"] * read_deg_param(key="cs0_c_chcc", deg_param_sample=deg_param_sample)
+    sim.an.x_0 = sim_params["x0_a_chcc"] * read_deg_param(key="cs0_a_chcc", deg_param_sample=deg_param_sample)
+    C_rate = sim_params["C_chcc"]
+    return sim, C_rate
+
+def set_interc_connected(sim, sim_params: dict, deg_param_sample: dict, cyc_mode:str):
+    sim.ca.x_0 = sim_params["x0_c"] * read_deg_param(key="cs0_c", deg_param_sample=deg_param_sample)
+    sim.an.x_0 = sim_params["x0_a"] * read_deg_param(key="cs0_a", deg_param_sample=deg_param_sample)
+    # C rate if constant current cycle
+    if cyc_mode.lower() in ["discharge", "chargecc"]:
+        C_rate = sim_params["C"]
+    else:
+        C_rate = None
+
+    return C_rate, sim
+
+def set_interc(sim, sim_params: dict, deg_param_sample: dict, cyc_mode:str, run_mode: str):
+    # CC charge and discharge specific parameters if disconnected charge and discharge
+    if cyc_mode.lower() == "discharge-chargecc":
+        if run_mode.lower() == "discharge":
+            C_rate, sim = set_interc_disconnected_discharge(sim=sim, sim_params=sim_params, deg_param_sample=deg_param_sample)
+
+        elif run_mode.lower() == "chargecc":
+            C_rate, sim = set_interc_disconnected_charge(sim=sim, sim_params=sim_params, deg_param_sample=deg_param_sample)
+    # Any other cycle is not disconnected
+    else: 
+        C_rate, sim = set_interc_connected(sim=sim, sim_params=sim_params, deg_param_sample=deg_param_sample, cyc_mode=cyc_mode)
+    return C_rate, sim
+
+def set_separator(sim, sim_params: dict, deg_param_sample: dict, cyc_mode:str, run_mode: str, is_p2d:bool):
+    if not is_p2d:
+        return sim
+    else:
+        sim.sep.thick = sim_params["L_s"] * read_deg_param(deg_param_sample["l_s"], deg_param_sample=deg_param_sample)
+        sim.sep.eps_el = sim_params["eps_el"] * read_deg_param(deg_param_sample["eps_el"], deg_param_sample=deg_param_sample)
+        sim.sep.p_liq = sim_params["p_l"] * read_deg_param(deg_param_sample["p_l"], deg_param_sample=deg_param_sample)
+
+        return sim
+
+
+def set_battery(sim, sim_params: dict, deg_param_sample: dict, cyc_mode:str, run_mode: str, is_p2d:bool):
+    sim.bat.area = sim_params["area"] * read_deg_param(key="area", deg_param_sample=deg_param_sample)
+    return sim
+
+def set_electrodes(sim, sim_params: dict, deg_param_sample: dict, cyc_mode:str, run_mode: str, is_p2d:bool):
+    for elec, suffix in zip([sim.ca, sim.an], ["c","a"]):
+        # Ds and i0 are set through degradation parameters
+        elec.Ds_deg = read_deg_param(key=f"ds_{suffix}", deg_param_sample=deg_param_sample)
+        elec.i0_deg = read_deg_param(key=f"i0_{suffix}", deg_param_sample=deg_param_sample)
+
+        if f"eps_cbd_{suffix}" in deg_param_sample:
+            logger.warning("Changing CBD independently of AM is not recommended")
+            elec.eps_CBD = (
+                sim_params[f"eps_CBD_{suffix}"] * deg_param_sample[f"eps_cbd_{suffix}"]
+            )
+        else:
+            elec.eps_CBD = sim_params[f"eps_CBD_{suffix}"]
+
+        if f"eps_s_{suffix}" in deg_param_sample:
+            logger.warning("Changing eps_s independently of AM is not recommended")
+            elec.eps_s = sim_params[f"eps_s_{suffic}"] * deg_param_sample[f"eps_s_{suffix}"]
+        elif f"eps_s_{suffix}_am" in deg_param_sample:
+            # elec.eps_s = elec.eps_CBD + elec.eps_AM * deg
+            # elec.eps_s = elec.eps_CBD + (sim_params[f"eps_s_{suffix}"] - sim_params[f"eps_CBD_{suffix}"]) * deg
+            elec.eps_s = (
+                elec.eps_CBD
+                + (sim_params[f"eps_s_{suffix}"] - sim_params[f"eps_CBD_{suffix}"])
+                * deg_param_sample[f"eps_s_{suffix}_am"]
+            )
+        else:
+            elec.eps_s = sim_params[f"eps_s_{suffix}"]
+
+
+        elec.eps_el = sim_params[f"eps_el_{suffix}"] * read_deg_param(key=f"eps_el_{suffix}", deg_param_sample=deg_param_sample)
+        elec.thick = sim_params[f"L_{suffix}"] * read_deg_param(key=f"l_{suffix}", deg_param_sample=deg_param_sample)
+        elec.R_s = sim_params[f"Rs_{suffix}"] * read_deg_param(key=f"rs_{suffix}", deg_param_sample=deg_param_sample)
+        if is_p2d:
+            elec.p_sol = sim_params[f"p_s_{suffix}"] * read_deg_param(key=f"p_s_{suffix}", deg_param_sample=deg_param_sample)
+            elec.p_liq = sim_params[f"p_l_{suffix}"] * read_deg_param(key=f"p_l_{suffix}", deg_param_sample=deg_param_sample)
+
+    return sim
+
+def set_electrolyte(sim, sim_params: dict, deg_param_sample: dict, cyc_mode:str, run_mode: str, is_p2d:bool):
+    sim.el.Li_0 = sim_params["ce"] * read_deg_param(key="ce", deg_param_sample=deg_param_sample)
+    if is_p2d:
+        sim.el.D_deg = read_deg_param(key="de", deg_param_sample=deg_param_sample)
+        sim.el.t0_deg = read_deg_param(key="t0", deg_param_sample=deg_param_sample)
+        sim.el.kappa_deg = read_deg_param(key="kappa", deg_param_sample=deg_param_sample)
+        sim.el.gamma_deg = read_deg_param(key="gamma", deg_param_sample=deg_param_sample)
+
+    return sim
+
+def print_an(sim):
+    print("Anode")
+    print(f"\tA_s = {sim.an.A_s}")
+    print(f"\tLi_max = {sim.an.Li_max}")
+    print(f"\tR_s = {sim.an.R_s}")
+    print(f"\tmaterial = {sim.an.material}")
+    print(f"\talpha_a = {sim.an.alpha_a}")
+    print(f"\talpha_c = {sim.an.alpha_c}")
+    print(f"\teps_AM = {sim.an.eps_AM}")
+    print(f"\teps_CBD = {sim.an.eps_CBD}")
+    print(f"\teps_el = {sim.an.eps_el}")
+    print(f"\teps_s = {sim.an.eps_s}")
+    print(f"\teps_void = {sim.an.eps_void}")
+    print(f"\tx_0 = {sim.an.x_0}")
+
+
+def print_ca(sim):
+    print("Anode")
+    print(f"\tA_s = {sim.ca.A_s}")
+    print(f"\tLi_max = {sim.ca.Li_max}")
+    print(f"\tR_s = {sim.ca.R_s}")
+    print(f"\tmaterial = {sim.ca.material}")
+    print(f"\talpha_a = {sim.ca.alpha_a}")
+    print(f"\talpha_c = {sim.ca.alpha_c}")
+    print(f"\teps_AM = {sim.ca.eps_AM}")
+    print(f"\teps_CBD = {sim.ca.eps_CBD}")
+    print(f"\teps_el = {sim.ca.eps_el}")
+    print(f"\teps_s = {sim.ca.eps_s}")
+    print(f"\teps_void = {sim.ca.eps_void}")
+    print(f"\tDs_deg = {sim.ca.Ds_deg}")
+    print(f"\ti0_deg = {sim.ca.i0_deg}")
+    print(f"\tx_0 = {sim.ca.x_0}")
 
 if __name__ == "__main__":
     import argparse
