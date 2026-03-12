@@ -16,7 +16,7 @@ for protocol in file_names:
         for cell_in in file_names[protocol][rpt_id]:
             filename = file_names[protocol][rpt_id][cell_in]
             cycle_df = read_single_csv(filename, data_type="posthppc")
-            list_of_dfs = break_by_step(cycle_df)
+            list_of_dfs = break_by_contiguous_step(cycle_df)
             if len(list_of_dfs) == 11:
                 print(f"######### {rpt_id}")
             print([int(df["Step"].mean()) for df in list_of_dfs])

@@ -15,10 +15,27 @@ def apply_diffcap_filter(df: pd.DataFrame) -> pd.DataFrame:
     filtered_df = df.iloc[first_c_position:].copy()
     return filtered_df
 
+def remove_rogue_twos(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Removes singular 'rogue' records where the step value is 2 
+    (i.e., a 2 surrounded by non-2 values).
+    """
+    is_two = df["Step"] == 2
+    
+    prev_is_not_two = df["Step"].shift(1) != 2
+    next_is_not_two = df["Step"].shift(-1) != 2
+    
+    is_rogue = is_two & prev_is_not_two & next_is_not_two
+    
+    clean_df = df[~is_rogue].copy()
+    
+    return clean_df
+
 def apply_hppc_filter(df: pd.DataFrame) -> pd.DataFrame:
     """
     Removes all rows before the first occurrence of 'C' in a specific column.
     """
+    df = remove_rogue_twos(df)
     try:
         is_c = df["State"] == 'C'
     except KeyError:
@@ -57,9 +74,9 @@ def read_single_csv(fpath:str="60018015 - 018.csv", data_type:str|None=None)-> p
     num_removed = len(raw) - len(filtered_df)
     
     # Remove entries for which the step id is non increasing
-    mask = filtered_df["Step"] >= filtered_df["Step"].cummax()
+    #mask = filtered_df["Step"] >= filtered_df["Step"].cummax()
     # Apply the mask and return a clean, independent copy
-    filtered_df = filtered_df[mask].copy()
+    #filtered_df = filtered_df[mask].copy()
 
     if data_type is not None:
        if data_type.lower() == "diffcap":
@@ -85,6 +102,26 @@ def break_by_step(df: pd.DataFrame) -> list:
     list_of_dfs = [group_df for step_name, group_df in df.groupby("Step", sort=False)]
     
     return list_of_dfs
+
+def break_by_contiguous_step(df: pd.DataFrame) -> list:
+    """
+    Breaks a DataFrame into a list of DataFrames based on contiguous blocks 
+    of the 'Step' column.
+    """
+    # Safety check
+    if "Step" not in df.columns:
+        raise ValueError("The column 'Step' was not found in the DataFrame.")
+
+    step_changes = df["Step"] != df["Step"].shift()
+    # Use cumsum() to create a unique ID for each contiguous block
+    # True evaluates to 1, False to 0, so the sum goes up only when the step changes
+    block_ids = step_changes.cumsum()
+    # Group by this new block_id instead of the literal "Step" value
+    list_of_dfs = [group_df.copy() for _, group_df in df.groupby(block_ids)]
+
+    return list_of_dfs
+
+
 
 def get_test_time(df):
     try:

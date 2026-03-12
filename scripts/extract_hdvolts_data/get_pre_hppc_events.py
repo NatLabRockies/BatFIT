@@ -20,9 +20,8 @@ for protocol in file_names:
         for cell_in in file_names[protocol][rpt_id]:
             filename = file_names[protocol][rpt_id][cell_in]
             cycle_df = read_single_csv(filename, data_type="hppc")
-            list_of_dfs = break_by_step(cycle_df)
+            list_of_dfs = break_by_contiguous_step(cycle_df)
             try:
-                #assert len(list_of_dfs) == 14
                 assert len(list_of_dfs)>8
             except AssertionError:
                 print(filename)

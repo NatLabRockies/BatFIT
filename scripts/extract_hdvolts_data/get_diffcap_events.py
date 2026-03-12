@@ -15,7 +15,7 @@ for protocol in file_names:
         for cell_in in file_names[protocol][rpt_id]:
             filename = file_names[protocol][rpt_id][cell_in]
             cycle_df = read_single_csv(filename, data_type="diffcap")
-            list_of_dfs = break_by_step(cycle_df)
+            list_of_dfs = break_by_contiguous_step(cycle_df)
             assert len(list_of_dfs) == 4
             if step_1_amp is None:
                 step_1_amp = get_current(list_of_dfs[0])[1:]
