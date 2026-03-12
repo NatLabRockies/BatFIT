@@ -12,15 +12,23 @@ import pandas as pd
 from batfit import BATFIT_EXP, logger
 from batfit.preprocess.diff_cap import calc_dqdv_dvdq
 from batfit.preprocess.pickledb import PickleDB
-from .sim_setup import * 
+from .sim_setup import *
+from .utils import *
 
-def mod_sim(sim: bm.SPM._simulation.Simulation| bm.P2D._simulation.Simulation, sim_params: dict, deg_param_sample: dict, cyc_mode: str, run_mode: str):
+
+def mod_sim(
+    sim: bm.SPM._simulation.Simulation | bm.P2D._simulation.Simulation,
+    sim_params: dict,
+    deg_param_sample: dict,
+    cyc_mode: str,
+    run_mode: str,
+):
     """
     Modify the parameters of a BatMODS-lite simulation
 
     Parameters
     ----------
-    sim: bm.SPM._simulation.Simulation | bm.P2D._simulation.Simulation 
+    sim: bm.SPM._simulation.Simulation | bm.P2D._simulation.Simulation
         BatMODS-lite simulation
     sim_params: dict
         Parameters values used by BatMODS-lite
@@ -29,26 +37,149 @@ def mod_sim(sim: bm.SPM._simulation.Simulation| bm.P2D._simulation.Simulation, s
     """
 
     sim = set_discretization(sim=sim, sim_params=sim_params)
-    C_rate, sim = set_interc(sim=sim, sim_params=sim_params, deg_param_sample=deg_param_sample, cyc_mode=cyc_mode, run_mode=run_mode)
+    C_rate, sim = set_interc(
+        sim=sim,
+        sim_params=sim_params,
+        deg_param_sample=deg_param_sample,
+        cyc_mode=cyc_mode,
+        run_mode=run_mode,
+    )
 
-    if isinstance(sim,  bm.P2D._simulation.Simulation):
+    if isinstance(sim, bm.P2D._simulation.Simulation):
         is_p2d = True
     else:
         is_p2d = False
 
-    sim = set_battery(sim=sim, sim_params=sim_params, deg_param_sample=deg_param_sample, cyc_mode=cyc_mode, run_mode=run_mode, is_p2d=is_p2d)
-    sim = set_electrodes(sim=sim, sim_params=sim_params, deg_param_sample=deg_param_sample, cyc_mode=cyc_mode, run_mode=run_mode, is_p2d=is_p2d)
-    sim = set_electrolyte(sim=sim, sim_params=sim_params, deg_param_sample=deg_param_sample, cyc_mode=cyc_mode, run_mode=run_mode, is_p2d=is_p2d)
-    sim = set_separator(sim=sim, sim_params=sim_params, deg_param_sample=deg_param_sample, cyc_mode=cyc_mode, run_mode=run_mode, is_p2d=is_p2d)
-    
+    sim = set_battery(
+        sim=sim,
+        sim_params=sim_params,
+        deg_param_sample=deg_param_sample,
+        cyc_mode=cyc_mode,
+        run_mode=run_mode,
+        is_p2d=is_p2d,
+    )
+    sim = set_electrodes(
+        sim=sim,
+        sim_params=sim_params,
+        deg_param_sample=deg_param_sample,
+        cyc_mode=cyc_mode,
+        run_mode=run_mode,
+        is_p2d=is_p2d,
+    )
+    sim = set_electrolyte(
+        sim=sim,
+        sim_params=sim_params,
+        deg_param_sample=deg_param_sample,
+        cyc_mode=cyc_mode,
+        run_mode=run_mode,
+        is_p2d=is_p2d,
+    )
+    sim = set_separator(
+        sim=sim,
+        sim_params=sim_params,
+        deg_param_sample=deg_param_sample,
+        cyc_mode=cyc_mode,
+        run_mode=run_mode,
+        is_p2d=is_p2d,
+    )
+
     return sim, C_rate
 
 
-def remove_file(filename):
+def robust_LH2(sim, df, charge, protocol, sim_params, bat_model):
+    rootsol = None
     try:
-        os.remove(filename)
-    except FileNotFoundError:
-        pass
+        stmp = sim.run(charge, reset_state=False)
+        assert all(stmp.success)
+        for i in range(40):
+            LHmax_tmp = bm.Experiment()
+            for _, row in df.iterrows():
+                dt, P_ratio = row["dt_s"], row["P_ratio"]
+                P_scalar = 0.11  # Wh
+                LHmax_tmp.add_step(
+                    "power_W",
+                    P_scalar * P_ratio,
+                    (dt, 10.0),
+                    limits=(
+                        "voltage_V",
+                        sim_params["vmin"],
+                        "voltage_V",
+                        sim_params["vmax"],
+                    ),
+                )
+            lhtmp = sim.run(LHmax_tmp, reset_state=False, bar=False)
+            assert all(lhtmp.success)
+            if i == 0:
+                all_solns = lhtmp._solns
+            else:
+                all_solns += lhtmp._solns
+        s1 = sim.run(protocol)
+        assert all(s1.success)
+        all_solns += s1._solns
+        if bat_model.lower() == "spm":
+            sim_prot = bm.SPM.CycleSolution(*all_solns)
+        elif bat_model.lower() == "p2d":
+            sim_prot = bm.P2D.CycleSolution(*all_solns)
+        else:
+            logger.error("Battery model not recognized")
+            sys.exit()
+        rootsol = sim_prot
+        assert all(rootsol.success)
+    except:
+        for fact in [0.5, 0.1]:
+            try:
+                print(f"retrying with C = {fact:.2f}")
+                expr_init = bm.Experiment()
+                expr_init.add_step(
+                    "current_C",
+                    -1.0 * fact,
+                    (7200.0 / fact, 60.0),
+                    limits=("voltage_V", sim_params["vmax"]),
+                )
+                expr_init.add_step(
+                    "voltage_V", sim_params["vmax"], (3600.0, 60.0)
+                )
+                sol_init = sim.run(expr_init)
+                assert all(sol_init.success)
+                for i in range(40):
+                    LHmax_tmp = bm.Experiment()
+                    for _, row in df.iterrows():
+                        dt, P_ratio = row["dt_s"], row["P_ratio"]
+                        P_scalar = 0.11  # Wh
+                        LHmax_tmp.add_step(
+                            "power_W",
+                            P_scalar * P_ratio,
+                            (dt, 10.0),
+                            limits=(
+                                "voltage_V",
+                                sim_params["vmin"],
+                                "voltage_V",
+                                sim_params["vmax"],
+                            ),
+                        )
+                    lhtmp = sim.run(LHmax_tmp, reset_state=False, bar=False)
+                    assert all(lhtmp.success)
+                    if i == 0:
+                        all_solns = lhtmp._solns
+                    else:
+                        all_solns += lhtmp._solns
+                s1 = sim.run(protocol)
+                assert all(s1.success)
+                all_solns += s1._solns
+                if bat_model.lower() == "spm":
+                    sim_prot = bm.SPM.CycleSolution(*all_solns)
+                elif bat_model.lower() == "p2d":
+                    sim_prot = bm.P2D.CycleSolution(*all_solns)
+                else:
+                    logger.error("Battery model not recognized")
+                    sys.exit()
+                rootsol = sim_prot
+                assert all(rootsol.success)
+                break
+            except:
+                # print(f"sim failed for {deg_param_sample}")
+                pass
+    return rootsol
 
 
 def robust_LHRH(sim, df, charge, protocol, sim_params, bat_model):
@@ -353,75 +484,6 @@ def single_run(
             )
 
     return params_list, rootsol
-
-
-def reduce_npoints_dict(sol_dict, n_points_reduce=512):
-    new_sol_dict = {}
-    t_int = np.linspace(
-        np.nanmin(sol_dict["t"]),
-        np.nanmax(sol_dict["t"]),
-        n_points_reduce,
-    )
-    phis_c_int = np.interp(t_int, sol_dict["t"], sol_dict["phis_c"])
-    new_sol_dict["t"] = t_int
-    new_sol_dict["phis_c"] = phis_c_int
-
-    if "t_diff" in sol_dict:
-        t_diff_int = np.linspace(
-            np.nanmin(sol_dict["t_diff"]),
-            np.nanmax(sol_dict["t_diff"]),
-            n_points_reduce,
-        )
-        phis_c_diff_int = np.interp(
-            t_diff_int, sol_dict["t_diff"], sol_dict["phis_c_diff"]
-        )
-        dvdq_int = np.interp(t_diff_int, sol_dict["t_diff"], sol_dict["dvdq"])
-        dqdv_int = np.interp(t_diff_int, sol_dict["t_diff"], sol_dict["dqdv"])
-        new_sol_dict["t_diff"] = t_diff_int
-        new_sol_dict["phis_c_diff"] = phis_c_diff_int
-        new_sol_dict["dvdq"] = dvdq_int
-        new_sol_dict["dqdv"] = dqdv_int
-
-    if "t_diff_crop" in sol_dict:
-        t_diff_crop_int = np.linspace(
-            np.nanmin(sol_dict["t_diff_crop"]),
-            np.nanmax(sol_dict["t_diff_crop"]),
-            n_points_reduce,
-        )
-        phis_c_diff_crop_int = np.interp(
-            t_diff_crop_int,
-            sol_dict["t_diff_crop"],
-            sol_dict["phis_c_diff_crop"],
-        )
-        dvdq_crop_int = np.interp(
-            t_diff_crop_int,
-            sol_dict["t_diff_crop"],
-            sol_dict["dvdq_crop"],
-        )
-        dqdv_crop_int = np.interp(
-            t_diff_crop_int,
-            sol_dict["t_diff_crop"],
-            sol_dict["dqdv_crop"],
-        )
-
-        new_sol_dict["t_diff_crop"] = t_diff_crop_int
-        new_sol_dict["phis_c_diff_crop"] = phis_c_diff_crop_int
-        new_sol_dict["dvdq_crop"] = dvdq_crop_int
-        new_sol_dict["dqdv_crop"] = dqdv_crop_int
-
-    return new_sol_dict
-
-
-def reduce_npoints_records(records, n_points_reduce=512):
-    new_records = []
-    for record in records:
-        new_sol = reduce_npoints_dict(
-            record["sol"], n_points_reduce=n_points_reduce
-        )
-        record["sol"] = new_sol
-        new_records.append(record)
-
-    return new_records
 
 
 def single_run_save(
@@ -772,7 +834,7 @@ def save_datapoint(
                 ),
                 **save_dict_chcc,
             )
-        elif cyc_mode.lower() in ["discharge", "chargecc", "rh", "lh","lh2"]:
+        elif cyc_mode.lower() in ["discharge", "chargecc", "rh", "lh", "lh2"]:
             np.savez(
                 os.path.join(folder_save, f"solution{param_string}.npz"),
                 **save_dict,
@@ -796,68 +858,6 @@ def save_datapoint(
             combined_data["sol_dis"] = save_dict_dis
             combined_data["sol_chcc"] = save_dict_chcc
         db.append(combined_data, max_try=10)
-
-
-def from_param_list_to_str(params_list, params_name=None):
-    param_string = ""
-    if params_list is not None:
-        if isinstance(params_list[0], str):
-            params_list_val = [float(val) for val in params_list]
-        else:
-            params_list_val = params_list
-        if params_name is None:
-            for paramval in params_list_val:
-                param_string += "_"
-                param_string += f"{paramval:g}"
-        else:
-            for paramval, name in zip(params_list_val, params_name):
-                param_string += f"_{name}_"
-                param_string += f"{paramval:g}"
-    return param_string
-
-
-def from_param_list_to_dict(params_list, params):
-    deg_dict = {}
-    for ipar, name in enumerate(params["deg_param_names"]):
-        if params_list is not None:
-            if isinstance(params_list[0], str):
-                deg_dict[name] = float(params_list[ipar])
-            else:
-                deg_dict[name] = params_list[ipar]
-        else:
-            deg_dict[name] = params["deg_" + name + "_ref"]
-    return deg_dict
-
-
-def from_param_list_to_str(params_list, params_name=None):
-    param_string = ""
-    if params_list is not None:
-        if isinstance(params_list[0], str):
-            params_list_val = [float(val) for val in params_list]
-        else:
-            params_list_val = params_list
-        if params_name is None:
-            for paramval in params_list_val:
-                param_string += "_"
-                param_string += f"{paramval:g}"
-        else:
-            for paramval, name in zip(params_list_val, params_name):
-                param_string += f"_{name}_"
-                param_string += f"{paramval:g}"
-    return param_string
-
-
-def from_param_list_to_dict(params_list, params):
-    deg_dict = {}
-    for ipar, name in enumerate(params["deg_param_names"]):
-        if params_list is not None:
-            if isinstance(params_list[0], str):
-                deg_dict[name] = float(params_list[ipar])
-            else:
-                deg_dict[name] = params_list[ipar]
-        else:
-            deg_dict[name] = params["deg_" + name + "_ref"]
-    return deg_dict
 
 
 def clean_sol_par(
@@ -937,70 +937,6 @@ def read_list_sol(
     for line in lines:
         solution_list.append(line[:-1])
     return solution_list
-
-
-def check_degparamdict(deg_param_dict, sim_params, parallel_env=None):
-    for deg_param_name in sim_params["deg_param_names"]:
-        try:
-            assert (
-                deg_param_dict[deg_param_name]
-                >= sim_params["deg_" + deg_param_name + "_min"]
-            )
-            assert (
-                deg_param_dict[deg_param_name]
-                <= sim_params["deg_" + deg_param_name + "_max"]
-            )
-        except AssertionError:
-            msg = f"ERROR: In dict {deg_param_dict}\n\tParameter {deg_param_name} = {deg_param_dict[deg_param_name]} out of bounds ({sim_params['deg_' + deg_param_name + '_min']}-{sim_params['deg_' + deg_param_name + '_max']})"
-            if parallel_env is None:
-                sys.exit(msg)
-            else:
-                parallel_env.printAll(msg)
-                parallel_env.comm.Abort()
-
-
-def check_degparamlist(deg_param_list, sim_params, parallel_env=None):
-    for deg_val, deg_param_name in zip(
-        deg_param_list, sim_params["deg_param_names"]
-    ):
-        try:
-            assert deg_val >= sim_params["deg_" + deg_param_name + "_min"]
-            assert deg_val <= sim_params["deg_" + deg_param_name + "_max"]
-
-        except AssertionError:
-            msg = f"ERROR: In list {deg_param_list}\n\t"
-            msg += f"Parameter {deg_param_name} = {deg_val} out of bounds"
-            msg += f"({sim_params['deg_' + deg_param_name + '_min']}-"
-            msg += f"{sim_params['deg_' + deg_param_name + '_max']})"
-            if parallel_env is None:
-                sys.exit(msg)
-            else:
-                parallel_env.printAll(msg)
-                parallel_env.comm.Abort()
-
-
-def from_degparamlist_to_degparamdict(
-    deg_param_list, sim_params, parallel_env=None
-):
-    check_degparamlist(deg_param_list, sim_params, parallel_env)
-    deg_param_dict = {}
-    for deg_param_val, deg_param_name in zip(
-        deg_param_list, sim_params["deg_param_names"]
-    ):
-        deg_param_dict[deg_param_name] = deg_param_val
-    check_degparamdict(deg_param_dict, sim_params, parallel_env)
-    return deg_param_dict
-
-
-def from_degparamdict_to_degparamlist(
-    deg_param_dict, sim_params, parallel_env=None
-):
-    check_degparamdict(deg_param_dict, sim_params, parallel_env)
-    deg_param_list = []
-    for deg_param_name in sim_params["deg_param_names"]:
-        deg_param_list.append(deg_param_dict[deg_param_name])
-    check_degparamlist(deg_param_list, sim_params, parallel_env)
-    return deg_param_list
 
 
 def multi_run_ser(
@@ -1322,7 +1258,13 @@ def multi_run(
                 solution_list[startSim_ : startSim_ + nsim_],
             )
         ):
-            if cyc_mode.lower() in ["discharge", "chargecc", "rh", "lh", "lh2"]:
+            if cyc_mode.lower() in [
+                "discharge",
+                "chargecc",
+                "rh",
+                "lh",
+                "lh2",
+            ]:
                 params_list, root_sol = single_run(
                     sim_params=sim_params,
                     deg_param_sample=from_degparamlist_to_degparamdict(
