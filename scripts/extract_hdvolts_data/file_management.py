@@ -88,7 +88,7 @@ def get_data_folder(
     """
     Get data folder from input
     """
-    assert data_type.lower() in ["hppc", "diffcap", "cycle"]
+    assert data_type.lower() in ["posthppc","hppc", "diffcap", "cycle"]
 
     cycling_protocol_folder = get_cycling_protocol_folder(cycling_protocol)
     cycling_protocol_folder = os.path.join(data_root, cycling_protocol_folder)
@@ -100,7 +100,7 @@ def get_data_folder(
     )
     logger.debug(f"RPT folder : {rpt_folder} deduced from {rpt_id}")
 
-    if data_type.lower() == "hppc":
+    if data_type.lower() in ["hppc", "posthppc"]:
         data_folder = os.path.join(cycling_protocol_folder, rpt_folder, "HPPC")
     elif data_type.lower() == "diffcap":
         data_folder = os.path.join(

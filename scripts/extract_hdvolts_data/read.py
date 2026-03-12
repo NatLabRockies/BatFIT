@@ -15,6 +15,25 @@ def apply_diffcap_filter(df: pd.DataFrame) -> pd.DataFrame:
     filtered_df = df.iloc[first_c_position:].copy()
     return filtered_df
 
+def apply_hppc_filter(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Removes all rows before the first occurrence of 'C' in a specific column.
+    """
+    try:
+        is_c = df["State"] == 'C'
+    except KeyError:
+        is_c = df["MD"] == 'C'
+    first_c_position = is_c.argmax()
+    filtered_df = df.iloc[first_c_position:].copy()
+    return filtered_df
+
+def apply_post_hppc_filter(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Removes all rows before the first occurrence of 'C' in a specific column.
+    """
+    filtered_df = apply_hppc_filter(df)
+    filtered_df = filtered_df[filtered_df["Step"] >= 12].copy()
+    return filtered_df
 
 def read_single_csv(fpath:str="60018015 - 018.csv", data_type:str|None=None)-> pd.DataFrame:
     """
@@ -31,25 +50,41 @@ def read_single_csv(fpath:str="60018015 - 018.csv", data_type:str|None=None)-> p
     except:
         print(fpath)
         breakpoint()
-    # Create a mask: Keep the first row (isna) AND rows where diff >= 1e-6
+    
+    # Remove entries for which test Times is redundant
     mask = diff_time.isna() | (diff_time >= 1e-6)
-
-    # Apply the mask to filter the DataFrame
     filtered_df = raw[mask].copy()
-
-    # Logging logic
     num_removed = len(raw) - len(filtered_df)
-    if num_removed > 0:
-        logger.debug(f"Removed {num_removed} entries")
+    
+    # Remove entries for which the step id is non increasing
+    mask = filtered_df["Step"] >= filtered_df["Step"].cummax()
+    # Apply the mask and return a clean, independent copy
+    filtered_df = filtered_df[mask].copy()
 
     if data_type is not None:
        if data_type.lower() == "diffcap":
            filtered_df = apply_diffcap_filter(filtered_df)
+       if data_type.lower() == "hppc":
+           filtered_df = apply_hppc_filter(filtered_df)
+       if data_type.lower() == "posthppc":
+           filtered_df = apply_post_hppc_filter(filtered_df)
 
     logger.info(f"Read {fpath} ({filtered_df.shape})")
 
     # Return the Pandas DataFrame, not a numpy array
     return filtered_df
+
+def break_by_step(df: pd.DataFrame) -> list:
+    """
+    Breaks a DataFrame into a list of DataFrames based on the 'Step' column.
+    """
+    # Safety check
+    if "Step" not in df.columns:
+        raise ValueError("The column 'Step' was not found in the DataFrame.")
+    
+    list_of_dfs = [group_df for step_name, group_df in df.groupby("Step", sort=False)]
+    
+    return list_of_dfs
 
 def get_test_time(df):
     try:
@@ -61,6 +96,10 @@ def get_test_time(df):
 def get_elapsed_test_time(df):
     test_time = get_test_time(df)
     return  test_time - test_time.iloc[0]
+
+def get_duration(df):
+    elapsed_time = get_elapsed_test_time(df)
+    return  elapsed_time.iloc[-1]
 
 def get_current(df):
     try:
