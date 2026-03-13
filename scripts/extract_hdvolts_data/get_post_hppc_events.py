@@ -1,12 +1,14 @@
 from file_management import *
-from read import *
 from prettyPlot.plotting import *
+from read import *
+
 from batfit import logger
-#logger.setLevel("DEBUG")
+
+# logger.setLevel("DEBUG")
 logger.setLevel("INFO")
 
 file_names = get_all_protocol_all_rpt_data_file(data_type="posthppc")
-step_values = [13,16,18,19,21,23]
+step_values = [13, 14, 16, 18, 19, 21, 23]
 
 step_data = {}
 for step in step_values:
@@ -31,31 +33,41 @@ for protocol in file_names:
                         if step_data[step_value]["time"] is None:
                             step_data[step_value]["time"] = duration
                         else:
-                            step_data[step_value]["time"] = np.hstack((step_data[step_value]["time"], duration))
+                            step_data[step_value]["time"] = np.hstack(
+                                (step_data[step_value]["time"], duration)
+                            )
                         if step_data[step_value]["amp"] is None:
                             step_data[step_value]["amp"] = current
                         else:
-                            step_data[step_value]["amp"] = np.hstack((step_data[step_value]["amp"], current))
+                            step_data[step_value]["amp"] = np.hstack(
+                                (step_data[step_value]["amp"], current)
+                            )
                         if step_data[step_value]["finAh"] is None:
                             step_data[step_value]["finAh"] = finAh
                         else:
-                            step_data[step_value]["finAh"] = np.hstack((step_data[step_value]["finAh"], finAh))
+                            step_data[step_value]["finAh"] = np.hstack(
+                                (step_data[step_value]["finAh"], finAh)
+                            )
 
                         mask = voltage.between(3, 4)
                         filtered_current = current[mask].copy()
                         if step_data[step_value]["ampcc"] is None:
                             step_data[step_value]["ampcc"] = filtered_current
                         else:
-                            step_data[step_value]["ampcc"] = np.hstack((step_data[step_value]["ampcc"], filtered_current))
+                            step_data[step_value]["ampcc"] = np.hstack(
+                                (
+                                    step_data[step_value]["ampcc"],
+                                    filtered_current,
+                                )
+                            )
 
 for step_value in step_values:
     curr = step_data[step_value]["amp"]
     currcc = step_data[step_value]["ampcc"]
-    dur = step_data[step_value]["time"] 
-    finAh = step_data[step_value]["finAh"] 
+    dur = step_data[step_value]["time"]
+    finAh = step_data[step_value]["finAh"]
     print(f"STEP {step_value}")
     print(f"\tAMP = {np.mean(curr):.10g} A +/- {np.std(curr):.5g} A ")
     print(f"\tAMP CC = {np.mean(currcc):.10g} A +/- {np.std(currcc):.5g} A ")
     print(f"\tTime = {np.mean(dur):.10g} min +/- {np.std(dur):.5g} min ")
     print(f"\tfinAh = {np.mean(finAh):.10g} Ah +/- {np.std(finAh):.5g} Ah ")
-

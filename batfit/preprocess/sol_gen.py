@@ -12,6 +12,12 @@ import pandas as pd
 from batfit import BATFIT_EXP, logger
 from batfit.preprocess.diff_cap import calc_dqdv_dvdq
 from batfit.preprocess.pickledb import PickleDB
+
+from .hdvolts_prot import (
+    define_diffcap_experiment,
+    define_hppc_experiment,
+    define_pre_hppc_experiment,
+)
 from .sim_setup import *
 from .utils import *
 
@@ -86,100 +92,37 @@ def mod_sim(
     return sim, C_rate
 
 
-def robust_LH2(sim, df, charge, protocol, sim_params, bat_model):
-    rootsol = None
+def robust_DiffCap(sim, sim_params):
+    sol = None
     try:
-        stmp = sim.run(charge, reset_state=False)
-        assert all(stmp.success)
-        for i in range(40):
-            LHmax_tmp = bm.Experiment()
-            for _, row in df.iterrows():
-                dt, P_ratio = row["dt_s"], row["P_ratio"]
-                P_scalar = 0.11  # Wh
-                LHmax_tmp.add_step(
-                    "power_W",
-                    P_scalar * P_ratio,
-                    (dt, 10.0),
-                    limits=(
-                        "voltage_V",
-                        sim_params["vmin"],
-                        "voltage_V",
-                        sim_params["vmax"],
-                    ),
-                )
-            lhtmp = sim.run(LHmax_tmp, reset_state=False, bar=False)
-            assert all(lhtmp.success)
-            if i == 0:
-                all_solns = lhtmp._solns
-            else:
-                all_solns += lhtmp._solns
-        s1 = sim.run(protocol)
-        assert all(s1.success)
-        all_solns += s1._solns
-        if bat_model.lower() == "spm":
-            sim_prot = bm.SPM.CycleSolution(*all_solns)
-        elif bat_model.lower() == "p2d":
-            sim_prot = bm.P2D.CycleSolution(*all_solns)
-        else:
-            logger.error("Battery model not recognized")
-            sys.exit()
-        rootsol = sim_prot
-        assert all(rootsol.success)
+        exp = define_diffcap_experiment(sim_params)
+        sol = sim.run(exp, reset_state=False, bar=False)
+        assert all(sol.success)
     except:
-        for fact in [0.5, 0.1]:
-            try:
-                print(f"retrying with C = {fact:.2f}")
-                expr_init = bm.Experiment()
-                expr_init.add_step(
-                    "current_C",
-                    -1.0 * fact,
-                    (7200.0 / fact, 60.0),
-                    limits=("voltage_V", sim_params["vmax"]),
-                )
-                expr_init.add_step(
-                    "voltage_V", sim_params["vmax"], (3600.0, 60.0)
-                )
-                sol_init = sim.run(expr_init)
-                assert all(sol_init.success)
-                for i in range(40):
-                    LHmax_tmp = bm.Experiment()
-                    for _, row in df.iterrows():
-                        dt, P_ratio = row["dt_s"], row["P_ratio"]
-                        P_scalar = 0.11  # Wh
-                        LHmax_tmp.add_step(
-                            "power_W",
-                            P_scalar * P_ratio,
-                            (dt, 10.0),
-                            limits=(
-                                "voltage_V",
-                                sim_params["vmin"],
-                                "voltage_V",
-                                sim_params["vmax"],
-                            ),
-                        )
-                    lhtmp = sim.run(LHmax_tmp, reset_state=False, bar=False)
-                    assert all(lhtmp.success)
-                    if i == 0:
-                        all_solns = lhtmp._solns
-                    else:
-                        all_solns += lhtmp._solns
-                s1 = sim.run(protocol)
-                assert all(s1.success)
-                all_solns += s1._solns
-                if bat_model.lower() == "spm":
-                    sim_prot = bm.SPM.CycleSolution(*all_solns)
-                elif bat_model.lower() == "p2d":
-                    sim_prot = bm.P2D.CycleSolution(*all_solns)
-                else:
-                    logger.error("Battery model not recognized")
-                    sys.exit()
-                rootsol = sim_prot
-                assert all(rootsol.success)
-                break
-            except:
-                # print(f"sim failed for {deg_param_sample}")
-                pass
-    return rootsol
+        pass
+    return sol
+
+
+def robust_preHPPC(sim, sim_params):
+    sol = None
+    try:
+        exp = define_pre_hppc_experiment(sim_params)
+        sol = sim.run(exp, reset_state=False, bar=False)
+        assert all(sol.success)
+    except:
+        pass
+    return sol
+
+
+def robust_HPPC(sim, sim_params):
+    sol = None
+    try:
+        exp = define_hppc_experiment(sim_params)
+        sol = sim.run(exp, reset_state=False, bar=False)
+        assert all(sol.success)
+    except:
+        pass
+    return sol
 
 
 def robust_LHRH(sim, df, charge, protocol, sim_params, bat_model):
@@ -378,6 +321,35 @@ def single_run(
             print(f"All sim failed for {deg_param_sample}")
         else:
             print(f"Success for {deg_param_sample}")
+
+    elif cyc_mode.lower() in ["diffcap", "hppc", "prehppc"]:
+        if cyc_mode.lower() == "diffcap":
+            rootsol = robust_DiffCap(
+                sim=sim,
+                sim_params=sim_params,
+            )
+            if rootsol is None:
+                print(f"All sim failed for {deg_param_sample}")
+            else:
+                print(f"Success for {deg_param_sample}")
+        if cyc_mode.lower() == "hppc":
+            rootsol = robust_HPPC(
+                sim=sim,
+                sim_params=sim_params,
+            )
+            if rootsol is None:
+                print(f"All sim failed for {deg_param_sample}")
+            else:
+                print(f"Success for {deg_param_sample}")
+        if cyc_mode.lower() == "prehppc":
+            rootsol = robust_preHPPC(
+                sim=sim,
+                sim_params=sim_params,
+            )
+            if rootsol is None:
+                print(f"All sim failed for {deg_param_sample}")
+            else:
+                print(f"Success for {deg_param_sample}")
 
     elif cyc_mode.lower() in ["rh", "lh", "lh2"]:
         df = pd.read_csv(os.path.join(BATFIT_EXP, "LHmax.csv"))
@@ -583,7 +555,14 @@ def single_run_save(
                 diff_dict = calc_dqdv_dvdq(t, phis_c[:, -1])
             elif run_spm:
                 diff_dict = calc_dqdv_dvdq(t, phis_c)
-        elif cyc_mode.lower() in ["rh", "lh", "lh2"]:
+        elif cyc_mode.lower() in [
+            "rh",
+            "lh",
+            "lh2",
+            "hppc",
+            "prehppc",
+            "diffcap",
+        ]:
             diff_dict = {}
 
         for key in diff_dict:
@@ -650,7 +629,6 @@ def single_run_save(
                 save_dict["dqdv_crop"] = dqdv_crop_int
 
         return save_dict, param_string
-
     except (AssertionError, TypeError, AttributeError) as err:
         print(f"ERROR: {err}")
         with open(os.path.join(folder_save, bad_sol_filename), "a+") as f:
@@ -734,6 +712,24 @@ def save_datapoint(
         if save_dict_chcc is None:
             save_separate_sols = False
             save_combined_sols = False
+    if cyc_mode.lower() in ["diffcap", "hppc", "prehppc"]:
+        p_list = params_list
+        rsol = rootsol
+        save_dict, param_string = single_run_save(
+            p_list,
+            rsol,
+            phis_c_min=phis_c_min,
+            phis_c_max=phis_c_max,
+            folder_save=folder_save,
+            bad_par_filename=bad_par_filename,
+            bad_sol_filename=bad_sol_filename,
+            only_phi_CC=only_phi_CC,
+            n_points_reduce=n_points_reduce,
+            cyc_mode=cyc_mode,
+        )
+        if save_dict is None:
+            save_separate_sols = False
+            save_combined_sols = False
     if cyc_mode.lower() in ["rh"]:
         p_list = params_list
         rsol = rootsol
@@ -795,6 +791,9 @@ def save_datapoint(
         "discharge-chargecc",
         "discharge",
         "chargecc",
+        "hppc",
+        "prehppc",
+        "diffcap",
     ]:
         raise NotImplementedError
 
@@ -834,7 +833,16 @@ def save_datapoint(
                 ),
                 **save_dict_chcc,
             )
-        elif cyc_mode.lower() in ["discharge", "chargecc", "rh", "lh", "lh2"]:
+        elif cyc_mode.lower() in [
+            "discharge",
+            "chargecc",
+            "rh",
+            "lh",
+            "lh2",
+            "hppc",
+            "prehppc",
+            "diffcap",
+        ]:
             np.savez(
                 os.path.join(folder_save, f"solution{param_string}.npz"),
                 **save_dict,
@@ -852,7 +860,16 @@ def save_datapoint(
         # params_list = [np.float32(entry) for entry in params_list]
 
         combined_data["params"] = params_list
-        if cyc_mode.lower() in ["discharge", "chargecc", "rh", "lh", "lh2"]:
+        if cyc_mode.lower() in [
+            "discharge",
+            "chargecc",
+            "rh",
+            "lh",
+            "lh2",
+            "hppc",
+            "prehppc",
+            "diffcap",
+        ]:
             combined_data["sol"] = save_dict
         elif cyc_mode.lower() == "discharge-chargecc":
             combined_data["sol_dis"] = save_dict_dis
@@ -980,7 +997,16 @@ def multi_run_ser(
     for count, (deg_param_entry, solution_entry) in enumerate(
         zip(deg_parameter_list, solution_list)
     ):
-        if cyc_mode.lower() in ["discharge", "chargecc", "rh", "lh", "lh2"]:
+        if cyc_mode.lower() in [
+            "discharge",
+            "chargecc",
+            "rh",
+            "lh",
+            "lh2",
+            "prehppc",
+            "hppc",
+            "diffcap",
+        ]:
             params_list, root_sol = single_run(
                 sim_params=sim_params,
                 deg_param_sample=from_degparamlist_to_degparamdict(
@@ -1264,6 +1290,9 @@ def multi_run(
                 "rh",
                 "lh",
                 "lh2",
+                "prehppc",
+                "hppc",
+                "diffcap",
             ]:
                 params_list, root_sol = single_run(
                     sim_params=sim_params,

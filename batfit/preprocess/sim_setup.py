@@ -43,6 +43,8 @@ def parse_input(filename, parallel_env=None):
         pass
     elif cyc_mode.lower() in ["rh", "lh", "lh2"]:
         pass
+    elif cyc_mode.lower() in ["diffcap", "hppc", "prehppc"]:
+        pass
     else:
         raise NotImplementedError
 
@@ -80,7 +82,16 @@ def parse_input(filename, parallel_env=None):
 
     phy_par = {}
     phy_par["cyc_mode"] = cyc_mode
-    if cyc_mode.lower() in ["discharge", "chargecc", "rh", "lh", "lh2"]:
+    if cyc_mode.lower() in [
+        "discharge",
+        "chargecc",
+        "rh",
+        "lh",
+        "lh2",
+        "hppc",
+        "diffcap",
+        "prehppc",
+    ]:
         phy_par["model"] = exp["macroscopic"]["model"]
         phy_par["cap"] = exp["macroscopic"]["cap"]
         try:

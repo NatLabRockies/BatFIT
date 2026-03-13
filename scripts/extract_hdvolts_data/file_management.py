@@ -1,6 +1,7 @@
-from batfit import logger
 import os
 import sys
+
+from batfit import logger
 
 
 def get_cycling_protocol_folder(cycling_protocol: str) -> str:
@@ -88,7 +89,7 @@ def get_data_folder(
     """
     Get data folder from input
     """
-    assert data_type.lower() in ["posthppc","hppc", "diffcap", "cycle"]
+    assert data_type.lower() in ["posthppc", "hppc", "diffcap", "cycle"]
 
     cycling_protocol_folder = get_cycling_protocol_folder(cycling_protocol)
     cycling_protocol_folder = os.path.join(data_root, cycling_protocol_folder)

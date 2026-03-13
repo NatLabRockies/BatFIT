@@ -1,53 +1,56 @@
 import numpy as np
 import pandas as pd
 from prettyPlot.plotting import *
+
 from batfit import logger
+
 
 def apply_diffcap_filter(df: pd.DataFrame) -> pd.DataFrame:
     """
     Removes all rows before the first occurrence of 'C' in a specific column.
     """
     try:
-        is_c = df["State"] == 'C'
+        is_c = df["State"] == "C"
     except KeyError:
-        is_c = df["MD"] == 'C'
+        is_c = df["MD"] == "C"
     first_c_position = is_c.argmax()
     filtered_df = df.iloc[first_c_position:].copy()
     return filtered_df
 
+
 def clip_after_sequence(df: pd.DataFrame, sequence: list) -> pd.DataFrame:
     """
-    Clips all records in a DataFrame that appear after the first occurrence 
+    Clips all records in a DataFrame that appear after the first occurrence
     of a specific sequence of step blocks.
     """
     # Safety checks
     if df.empty or "Step" not in df.columns:
         return df.copy()
-        
+
     # 1. Find the integer row positions where a new block starts
     # We convert to a numpy array for fast positional indexing
     change_mask = (df["Step"] != df["Step"].shift(1)).to_numpy()
     block_start_indices = np.where(change_mask)[0]
-    
+
     # 2. Create the compressed list of block values (e.g. [13, 14, 16, 13])
     block_vals = df["Step"].iloc[block_start_indices].tolist()
-    
+
     # 3. Search for the target sequence in our compressed list
     seq_len = len(sequence)
     cut_idx = None
-    
+
     for i in range(len(block_vals) - seq_len + 1):
         # Check if the current slice matches our target sequence
         if block_vals[i : i + seq_len] == sequence:
-            
+
             # Sequence found! The index of the block *after* our sequence ends
             next_block_i = i + seq_len
-            
+
             # If there actually is data after the sequence, grab its row position
             if next_block_i < len(block_start_indices):
                 cut_idx = block_start_indices[next_block_i]
-            break # Stop searching after the first match
-            
+            break  # Stop searching after the first match
+
     # 4. Slice the DataFrame up to the cut_idx
     if cut_idx is not None:
         return df.iloc[:cut_idx].copy()
@@ -58,19 +61,20 @@ def clip_after_sequence(df: pd.DataFrame, sequence: list) -> pd.DataFrame:
 
 def remove_rogue_twos(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Removes singular 'rogue' records where the step value is 2 
+    Removes singular 'rogue' records where the step value is 2
     (i.e., a 2 surrounded by non-2 values).
     """
     is_two = df["Step"] == 2
-    
+
     prev_is_not_two = df["Step"].shift(1) != 2
     next_is_not_two = df["Step"].shift(-1) != 2
-    
+
     is_rogue = is_two & prev_is_not_two & next_is_not_two
-    
+
     clean_df = df[~is_rogue].copy()
-    
+
     return clean_df
+
 
 def apply_hppc_filter(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -78,15 +82,18 @@ def apply_hppc_filter(df: pd.DataFrame) -> pd.DataFrame:
     """
     df = remove_rogue_twos(df)
     try:
-        is_c = df["State"] == 'C'
+        is_c = df["State"] == "C"
     except KeyError:
-        is_c = df["MD"] == 'C'
+        is_c = df["MD"] == "C"
     first_c_position = is_c.argmax()
     filtered_df = df.iloc[first_c_position:].copy()
 
-    filtered_df2 = clip_after_sequence(filtered_df, [13, 14]+[16, 18, 19, 21, 23]*7)
+    filtered_df2 = clip_after_sequence(
+        filtered_df, [13, 14] + [16, 18, 19, 21, 23] * 7
+    )
 
     return filtered_df2
+
 
 def apply_post_hppc_filter(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -96,7 +103,10 @@ def apply_post_hppc_filter(df: pd.DataFrame) -> pd.DataFrame:
     filtered_df = filtered_df[filtered_df["Step"] >= 12].copy()
     return filtered_df
 
-def read_single_csv(fpath:str="60018015 - 018.csv", data_type:str|None=None)-> pd.DataFrame:
+
+def read_single_csv(
+    fpath: str = "60018015 - 018.csv", data_type: str | None = None
+) -> pd.DataFrame:
     """
     Read CSV file into a numpy array
     """
@@ -111,29 +121,30 @@ def read_single_csv(fpath:str="60018015 - 018.csv", data_type:str|None=None)-> p
     except:
         print(fpath)
         breakpoint()
-    
+
     # Remove entries for which test Times is redundant
     mask = diff_time.isna() | (diff_time >= 1e-6)
     filtered_df = raw[mask].copy()
     num_removed = len(raw) - len(filtered_df)
-    
+
     # Remove entries for which the step id is non increasing
-    #mask = filtered_df["Step"] >= filtered_df["Step"].cummax()
+    # mask = filtered_df["Step"] >= filtered_df["Step"].cummax()
     # Apply the mask and return a clean, independent copy
-    #filtered_df = filtered_df[mask].copy()
+    # filtered_df = filtered_df[mask].copy()
 
     if data_type is not None:
-       if data_type.lower() == "diffcap":
-           filtered_df = apply_diffcap_filter(filtered_df)
-       if data_type.lower() == "hppc":
-           filtered_df = apply_hppc_filter(filtered_df)
-       if data_type.lower() == "posthppc":
-           filtered_df = apply_post_hppc_filter(filtered_df)
+        if data_type.lower() == "diffcap":
+            filtered_df = apply_diffcap_filter(filtered_df)
+        if data_type.lower() == "hppc":
+            filtered_df = apply_hppc_filter(filtered_df)
+        if data_type.lower() == "posthppc":
+            filtered_df = apply_post_hppc_filter(filtered_df)
 
     logger.info(f"Read {fpath} ({filtered_df.shape})")
 
     # Return the Pandas DataFrame, not a numpy array
     return filtered_df
+
 
 def break_by_step(df: pd.DataFrame) -> list:
     """
@@ -142,14 +153,17 @@ def break_by_step(df: pd.DataFrame) -> list:
     # Safety check
     if "Step" not in df.columns:
         raise ValueError("The column 'Step' was not found in the DataFrame.")
-    
-    list_of_dfs = [group_df for step_name, group_df in df.groupby("Step", sort=False)]
-    
+
+    list_of_dfs = [
+        group_df for step_name, group_df in df.groupby("Step", sort=False)
+    ]
+
     return list_of_dfs
+
 
 def break_by_contiguous_step(df: pd.DataFrame) -> list:
     """
-    Breaks a DataFrame into a list of DataFrames based on contiguous blocks 
+    Breaks a DataFrame into a list of DataFrames based on contiguous blocks
     of the 'Step' column.
     """
     # Safety check
@@ -166,7 +180,6 @@ def break_by_contiguous_step(df: pd.DataFrame) -> list:
     return list_of_dfs
 
 
-
 def get_test_time(df):
     try:
         test_time = df["TestTime"]
@@ -174,13 +187,16 @@ def get_test_time(df):
         test_time = df["Test Time (min)"]
     return test_time
 
+
 def get_elapsed_test_time(df):
     test_time = get_test_time(df)
-    return  test_time - test_time.iloc[0]
+    return test_time - test_time.iloc[0]
+
 
 def get_duration(df):
     elapsed_time = get_elapsed_test_time(df)
-    return  elapsed_time.iloc[-1]
+    return elapsed_time.iloc[-1]
+
 
 def get_current(df):
     try:
@@ -189,12 +205,14 @@ def get_current(df):
         current = df["Current"]
     return current
 
+
 def get_voltage(df):
     try:
         voltage = df["Volts"]
     except KeyError:
         voltage = df["Voltage"]
     return voltage
+
 
 def get_final_Ah(df):
     try:
@@ -203,11 +221,13 @@ def get_final_Ah(df):
         amph = df["Capacity"]
     return amph.iloc[-1]
 
+
 def get_temperature(df):
     temperature = df["Temp"]
     return temperature
 
-#def extract_diff_cap(A:np.ndarray, cyc_id:int):
+
+# def extract_diff_cap(A:np.ndarray, cyc_id:int):
 #    """
 #    Extract data from csv by cycle
 #    """
@@ -232,4 +252,3 @@ def get_temperature(df):
 #        breakpoint()
 #    return {"record_id": record,"test_time":test_time, "step_time":step_time, "cap_Ah":cap_Ah, "e_Wh": e_Wh, "curr_A": curr_A, "phi_V":phi_V, "temp_C": temp, "power_W": power_W}
 #
-
