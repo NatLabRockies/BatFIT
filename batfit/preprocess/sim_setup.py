@@ -503,9 +503,9 @@ def set_electrodes(
         )
 
         if f"eps_cbd_{suffix}" in deg_param_sample:
-            logger.warning(
-                "Changing CBD independently of AM is not recommended"
-            )
+            #logger.warning(
+            #    "Changing CBD independently of AM is not recommended"
+            #)
             elec.eps_CBD = (
                 sim_params[f"eps_CBD_{suffix}"]
                 * deg_param_sample[f"eps_cbd_{suffix}"]
@@ -514,9 +514,9 @@ def set_electrodes(
             elec.eps_CBD = sim_params[f"eps_CBD_{suffix}"]
 
         if f"eps_s_{suffix}" in deg_param_sample:
-            logger.warning(
-                "Changing eps_s independently of AM is not recommended"
-            )
+            #logger.warning(
+            #    "Changing eps_s independently of AM is not recommended"
+            #)
             elec.eps_s = (
                 sim_params[f"eps_s_{suffix}"]
                 * deg_param_sample[f"eps_s_{suffix}"]
