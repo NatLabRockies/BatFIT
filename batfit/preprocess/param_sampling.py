@@ -478,22 +478,20 @@ def enforce_pos_void_a(
         ind_eps_cbd_a = -1
 
     for isamp in range(sample_scaled.shape[0]):
+        if ind_eps_cbd_a > -1:
+            eps_cbd = (
+                sim_params["eps_CBD_a"] * sample_scaled[isamp, ind_eps_cbd_a]
+            )
+        else:
+            eps_cbd = sim_params["eps_CBD_a"]
         if ind_eps_s_a > -1:
             eps_s = sim_params["eps_s_a"] * sample_scaled[isamp, ind_eps_s_a]
         elif ind_eps_s_a_am > -1:
-            if ind_eps_cbd_a > -1:
-                eps_s = (
-                    sim_params["eps_CBD_a"]
-                    * sample_scaled[isamp, ind_eps_cbd_a]
-                    + (sim_params["eps_s_a"] - sim_params["eps_CBD_a"])
-                    * sample_scaled[isamp, ind_eps_s_a_am]
-                )
-            else:
-                eps_s = (
-                    sim_params["eps_CBD_a"]
-                    + (sim_params["eps_s_a"] - sim_params["eps_CBD_a"])
-                    * sample_scaled[isamp, ind_eps_s_a_am]
-                )
+            eps_s = (
+                eps_cbd
+                + (sim_params[f"eps_s_a"] - eps_cbd)
+                * deg_param_sample[f"eps_s_a_am"]
+            )
         else:
             eps_s = sim_params["eps_s_a"]
         if ind_eps_el_a > -1:
@@ -502,66 +500,12 @@ def enforce_pos_void_a(
             )
         else:
             eps_el = sim_params["eps_el_a"]
+
         void = 1 - eps_s - eps_el
 
-        if void < 0:
+        if void < 0 or eps_cbd > eps_s:
             index_to_remove.append(isamp)
-            # if (ind_eps_s_a == -1 and ind_eps_el_a == -1) or (ind_eps_s_a_am == -1 and ind_eps_el_a == -1):
-            #    index_to_remove.append(isamp)
-            # elif ind_eps_s_a > -1 and ind_eps_el_a == -1:
-            #    success, val = backout_eps_s_a(
-            #        sample_scaled[isamp, :],
-            #        deg_param_names,
-            #        eps_s,
-            #        eps_el,
-            #        l_bounds,
-            #        u_bounds,
-            #        sim_params,
-            #    )
-            #    if success:
-            #        sample_scaled[isamp, ind_eps_s_a] = val
-            #    else:
-            #        index_to_remove.append(isamp)
-            # elif ind_eps_s_a == -1 and ind_eps_el_a > -1:
-            #    success, val = backout_eps_el_a(
-            #        sample_scaled[isamp, :],
-            #        deg_param_names,
-            #        eps_s,
-            #        eps_el,
-            #        l_bounds,
-            #        u_bounds,
-            #        sim_params,
-            #    )
-            #    if success:
-            #        sample_scaled[isamp, ind_eps_el_a] = val
-            #    else:
-            #        index_to_remove.append(isamp)
-            # elif ind_eps_s_a > -1 and ind_eps_el_a > -1:
-            #    success, val = backout_eps_el_a(
-            #        sample_scaled[isamp, :],
-            #        deg_param_names,
-            #        eps_s,
-            #        eps_el,
-            #        l_bounds,
-            #        u_bounds,
-            #        sim_params,
-            #    )
-            #    if success:
-            #        sample_scaled[isamp, ind_eps_el_a] = val
-            #    else:
-            #        success, val = backout_eps_s_a(
-            #            sample_scaled[isamp, :],
-            #            deg_param_names,
-            #            eps_s,
-            #            eps_el,
-            #            l_bounds,
-            #            u_bounds,
-            #            sim_params,
-            #        )
-            #        if success:
-            #            sample_scaled[isamp, ind_eps_s_a] = val
-            #    if not success:
-            #        index_to_remove.append(isamp)
+
     if len(index_to_remove) > 0:
         logger.warning(f"{len(index_to_remove)} Failed index")
         # Reverse order of index_to_remove
@@ -598,22 +542,20 @@ def enforce_pos_void_c(
         ind_eps_cbd_c = -1
 
     for isamp in range(sample_scaled.shape[0]):
+        if ind_eps_cbd_c > -1:
+            eps_cbd = (
+                sim_params["eps_CBD_c"] * sample_scaled[isamp, ind_eps_cbd_c]
+            )
+        else:
+            eps_cbd = sim_params["eps_CBD_c"]
         if ind_eps_s_c > -1:
             eps_s = sim_params["eps_s_c"] * sample_scaled[isamp, ind_eps_s_c]
         elif ind_eps_s_c_am > -1:
-            if ind_eps_cbd_c > -1:
-                eps_s = (
-                    sim_params["eps_CBD_c"]
-                    * sample_scaled[isamp, ind_eps_cbd_c]
-                    + (sim_params["eps_s_c"] - sim_params["eps_CBD_c"])
-                    * sample_scaled[isamp, ind_eps_s_c_am]
-                )
-            else:
-                eps_s = (
-                    sim_params["eps_CBD_c"]
-                    + (sim_params["eps_s_c"] - sim_params["eps_CBD_c"])
-                    * sample_scaled[isamp, ind_eps_s_c_am]
-                )
+            eps_s = (
+                eps_cbd
+                + (sim_params[f"eps_s_c"] - eps_cbd)
+                * deg_param_sample[f"eps_s_c_am"]
+            )
         else:
             eps_s = sim_params["eps_s_c"]
         if ind_eps_el_c > -1:
@@ -622,66 +564,12 @@ def enforce_pos_void_c(
             )
         else:
             eps_el = sim_params["eps_el_c"]
+
         void = 1 - eps_s - eps_el
 
-        if void < 0:
+        if void < 0 or eps_cbd > eps_s:
             index_to_remove.append(isamp)
-            # if ind_eps_s_c == -1 and ind_eps_el_c == -1:
-            #    index_to_remove.append(isamp)
-            # elif ind_eps_s_c > -1 and ind_eps_el_c == -1:
-            #    success, val = backout_eps_s_c(
-            #        sample_scaled[isamp, :],
-            #        deg_param_names,
-            #        eps_s,
-            #        eps_el,
-            #        l_bounds,
-            #        u_bounds,
-            #        sim_params,
-            #    )
-            #    if success:
-            #        sample_scaled[isamp, ind_eps_s_c] = val
-            #    else:
-            #        index_to_remove.append(isamp)
-            # elif ind_eps_s_c == -1 and ind_eps_el_c > -1:
-            #    success, val = backout_eps_el_c(
-            #        sample_scaled[isamp, :],
-            #        deg_param_names,
-            #        eps_s,
-            #        eps_el,
-            #        l_bounds,
-            #        u_bounds,
-            #        sim_params,
-            #    )
-            #    if success:
-            #        sample_scaled[isamp, ind_eps_el_c] = val
-            #    else:
-            #        index_to_remove.append(isamp)
-            # elif ind_eps_s_c > -1 and ind_eps_el_c > -1:
-            #    success, val = backout_eps_el_c(
-            #        sample_scaled[isamp, :],
-            #        deg_param_names,
-            #        eps_s,
-            #        eps_el,
-            #        l_bounds,
-            #        u_bounds,
-            #        sim_params,
-            #    )
-            #    if success:
-            #        sample_scaled[isamp, ind_eps_el_c] = val
-            #    else:
-            #        success, val = backout_eps_s_c(
-            #            sample_scaled[isamp, :],
-            #            deg_param_names,
-            #            eps_s,
-            #            eps_el,
-            #            l_bounds,
-            #            u_bounds,
-            #            sim_params,
-            #        )
-            #        if success:
-            #            sample_scaled[isamp, ind_eps_s_c] = val
-            #    if not success:
-            #        index_to_remove.append(isamp)
+
     if len(index_to_remove) > 0:
         logger.warning(f"{len(index_to_remove)} Failed index")
         # Reverse order of index_to_remove

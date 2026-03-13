@@ -518,7 +518,7 @@ def set_electrodes(
                 "Changing eps_s independently of AM is not recommended"
             )
             elec.eps_s = (
-                sim_params[f"eps_s_{suffic}"]
+                sim_params[f"eps_s_{suffix}"]
                 * deg_param_sample[f"eps_s_{suffix}"]
             )
         elif f"eps_s_{suffix}_am" in deg_param_sample:
@@ -526,10 +526,7 @@ def set_electrodes(
             # elec.eps_s = elec.eps_CBD + (sim_params[f"eps_s_{suffix}"] - sim_params[f"eps_CBD_{suffix}"]) * deg
             elec.eps_s = (
                 elec.eps_CBD
-                + (
-                    sim_params[f"eps_s_{suffix}"]
-                    - sim_params[f"eps_CBD_{suffix}"]
-                )
+                + (sim_params[f"eps_s_{suffix}"] - elec.eps_CBD)
                 * deg_param_sample[f"eps_s_{suffix}_am"]
             )
         else:
