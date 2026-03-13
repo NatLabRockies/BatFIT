@@ -15,6 +15,47 @@ def apply_diffcap_filter(df: pd.DataFrame) -> pd.DataFrame:
     filtered_df = df.iloc[first_c_position:].copy()
     return filtered_df
 
+def clip_after_sequence(df: pd.DataFrame, sequence: list) -> pd.DataFrame:
+    """
+    Clips all records in a DataFrame that appear after the first occurrence 
+    of a specific sequence of step blocks.
+    """
+    # Safety checks
+    if df.empty or "Step" not in df.columns:
+        return df.copy()
+        
+    # 1. Find the integer row positions where a new block starts
+    # We convert to a numpy array for fast positional indexing
+    change_mask = (df["Step"] != df["Step"].shift(1)).to_numpy()
+    block_start_indices = np.where(change_mask)[0]
+    
+    # 2. Create the compressed list of block values (e.g. [13, 14, 16, 13])
+    block_vals = df["Step"].iloc[block_start_indices].tolist()
+    
+    # 3. Search for the target sequence in our compressed list
+    seq_len = len(sequence)
+    cut_idx = None
+    
+    for i in range(len(block_vals) - seq_len + 1):
+        # Check if the current slice matches our target sequence
+        if block_vals[i : i + seq_len] == sequence:
+            
+            # Sequence found! The index of the block *after* our sequence ends
+            next_block_i = i + seq_len
+            
+            # If there actually is data after the sequence, grab its row position
+            if next_block_i < len(block_start_indices):
+                cut_idx = block_start_indices[next_block_i]
+            break # Stop searching after the first match
+            
+    # 4. Slice the DataFrame up to the cut_idx
+    if cut_idx is not None:
+        return df.iloc[:cut_idx].copy()
+    else:
+        # If the sequence wasn't found (or was at the very end), return it untouched
+        return df.copy()
+
+
 def remove_rogue_twos(df: pd.DataFrame) -> pd.DataFrame:
     """
     Removes singular 'rogue' records where the step value is 2 
@@ -42,7 +83,10 @@ def apply_hppc_filter(df: pd.DataFrame) -> pd.DataFrame:
         is_c = df["MD"] == 'C'
     first_c_position = is_c.argmax()
     filtered_df = df.iloc[first_c_position:].copy()
-    return filtered_df
+
+    filtered_df2 = clip_after_sequence(filtered_df, [13, 14]+[16, 18, 19, 21, 23]*7)
+
+    return filtered_df2
 
 def apply_post_hppc_filter(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -151,6 +195,13 @@ def get_voltage(df):
     except KeyError:
         voltage = df["Voltage"]
     return voltage
+
+def get_final_Ah(df):
+    try:
+        amph = df["Amp-hr"]
+    except KeyError:
+        amph = df["Capacity"]
+    return amph.iloc[-1]
 
 def get_temperature(df):
     temperature = df["Temp"]
