@@ -96,9 +96,31 @@ def robust_DiffCap(sim, sim_params):
     sol = None
     try:
         exp = define_diffcap_experiment(sim_params)
-        sol = sim.run(exp, reset_state=False, bar=False)
+        sol = sim.run(exp, reset_state=True, bar=False)
         assert all(sol.success)
     except:
+        for atol, max_step in zip(
+            [1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12, 1e-13],
+            [
+                int(1e3),
+                int(1e4),
+                int(1e5),
+                int(1e6),
+                int(1e6),
+                int(1e6),
+                int(1e6),
+                int(1e6),
+            ],
+        ):
+            try:
+                exp = define_diffcap_experiment(
+                    sim_params, atol=atol, max_step=max_step
+                )
+                sol = sim.run(exp, reset_state=False, bar=False)
+                assert all(sol.success)
+                break
+            except:
+                pass
         pass
     return sol
 
@@ -107,9 +129,31 @@ def robust_preHPPC(sim, sim_params):
     sol = None
     try:
         exp = define_pre_hppc_experiment(sim_params)
-        sol = sim.run(exp, reset_state=False, bar=False)
+        sol = sim.run(exp, reset_state=True, bar=False)
         assert all(sol.success)
     except:
+        for atol, max_step in zip(
+            [1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12, 1e-13],
+            [
+                int(1e3),
+                int(1e4),
+                int(1e5),
+                int(1e6),
+                int(1e6),
+                int(1e6),
+                int(1e6),
+                int(1e6),
+            ],
+        ):
+            try:
+                exp = define_pre_hppc_experiment(
+                    sim_params, atol=atol, max_step=max_step
+                )
+                sol = sim.run(exp, reset_state=False, bar=False)
+                assert all(sol.success)
+                break
+            except:
+                pass
         pass
     return sol
 
@@ -118,9 +162,33 @@ def robust_HPPC(sim, sim_params):
     sol = None
     try:
         exp = define_hppc_experiment(sim_params)
-        sol = sim.run(exp, reset_state=False, bar=False)
+        sol = sim.run(exp, reset_state=True, bar=False)
         assert all(sol.success)
     except:
+        counter = 0
+        for atol, max_step in zip(
+            [1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12, 1e-13],
+            [
+                int(1e3),
+                int(1e4),
+                int(1e5),
+                int(1e6),
+                int(1e6),
+                int(1e6),
+                int(1e6),
+                int(1e6),
+            ],
+        ):
+            try:
+                counter += 1
+                exp = define_hppc_experiment(
+                    sim_params, atol=atol, max_step=max_step
+                )
+                sol = sim.run(exp, reset_state=False, bar=False)
+                assert all(sol.success)
+                break
+            except:
+                pass
         pass
     return sol
 
