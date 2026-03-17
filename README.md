@@ -4,7 +4,7 @@
 
 This package implements several data-based techniques for parameter fitting in Li-ion battery models. It uses [BATMODS-lite](https://github.com/NatLabRockies/batmods-lite) to generate the data. 
 
-The repository contains the code that is used for the paper "Neural posterior estimation is accurate, tractable and scalable for inverse parameter inference in Li-ion batteries", M. Hassanaly, C. R. Randall, P. J.  Weddle, P. J. Gasper, C. Kelly, T. Tanim, E. J. Dufek, K. Smith.
+The repository contains the code that is used for the paper "Neural posterior estimation is accurate, tractable and scalable for inverse parameter inference in Li-ion batteries", M. Hassanaly, C. R. Randall, P. J.  Weddle, P. J. Gasper, C. Kelly, T. R. Tanim, K. Smith.
 
 ## Installation
 
