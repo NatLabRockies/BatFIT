@@ -249,7 +249,7 @@ def backout_cs0_a(deg_par, deg_param_names, l_bounds, u_bounds, sim_params):
         if new_deg > max_val or new_deg < min_val:
             return False, None
         else:
-            print(f"Adjusted cs0_a from {deg_par[ind]} to {new_deg}")
+            logger.info(f"Adjusted cs0_a from {deg_par[ind]} to {new_deg}")
             return True, new_deg
     else:
         return False, None
@@ -270,7 +270,7 @@ def backout_cs0_c(deg_par, deg_param_names, l_bounds, u_bounds, sim_params):
         if new_deg > max_val or new_deg < min_val:
             return False, None
         else:
-            print(f"Adjusted cs0_c from {deg_par[ind]} to {new_deg}")
+            logger.info(f"Adjusted cs0_c from {deg_par[ind]} to {new_deg}")
             return True, new_deg
     else:
         return False, None
@@ -293,7 +293,7 @@ def backout_cs0_a_chcc(
         if new_deg > max_val or new_deg < min_val:
             return False, None
         else:
-            print(f"Adjusted cs0_a_chcc from {deg_par[ind]} to {new_deg}")
+            logger.info(f"Adjusted cs0_a_chcc from {deg_par[ind]} to {new_deg}")
             return True, new_deg
     else:
         return False, None
@@ -316,7 +316,7 @@ def backout_cs0_c_chcc(
         if new_deg > max_val or new_deg < min_val:
             return False, None
         else:
-            print(f"Adjusted cs0_c_chcc from {deg_par[ind]} to {new_deg}")
+            logger.info(f"Adjusted cs0_c_chcc from {deg_par[ind]} to {new_deg}")
             return True, new_deg
     else:
         return False, None
@@ -508,10 +508,7 @@ def enforce_pos_void_a(
 
     if len(index_to_remove) > 0:
         logger.warning(f"{len(index_to_remove)} Failed index")
-        # Reverse order of index_to_remove
-        index_to_remove = list(reversed(index_to_remove))
-        for ind in index_to_remove:
-            sample_scaled = np.delete(sample_scaled, ind, axis=0)
+        sample_scaled = np.delete(sample_scaled, index_to_remove, axis=0) 
 
     return sample_scaled
 
@@ -572,10 +569,7 @@ def enforce_pos_void_c(
 
     if len(index_to_remove) > 0:
         logger.warning(f"{len(index_to_remove)} Failed index")
-        # Reverse order of index_to_remove
-        index_to_remove = list(reversed(index_to_remove))
-        for ind in index_to_remove:
-            sample_scaled = np.delete(sample_scaled, ind, axis=0)
+        sample_scaled = np.delete(sample_scaled, index_to_remove, axis=0) 
 
     return sample_scaled
 
@@ -605,6 +599,7 @@ def get_samples(
         sampler = qmc.LatinHypercube(d=n_params)
         sample = sampler.random(n=n_int)
     sample_scaled = qmc.scale(sample, l_bounds, u_bounds)
+
     sample_scaled = enforce_pos_void_a(
         sample_scaled, deg_param_names, l_bounds, u_bounds, sim_params
     )
