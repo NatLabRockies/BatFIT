@@ -24,7 +24,7 @@ def parse_input(filename, parallel_env=None):
     assert deg_param_names == deg_param_names_max
     # deg_param_names = list(set(deg_param_names_min))
     # deg_param_names.sort()
-    # deg_param_names = ["i0_a", "ds_c", "cs0_a", "cs0_c", "i0_c", "eps_s_c"]
+    # deg_param_names = ["i0_a", "ds_c", "x0_a", "x0_c", "i0_c", "eps_s_c"]
 
     if cyc_mode == "discharge-chargecc":
         deg_param_names_chcc_min = list(
@@ -35,7 +35,7 @@ def parse_input(filename, parallel_env=None):
         )
         assert set(deg_param_names_chcc_min) == set(deg_param_names_chcc_max)
         deg_param_names_chcc = list(set(deg_param_names_chcc_min))
-        deg_param_names_chcc = ["cs0_a", "cs0_c"]
+        deg_param_names_chcc = ["x0_a", "x0_c"]
         deg_param_names_chcc_new = [
             f"{entry}_chcc" for entry in deg_param_names_chcc
         ]
@@ -378,10 +378,10 @@ def set_interc_disconnected_discharge(
     sim, sim_params: dict, deg_param_sample: dict
 ):
     sim.ca.x_0 = sim_params["x0_c_dis"] * read_deg_param(
-        key="cs0_c", deg_param_sample=deg_param_sample
+        key="x0_c", deg_param_sample=deg_param_sample
     )
     sim.an.x_0 = sim_params["x0_a_dis"] * read_deg_param(
-        key="cs0_a", deg_param_sample=deg_param_sample
+        key="x0_a", deg_param_sample=deg_param_sample
     )
     C_rate = sim_params["C_dis"]
     return sim, C_rate
@@ -391,10 +391,10 @@ def set_interc_disconnected_charge(
     sim, sim_params: dict, deg_param_sample: dict
 ):
     sim.ca.x_0 = sim_params["x0_c_chcc"] * read_deg_param(
-        key="cs0_c_chcc", deg_param_sample=deg_param_sample
+        key="x0_c_chcc", deg_param_sample=deg_param_sample
     )
     sim.an.x_0 = sim_params["x0_a_chcc"] * read_deg_param(
-        key="cs0_a_chcc", deg_param_sample=deg_param_sample
+        key="x0_a_chcc", deg_param_sample=deg_param_sample
     )
     C_rate = sim_params["C_chcc"]
     return sim, C_rate
@@ -404,10 +404,10 @@ def set_interc_connected(
     sim, sim_params: dict, deg_param_sample: dict, cyc_mode: str
 ):
     sim.ca.x_0 = sim_params["x0_c"] * read_deg_param(
-        key="cs0_c", deg_param_sample=deg_param_sample
+        key="x0_c", deg_param_sample=deg_param_sample
     )
     sim.an.x_0 = sim_params["x0_a"] * read_deg_param(
-        key="cs0_a", deg_param_sample=deg_param_sample
+        key="x0_a", deg_param_sample=deg_param_sample
     )
     # C rate if constant current cycle
     if cyc_mode.lower() in ["discharge", "chargecc"]:

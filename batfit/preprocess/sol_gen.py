@@ -1366,7 +1366,7 @@ def multi_run(
                 params_list, root_sol = single_run(
                     sim_params=sim_params,
                     deg_param_sample=from_degparamlist_to_degparamdict(
-                        deg_param_entry_, sim_params, parallel_env
+                        deg_param_entry_, sim_params, parallel_env=parallel_env
                     ),
                     count=count_,
                     nsim=nsim_,

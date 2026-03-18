@@ -151,8 +151,25 @@ def check_degparamlist(deg_param_list, sim_params, parallel_env=None):
 
 
 def from_degparamlist_to_degparamdict(
-    deg_param_list, sim_params, parallel_env=None
+    deg_param_list: list[float],
+    sim_params: dict,
+    deg_param_names=None,
+    parallel_env=None,
 ):
+
+    if deg_param_names is not None:
+        try:
+            assert sim_params["deg_param_names"] == deg_param_names
+        except AssertionError:
+            msg = f"ERROR: sim_params['deg_param_names'] and deg_param_names do not match\n"
+            msg += f"\tsim_params['deg_param_names'] = {sim_params['deg_param_names']}"
+            msg += f"\tdeg_param_names = {deg_param_names}"
+            if parallel_env is None:
+                sys.exit(msg)
+            else:
+                parallel_env.printAll(msg)
+                parallel_env.comm.Abort()
+
     check_degparamlist(deg_param_list, sim_params, parallel_env)
     deg_param_dict = {}
     for deg_param_val, deg_param_name in zip(

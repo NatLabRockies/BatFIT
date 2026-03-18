@@ -338,67 +338,6 @@ def forward_pass(model, np_data_in, scaler_X_file, scaler_Y_file, scale_y):
                     model.amp_par.to("cpu"),
                 )
 
-                if model.enforce_licons:
-                    # li_dis_a = model.precomp_licons_dis_a * pred_unscaled[:,model.ind_deg_cs0_a]
-                    # li_dis_c = model.precomp_licons_dis_c * pred_unscaled[:,model.ind_deg_cs0_c] * pred_unscaled[:,model.ind_deg_eps_s_c]
-                    # li_ch_a = model.precomp_licons_ch_a * pred_unscaled[:,model.ind_deg_cs0_a_chcc]
-                    # deg_cs0_c_chcc = (li_dis_a + li_dis_c -li_ch_a)/(model.precomp_licons_ch_c * pred_unscaled[:,model.ind_deg_eps_s_c])
-                    # deg_cs0_c_chcc = torch.reshape(deg_cs0_c_chcc, (-1,1))
-                    samp_cs0_a = sample_var(
-                        pred_unscaled[:, model.ind_deg_cs0_a],
-                        gamma_unscaled[:, model.ind_deg_cs0_a],
-                        min_val=model.min_par[model.ind_deg_cs0_a],
-                        max_val=model.max_par[model.ind_deg_cs0_a],
-                    )
-                    samp_cs0_c = sample_var(
-                        pred_unscaled[:, model.ind_deg_cs0_c],
-                        gamma_unscaled[:, model.ind_deg_cs0_c],
-                        min_val=model.min_par[model.ind_deg_cs0_c],
-                        max_val=model.max_par[model.ind_deg_cs0_c],
-                    )
-                    samp_cs0_a_chcc = sample_var(
-                        pred_unscaled[:, model.ind_deg_cs0_a_chcc],
-                        gamma_unscaled[:, model.ind_deg_cs0_a_chcc],
-                        min_val=model.min_par[model.ind_deg_cs0_a_chcc],
-                        max_val=model.max_par[model.ind_deg_cs0_a_chcc],
-                    )
-                    samp_eps_s_c_am = sample_var(
-                        pred_unscaled[:, model.ind_deg_eps_s_c_am],
-                        gamma_unscaled[:, model.ind_deg_eps_s_c_am],
-                        min_val=model.min_par[model.ind_deg_eps_s_c_am],
-                        max_val=model.max_par[model.ind_deg_eps_s_c_am],
-                    )
-
-                    samp_li_dis_a = model.precomp_licons_dis_a * samp_cs0_a
-                    samp_li_dis_c = (
-                        model.precomp_licons_dis_c
-                        * samp_cs0_c
-                        * samp_eps_s_c_am
-                    )
-                    samp_li_ch_a = model.precomp_licons_ch_a * samp_cs0_a_chcc
-                    samp_deg_cs0_c_chcc = (
-                        samp_li_dis_a + samp_li_dis_c - samp_li_ch_a
-                    ) / (model.precomp_licons_ch_c * samp_eps_s_c_am)
-
-                    pred_unscaled = torch.cat(
-                        (
-                            pred_unscaled,
-                            torch.mean(
-                                samp_deg_cs0_c_chcc, axis=0, keepdim=True
-                            ),
-                        ),
-                        dim=1,
-                    )
-                    gamma_unscaled = torch.cat(
-                        (
-                            gamma_unscaled,
-                            torch.std(
-                                samp_deg_cs0_c_chcc, axis=0, keepdim=True
-                            ),
-                        ),
-                        dim=1,
-                    )
-
             elif model.constrain_output and model.dependent_outputs:
                 pred_unscaled = model.inv_transform_mu(
                     pred_scaled,
@@ -409,60 +348,6 @@ def forward_pass(model, np_data_in, scaler_X_file, scaler_Y_file, scale_y):
                 gamma_unscaled = torch.sqrt(
                     gamma_scaled.diagonal(dim1=1, dim2=2)
                 )
-                if model.enforce_licons:
-                    samp_cs0_a = sample_var(
-                        pred_unscaled[:, model.ind_deg_cs0_a],
-                        gamma_unscaled[:, model.ind_deg_cs0_a],
-                        min_val=model.min_par[model.ind_deg_cs0_a],
-                        max_val=model.max_par[model.ind_deg_cs0_a],
-                    )
-                    samp_cs0_c = sample_var(
-                        pred_unscaled[:, model.ind_deg_cs0_c],
-                        gamma_unscaled[:, model.ind_deg_cs0_c],
-                        min_val=model.min_par[model.ind_deg_cs0_c],
-                        max_val=model.max_par[model.ind_deg_cs0_c],
-                    )
-                    samp_cs0_a_chcc = sample_var(
-                        pred_unscaled[:, model.ind_deg_cs0_a_chcc],
-                        gamma_unscaled[:, model.ind_deg_cs0_a_chcc],
-                        min_val=model.min_par[model.ind_deg_cs0_a_chcc],
-                        max_val=model.max_par[model.ind_deg_cs0_a_chcc],
-                    )
-                    samp_eps_s_c_am = sample_var(
-                        pred_unscaled[:, model.ind_deg_eps_s_c_am],
-                        gamma_unscaled[:, model.ind_deg_eps_s_c_am],
-                        min_val=model.min_par[model.ind_deg_eps_s_c_am],
-                        max_val=model.max_par[model.ind_deg_eps_s_c_am],
-                    )
-
-                    samp_li_dis_a = model.precomp_licons_dis_a * samp_cs0_a
-                    samp_li_dis_c = (
-                        model.precomp_licons_dis_c
-                        * samp_cs0_c
-                        * samp_eps_s_c_am
-                    )
-                    samp_li_ch_a = model.precomp_licons_ch_a * samp_cs0_a_chcc
-                    samp_deg_cs0_c_chcc = (
-                        samp_li_dis_a + samp_li_dis_c - samp_li_ch_a
-                    ) / (model.precomp_licons_ch_c * samp_eps_s_c_am)
-                    pred_unscaled = torch.cat(
-                        (
-                            pred_unscaled,
-                            torch.mean(
-                                samp_deg_cs0_c_chcc, axis=0, keepdim=True
-                            ),
-                        ),
-                        dim=1,
-                    )
-                    gamma_unscaled = torch.cat(
-                        (
-                            gamma_unscaled,
-                            torch.std(
-                                samp_deg_cs0_c_chcc, axis=0, keepdim=True
-                            ),
-                        ),
-                        dim=1,
-                    )
             elif not scale_y:
                 pred_unscaled = pred_scaled
                 gamma_unscaled = gamma_scaled
@@ -579,51 +464,6 @@ class ProbParamCNN(nn.Module):
                 self.min_par = self.min_par[:-1]
 
             self.amp_par = self.max_par - self.min_par
-
-        if self.enforce_licons:
-            assert "eps_cbd_a" not in self.sim_params["deg_param_names"]
-            assert "eps_cbd_c" not in self.sim_params["deg_param_names"]
-
-            self.precomp_licons_dis_a = (
-                self.sim_params["x0_a_dis"]
-                * self.sim_params["csanmax"]
-                * self.sim_params["L_a"]
-                * (self.sim_params["eps_s_a"] - self.sim_params["eps_CBD_a"])
-            )
-            self.precomp_licons_dis_c = (
-                self.sim_params["x0_c_dis"]
-                * self.sim_params["cscamax"]
-                * self.sim_params["L_c"]
-                * (self.sim_params["eps_s_c"] - self.sim_params["eps_CBD_c"])
-            )
-            self.precomp_licons_ch_a = (
-                self.sim_params["x0_a_chcc"]
-                * self.sim_params["csanmax"]
-                * self.sim_params["L_a"]
-                * (self.sim_params["eps_s_a"] - self.sim_params["eps_CBD_a"])
-            )
-            self.precomp_licons_ch_c = (
-                self.sim_params["x0_c_chcc"]
-                * self.sim_params["cscamax"]
-                * self.sim_params["L_c"]
-                * self.sim_params["eps_s_c"]
-                * (self.sim_params["eps_s_c"] - self.sim_params["eps_CBD_c"])
-            )
-            self.ind_deg_cs0_a = self.sim_params["deg_param_names"].index(
-                "cs0_a"
-            )
-            self.ind_deg_cs0_c = self.sim_params["deg_param_names"].index(
-                "cs0_c"
-            )
-            self.ind_deg_cs0_a_chcc = self.sim_params["deg_param_names"].index(
-                "cs0_a_chcc"
-            )
-            self.ind_deg_cs0_c_chcc = self.sim_params["deg_param_names"].index(
-                "cs0_c_chcc"
-            )
-            self.ind_deg_eps_s_c_am = self.sim_params["deg_param_names"].index(
-                "eps_s_c_am"
-            )
 
         assert len(chan_list) < int(np.log(input_shape[1]) / np.log(2))
 
@@ -941,47 +781,6 @@ class ProbParamFCNN(nn.Module):
                 self.min_par = self.min_par[:-1]
 
             self.amp_par = self.max_par - self.min_par
-
-        if self.enforce_licons:
-            self.precomp_licons_dis_a = (
-                self.sim_params["x0_a_dis"]
-                * self.sim_params["csanmax"]
-                * self.sim_params["L_a"]
-                * self.sim_params["eps_s_a"]
-            )
-            self.precomp_licons_dis_c = (
-                self.sim_params["x0_c_dis"]
-                * self.sim_params["cscamax"]
-                * self.sim_params["L_c"]
-                * self.sim_params["eps_s_c"]
-            )
-            self.precomp_licons_ch_a = (
-                self.sim_params["x0_a_chcc"]
-                * self.sim_params["csanmax"]
-                * self.sim_params["L_a"]
-                * self.sim_params["eps_s_a"]
-            )
-            self.precomp_licons_ch_c = (
-                self.sim_params["x0_c_chcc"]
-                * self.sim_params["cscamax"]
-                * self.sim_params["L_c"]
-                * self.sim_params["eps_s_c"]
-            )
-            self.ind_deg_cs0_a = self.sim_params["deg_param_names"].index(
-                "cs0_a"
-            )
-            self.ind_deg_cs0_c = self.sim_params["deg_param_names"].index(
-                "cs0_c"
-            )
-            self.ind_deg_cs0_a_chcc = self.sim_params["deg_param_names"].index(
-                "cs0_a_chcc"
-            )
-            self.ind_deg_cs0_c_chcc = self.sim_params["deg_param_names"].index(
-                "cs0_c_chcc"
-            )
-            self.ind_deg_eps_s_c = self.sim_params["deg_param_names"].index(
-                "eps_s_c"
-            )
 
         self.fcnn = []
         self.pool = []

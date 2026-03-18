@@ -1,13 +1,13 @@
 cycling mode: diffcap
-degradation parameter names: i0_a, ds_c, csanmax, cscamax, cs0_a, cs0_c, i0_c, eps_s_c, eps_s_a, eps_cbd_c, eps_cbd_a, eps_el_c, eps_el_a, ds_a, ce, eps_el, de, t0, kappa, gamma, area, l_a, l_s, l_c, rs_a, rs_c, p_l, p_s_a, p_l_a, p_s_c, p_l_c
+degradation parameter names: i0_a, ds_c, csanmax, cscamax, x0_a, x0_c, i0_c, eps_s_c, eps_s_a, eps_cbd_c, eps_cbd_a, eps_el_c, eps_el_a, ds_a, ce, eps_el, de, t0, kappa, gamma, area, l_a, l_s, l_c, rs_a, rs_c, p_l, p_s_a, p_l_a, p_s_c, p_l_c
 
 min degradation parameter:
     i0_a:       0.1
     ds_c:       0.1
     csanmax:    0.95
     cscamax:    0.95
-    cs0_a:      0.3
-    cs0_c:      0.78
+    x0_a:      0.3
+    x0_c:      0.78
     i0_c:       0.1
     eps_s_c:    0.7
     eps_s_a:    0.7
@@ -40,8 +40,8 @@ max degradation parameter:
     ds_c:       10.0
     csanmax:    1.05
     cscamax:    1.05
-    cs0_a:      2.0
-    cs0_c:      1.08
+    x0_a:      2.0
+    x0_c:      1.08
     i0_c:       10.0
     eps_s_c:    1.15
     eps_s_a:    1.15

@@ -1515,8 +1515,8 @@ def perturb_val_dict(val_dict, sim_params_dict):
                 - amp / 100,
             )
     if "chargecc" in sim_params_dict and "discharge" in sim_params_dict:
-        val_dict_name = ["cs0_a_charge", "cs0_c_charge"]
-        par_name = ["cs0_a", "cs0_c"]
+        val_dict_name = ["x0_a_charge", "x0_c_charge"]
+        par_name = ["x0_a", "x0_c"]
         for pname, vname in zip(par_name, val_dict_name):
             amp = factor * (
                 sim_params_dict["chargecc"]["deg_" + pname + "_max"]
@@ -1596,14 +1596,14 @@ def mcmc_iter(
             )
         theta.append(
             np.random.uniform(
-                sim_params_dict["chargecc"]["deg_cs0_a_min"],
-                sim_params_dict["chargecc"]["deg_cs0_a_max"],
+                sim_params_dict["chargecc"]["deg_x0_a_min"],
+                sim_params_dict["chargecc"]["deg_x0_a_max"],
             )
         )
         theta.append(
             np.random.uniform(
-                sim_params_dict["chargecc"]["deg_cs0_c_min"],
-                sim_params_dict["chargecc"]["deg_cs0_c_max"],
+                sim_params_dict["chargecc"]["deg_x0_c_min"],
+                sim_params_dict["chargecc"]["deg_x0_c_max"],
             )
         )
 
@@ -1663,8 +1663,8 @@ def mcmc_iter(
                         val_dict = {
                             "i0_a": 3.88,
                             "ds_c": 9.41,
-                            "cs0_a": 0.8,
-                            "cs0_c": 1.15,
+                            "x0_a": 0.8,
+                            "x0_c": 1.15,
                             "i0_c": 0.37,
                             "eps_s_c_am": 0.92,
                         }
@@ -1673,8 +1673,8 @@ def mcmc_iter(
                         val_dict = {
                             "i0_a": 3.87,
                             "ds_c": 9.44,
-                            "cs0_a": 0.81,
-                            "cs0_c": 1.14,
+                            "x0_a": 0.81,
+                            "x0_c": 1.14,
                             "i0_c": 0.51,
                             "eps_s_c_am": 0.92,
                         }
@@ -1683,8 +1683,8 @@ def mcmc_iter(
                         val_dict = {
                             "i0_a": 3.84,
                             "ds_c": 9.34,
-                            "cs0_a": 0.78,
-                            "cs0_c": 1.18,
+                            "x0_a": 0.78,
+                            "x0_c": 1.18,
                             "i0_c": 0.42,
                             "eps_s_c_am": 0.91,
                         }
@@ -1693,8 +1693,8 @@ def mcmc_iter(
                         val_dict = {
                             "i0_a": 3.9,
                             "ds_c": 9.56,
-                            "cs0_a": 0.78,
-                            "cs0_c": 1.17,
+                            "x0_a": 0.78,
+                            "x0_c": 1.17,
                             "i0_c": 0.58,
                             "eps_s_c_am": 0.91,
                         }
@@ -1703,8 +1703,8 @@ def mcmc_iter(
                         val_dict = {
                             "i0_a": 3.89,
                             "ds_c": 9.59,
-                            "cs0_a": 0.84,
-                            "cs0_c": 1.09,
+                            "x0_a": 0.84,
+                            "x0_c": 1.09,
                             "i0_c": 0.35,
                             "eps_s_c_am": 0.93,
                         }
@@ -1713,8 +1713,8 @@ def mcmc_iter(
                         val_dict = {
                             "i0_a": 3.91,
                             "ds_c": 9.7,
-                            "cs0_a": 0.84,
-                            "cs0_c": 1.09,
+                            "x0_a": 0.84,
+                            "x0_c": 1.09,
                             "i0_c": 0.42,
                             "eps_s_c_am": 0.93,
                         }
@@ -1728,8 +1728,8 @@ def mcmc_iter(
                         val_dict = {
                             "i0_a": 0.22,
                             "ds_c": 0.46,
-                            "cs0_a": 0.45,
-                            "cs0_c": 1.07,
+                            "x0_a": 0.45,
+                            "x0_c": 1.07,
                             "i0_c": 0.11,
                             "eps_s_c_am": 0.99,
                         }
@@ -1738,8 +1738,8 @@ def mcmc_iter(
                         val_dict = {
                             "i0_a": 0.26,
                             "ds_c": 0.51,
-                            "cs0_a": 0.49,
-                            "cs0_c": 1.07,
+                            "x0_a": 0.49,
+                            "x0_c": 1.07,
                             "i0_c": 0.11,
                             "eps_s_c_am": 0.99,
                         }
@@ -1748,8 +1748,8 @@ def mcmc_iter(
                         val_dict = {
                             "i0_a": 0.14,
                             "ds_c": 0.54,
-                            "cs0_a": 0.35,
-                            "cs0_c": 1.07,
+                            "x0_a": 0.35,
+                            "x0_c": 1.07,
                             "i0_c": 0.11,
                             "eps_s_c_am": 0.99,
                         }
@@ -1758,8 +1758,8 @@ def mcmc_iter(
                         val_dict = {
                             "i0_a": 0.15,
                             "ds_c": 0.58,
-                            "cs0_a": 0.38,
-                            "cs0_c": 1.07,
+                            "x0_a": 0.38,
+                            "x0_c": 1.07,
                             "i0_c": 0.11,
                             "eps_s_c_am": 0.99,
                         }
@@ -1768,8 +1768,8 @@ def mcmc_iter(
                         val_dict = {
                             "i0_a": 0.11,
                             "ds_c": 0.62,
-                            "cs0_a": 0.31,
-                            "cs0_c": 1.06,
+                            "x0_a": 0.31,
+                            "x0_c": 1.06,
                             "i0_c": 0.11,
                             "eps_s_c_am": 0.99,
                         }
@@ -1778,8 +1778,8 @@ def mcmc_iter(
                         val_dict = {
                             "i0_a": 0.11,
                             "ds_c": 0.68,
-                            "cs0_a": 0.31,
-                            "cs0_c": 1.03,
+                            "x0_a": 0.31,
+                            "x0_c": 1.03,
                             "i0_c": 0.11,
                             "eps_s_c_am": 0.99,
                         }
@@ -1791,77 +1791,77 @@ def mcmc_iter(
                     if cell_id == 30:
                         init_val = True
 
-                        # val_dict = {"i0_a": 0.11, "ds_c": 0.52, "cs0_a":0.8, "cs0_c":1.11, "i0_c":0.21, "eps_s_c":0.99, "cs0_a_charge":0.48, "cs0_c_charge":1.07}
+                        # val_dict = {"i0_a": 0.11, "ds_c": 0.52, "x0_a":0.8, "x0_c":1.11, "i0_c":0.21, "eps_s_c":0.99, "x0_a_charge":0.48, "x0_c_charge":1.07}
                         val_dict = {
                             "i0_a": 0.1401,
                             "ds_c": 8.727,
-                            "cs0_a": 1.077,
-                            "cs0_c": 1.176,
+                            "x0_a": 1.077,
+                            "x0_c": 1.176,
                             "i0_c": 0.1011,
                             "eps_s_c_am": 0.9167,
-                            "cs0_a_charge": 0.3054,
-                            "cs0_c_charge": 1.047,
+                            "x0_a_charge": 0.3054,
+                            "x0_c_charge": 1.047,
                         }
                     elif cell_id == 31:
                         init_val = True
                         val_dict = {
                             "i0_a": 0.2192,
                             "ds_c": 9.154,
-                            "cs0_a": 1.077,
-                            "cs0_c": 1.18,
+                            "x0_a": 1.077,
+                            "x0_c": 1.18,
                             "i0_c": 0.1005,
                             "eps_s_c_am": 0.9281,
-                            "cs0_a_charge": 0.343,
-                            "cs0_c_charge": 1.041,
+                            "x0_a_charge": 0.343,
+                            "x0_c_charge": 1.041,
                         }
-                        # val_dict = {"i0_a": 0.11, "ds_c": 0.52, "cs0_a":0.8, "cs0_c":1.11, "i0_c":0.21, "eps_s_c":0.99, "cs0_a_charge":0.48, "cs0_c_charge":1.07}
+                        # val_dict = {"i0_a": 0.11, "ds_c": 0.52, "x0_a":0.8, "x0_c":1.11, "i0_c":0.21, "eps_s_c":0.99, "x0_a_charge":0.48, "x0_c_charge":1.07}
                     elif cell_id == 32:
                         init_val = True
                         val_dict = {
                             "i0_a": 0.11,
                             "ds_c": 0.53,
-                            "cs0_a": 0.77,
-                            "cs0_c": 1.15,
+                            "x0_a": 0.77,
+                            "x0_c": 1.15,
                             "i0_c": 0.14,
                             "eps_s_c_am": 0.99,
-                            "cs0_a_charge": 0.35,
-                            "cs0_c_charge": 1.07,
+                            "x0_a_charge": 0.35,
+                            "x0_c_charge": 1.07,
                         }
                     elif cell_id == 35:
                         init_val = True
                         val_dict = {
                             "i0_a": 0.11,
                             "ds_c": 0.56,
-                            "cs0_a": 0.77,
-                            "cs0_c": 1.15,
+                            "x0_a": 0.77,
+                            "x0_c": 1.15,
                             "i0_c": 0.15,
                             "eps_s_c_am": 0.99,
-                            "cs0_a_charge": 0.38,
-                            "cs0_c_charge": 1.07,
+                            "x0_a_charge": 0.38,
+                            "x0_c_charge": 1.07,
                         }
                     elif cell_id == 39:
                         init_val = True
                         val_dict = {
                             "i0_a": 0.11,
                             "ds_c": 0.62,
-                            "cs0_a": 0.84,
-                            "cs0_c": 1.05,
+                            "x0_a": 0.84,
+                            "x0_c": 1.05,
                             "i0_c": 0.11,
                             "eps_s_c_am": 0.99,
-                            "cs0_a_charge": 0.31,
-                            "cs0_c_charge": 1.06,
+                            "x0_a_charge": 0.31,
+                            "x0_c_charge": 1.06,
                         }
                     elif cell_id == 42:
                         init_val = True
                         val_dict = {
                             "i0_a": 0.11,
                             "ds_c": 0.69,
-                            "cs0_a": 0.83,
-                            "cs0_c": 1.06,
+                            "x0_a": 0.83,
+                            "x0_c": 1.06,
                             "i0_c": 0.11,
                             "eps_s_c_am": 0.99,
-                            "cs0_a_charge": 0.31,
-                            "cs0_c_charge": 1.03,
+                            "x0_a_charge": 0.31,
+                            "x0_c_charge": 1.03,
                         }
                     if cal_sigma:
                         val_dict["sigma"] = (
@@ -1939,8 +1939,8 @@ def mcmc_iter(
         labels_np += sim_params_dict["chargecc"]["deg_param_names"]
     elif cyc_mode.lower() == "discharge-chargecc":
         labels_np += sim_params_dict["discharge"]["deg_param_names"] + [
-            "cs0_a_charge",
-            "cs0_c_charge",
+            "x0_a_charge",
+            "x0_c_charge",
         ]
     if cal_sigma:
         labels_np += ["sigma"]
@@ -2030,10 +2030,10 @@ def mcmc_iter(
         realization_dV_dQ["chargecc"] = []
         realization_dQ_dV["chargecc"] = []
         indc = list(range(sim_params_dict["chargecc"]["n_params"]))
-        indc[sim_params_dict["chargecc"]["ind_deg_cs0_a"]] = nn_dict[
+        indc[sim_params_dict["chargecc"]["ind_deg_x0_a"]] = nn_dict[
             "chargecc"
         ].params["n_params"]
-        indc[sim_params_dict["chargecc"]["ind_deg_cs0_c"]] = (
+        indc[sim_params_dict["chargecc"]["ind_deg_x0_c"]] = (
             sim_params_dict["chargecc"]["n_params"] + 1
         )
         for i in range(min(nsamples, 40)):
@@ -2147,14 +2147,14 @@ def postprocess(
             )
         ranges.append(
             (
-                sim_params_dict["chargecc"]["deg_cs0_a_min"],
-                sim_params_dict["chargecc"]["deg_cs0_a_max"],
+                sim_params_dict["chargecc"]["deg_x0_a_min"],
+                sim_params_dict["chargecc"]["deg_x0_a_max"],
             )
         )
         ranges.append(
             (
-                sim_params_dict["chargecc"]["deg_cs0_c_min"],
-                sim_params_dict["chargecc"]["deg_cs0_c_max"],
+                sim_params_dict["chargecc"]["deg_x0_c_min"],
+                sim_params_dict["chargecc"]["deg_x0_c_max"],
             )
         )
     if args_cal.calibrate_one_sigma:
@@ -2539,10 +2539,10 @@ def postprocess(
                     realization_dQ_dV.append(dQ_dV)
             if key == "chargecc":
                 indc = list(range(sim_params_dict["chargecc"]["n_params"]))
-                indc[sim_params_dict["chargecc"]["ind_deg_cs0_a"]] = nn_dict[
+                indc[sim_params_dict["chargecc"]["ind_deg_x0_a"]] = nn_dict[
                     "chargecc"
                 ].params["n_params"]
-                indc[sim_params_dict["chargecc"]["ind_deg_cs0_c"]] = (
+                indc[sim_params_dict["chargecc"]["ind_deg_x0_c"]] = (
                     sim_params_dict["chargecc"]["n_params"] + 1
                 )
                 for i in range(nsamples):

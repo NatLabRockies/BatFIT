@@ -7,6 +7,8 @@ from ruamel.yaml import YAML
 from scipy.stats import qmc
 
 from batfit import logger
+from batfit.preprocess.sim_setup import read_deg_param
+from batfit.preprocess.utils import from_degparamlist_to_degparamdict
 
 
 def round_samples(samples):
@@ -15,233 +17,104 @@ def round_samples(samples):
             samples[i][j] = round(samples[i][j], 5)
 
 
-def get_LI_ch_a(deg_par, deg_param_names, sim_params):
-    factor = 1.0
-    if "cs0_a_chcc" in deg_param_names:
-        ind_cs0_a_chcc = deg_param_names.index("cs0_a_chcc")
-        factor *= deg_par[ind_cs0_a_chcc]
-    if "l_a" in deg_param_names:
-        ind_l_a = deg_param_names.index("l_a")
-        factor *= deg_par[ind_l_a]
-    if "eps_s_a_am" in deg_param_names:
-        ind_eps_s_a_am = deg_param_names.index("eps_s_a_am")
-        factor *= deg_par[ind_eps_s_a_am]
-    else:
-        if "eps_cbd_a" in deg_param_names:
-            ind_eps_cbd_a = deg_param_names.index("eps_cbd_a")
-            if "eps_s_a" in deg_param_names:
-                ind_eps_s_a = deg_param_names.index("eps_s_a")
-                eps_am = (
-                    deg_par[ind_eps_s_a] * sim_params["eps_s_a"]
-                    - deg_par[ind_eps_cbd_a] * sim_params["eps_CBD_a"]
-                )
-                factor *= eps_am / (
-                    sim_params["eps_s_a"] - sim_params["eps_CBD_a"]
-                )
-            else:
-                eps_am = (
-                    sim_params["eps_s_a"]
-                    - deg_par[ind_eps_cbd_a] * sim_params["eps_CBD_a"]
-                )
-                factor *= eps_am / (
-                    sim_params["eps_s_a"] - sim_params["eps_CBD_a"]
-                )
-        else:
-            if "eps_s_a" in deg_param_names:
-                ind_eps_s_a = deg_param_names.index("eps_s_a")
-                eps_am = (
-                    deg_par[ind_eps_s_a] * sim_params["eps_s_a"]
-                    - sim_params["eps_CBD_a"]
-                )
-                factor *= eps_am / (
-                    sim_params["eps_s_a"] - sim_params["eps_CBD_a"]
-                )
+def _get_LI(
+    deg_par, deg_param_names, sim_params, cyc_mode=None, electrode=None
+):
+    assert cyc_mode.lower() in ["charge", "discharge"]
+    assert electrode.lower() in ["anode", "cathode"]
 
-    LI_ch_a = (
-        sim_params["x0_a_chcc"]
-        * sim_params["csanmax"]
-        * sim_params["L_a"]
-        * (sim_params["eps_s_a"] - sim_params["eps_CBD_a"])
-        * factor
+    if cyc_mode.lower() == "charge":
+        cyc_suffix = "chcc"
+    elif cyc_mode.lower() == "discharge":
+        cyc_suffix = "dis"
+    if electrode.lower() == "anode":
+        elec_suffix = "a"
+        elec_long_suffix = "an"
+    elif electrode.lower() == "cathode":
+        elec_suffix = "c"
+        elec_long_suffix = "ca"
+
+    deg_par_dict = from_degparamlist_to_degparamdict(
+        deg_param_list=deg_par, sim_params=sim_params
     )
-    return LI_ch_a
-
-
-def get_LI_ch_c(deg_par, deg_param_names, sim_params):
-    factor = 1.0
-    if "cs0_c_chcc" in deg_param_names:
-        ind_cs0_c_chcc = deg_param_names.index("cs0_c_chcc")
-        factor *= deg_par[ind_cs0_c_chcc]
-    if "l_c" in deg_param_names:
-        ind_l_c = deg_param_names.index("l_c")
-        factor *= deg_par[ind_l_c]
-    if "eps_s_c_am" in deg_param_names:
-        ind_eps_s_c_am = deg_param_names.index("eps_s_c_am")
-        factor *= deg_par[ind_eps_s_c_am]
-    else:
-        if "eps_cbd_c" in deg_param_names:
-            ind_eps_cbd_c = deg_param_names.index("eps_cbd_c")
-            if "eps_s_c" in deg_param_names:
-                ind_eps_s_c = deg_param_names.index("eps_s_c")
-                eps_am = (
-                    deg_par[ind_eps_s_c] * sim_params["eps_s_c"]
-                    - deg_par[ind_eps_cbd_c] * sim_params["eps_CBD_c"]
-                )
-                factor *= eps_am / (
-                    sim_params["eps_s_c"] - sim_params["eps_CBD_c"]
-                )
-            else:
-                eps_am = (
-                    sim_params["eps_s_c"]
-                    - deg_par[ind_eps_cbd_c] * sim_params["eps_CBD_c"]
-                )
-                factor *= eps_am / (
-                    sim_params["eps_s_c"] - sim_params["eps_CBD_c"]
-                )
-        else:
-            if "eps_s_c" in deg_param_names:
-                ind_eps_s_c = deg_param_names.index("eps_s_c")
-                eps_am = (
-                    deg_par[ind_eps_s_c] * sim_params["eps_s_c"]
-                    - sim_params["eps_CBD_c"]
-                )
-                factor *= eps_am / (
-                    sim_params["eps_s_c"] - sim_params["eps_CBD_c"]
-                )
-
-    LI_ch_c = (
-        sim_params["x0_c_chcc"]
-        * sim_params["cscamax"]
-        * sim_params["L_c"]
-        * (sim_params["eps_s_c"] - sim_params["eps_CBD_c"])
-        * factor
+    x0 = sim_params[f"x0_{elec_suffix}_{cyc_suffix}"] * read_deg_param(
+        f"x0_{elec_suffix}_{cyc_suffix}", deg_par_dict
     )
-    return LI_ch_c
-
-
-def get_LI_dis_a(deg_par, deg_param_names, sim_params):
-    factor = 1.0
-    if "cs0_a_dis" in deg_param_names:
-        ind_cs0_a_dis = deg_param_names.index("cs0_a")
-        factor *= deg_par[ind_cs0_a_dis]
-    if "l_a" in deg_param_names:
-        ind_l_a = deg_param_names.index("l_a")
-        factor *= deg_par[ind_l_a]
-    if "eps_s_a_am" in deg_param_names:
-        ind_eps_s_a_am = deg_param_names.index("eps_s_a_am")
-        factor *= deg_par[ind_eps_s_a_am]
-    else:
-        if "eps_cbd_a" in deg_param_names:
-            ind_eps_cbd_a = deg_param_names.index("eps_cbd_a")
-            if "eps_s_a" in deg_param_names:
-                ind_eps_s_a = deg_param_names.index("eps_s_a")
-                eps_am = (
-                    deg_par[ind_eps_s_a] * sim_params["eps_s_a"]
-                    - deg_par[ind_eps_cbd_a] * sim_params["eps_CBD_a"]
-                )
-                factor *= eps_am / (
-                    sim_params["eps_s_a"] - sim_params["eps_CBD_a"]
-                )
-            else:
-                eps_am = (
-                    sim_params["eps_s_a"]
-                    - deg_par[ind_eps_cbd_a] * sim_params["eps_CBD_a"]
-                )
-                factor *= eps_am / (
-                    sim_params["eps_s_a"] - sim_params["eps_CBD_a"]
-                )
-        else:
-            if "eps_s_a" in deg_param_names:
-                ind_eps_s_a = deg_param_names.index("eps_s_a")
-                eps_am = (
-                    deg_par[ind_eps_s_a] * sim_params["eps_s_a"]
-                    - sim_params["eps_CBD_a"]
-                )
-                factor *= eps_am / (
-                    sim_params["eps_s_a"] - sim_params["eps_CBD_a"]
-                )
-
-    LI_dis_a = (
-        sim_params["x0_a_dis"]
-        * sim_params["csanmax"]
-        * sim_params["L_a"]
-        * (sim_params["eps_s_a"] - sim_params["eps_CBD_a"])
-        * factor
+    csmax = sim_params[f"cs{elec_long_suffix}max"] * read_deg_param(
+        f"cs{elec_long_suffix}max", deg_par_dict
     )
-    return LI_dis_a
-
-
-def get_LI_dis_c(deg_par, deg_param_names, sim_params):
-    factor = 1.0
-    if "cs0_c_dis" in deg_param_names:
-        ind_cs0_c_dis = deg_param_names.index("cs0_c")
-        factor *= deg_par[ind_cs0_c_dis]
-    if "l_c" in deg_param_names:
-        ind_l_c = deg_param_names.index("l_c")
-        factor *= deg_par[ind_l_c]
-    if "eps_s_c_am" in deg_param_names:
-        ind_eps_s_c_am = deg_param_names.index("eps_s_c_am")
-        factor *= deg_par[ind_eps_s_c_am]
-    else:
-        if "eps_cbd_c" in deg_param_names:
-            ind_eps_cbd_c = deg_param_names.index("eps_cbd_c")
-            if "eps_s_c" in deg_param_names:
-                ind_eps_s_c = deg_param_names.index("eps_s_c")
-                eps_am = (
-                    deg_par[ind_eps_s_c] * sim_params["eps_s_c"]
-                    - deg_par[ind_eps_cbd_c] * sim_params["eps_CBD_c"]
-                )
-                factor *= eps_am / (
-                    sim_params["eps_s_c"] - sim_params["eps_CBD_c"]
-                )
-            else:
-                eps_am = (
-                    sim_params["eps_s_c"]
-                    - deg_par[ind_eps_cbd_c] * sim_params["eps_CBD_c"]
-                )
-                factor *= eps_am / (
-                    sim_params["eps_s_c"] - sim_params["eps_CBD_c"]
-                )
-        else:
-            if "eps_s_c" in deg_param_names:
-                ind_eps_s_c = deg_param_names.index("eps_s_c")
-                eps_am = (
-                    deg_par[ind_eps_s_c] * sim_params["eps_s_c"]
-                    - sim_params["eps_CBD_c"]
-                )
-                factor *= eps_am / (
-                    sim_params["eps_s_c"] - sim_params["eps_CBD_c"]
-                )
-    LI_dis_c = (
-        sim_params["x0_c_dis"]
-        * sim_params["cscamax"]
-        * sim_params["L_c"]
-        * (sim_params["eps_s_c"] - sim_params["eps_CBD_c"])
-        * factor
+    l = sim_params[f"L_{elec_suffix}"] * read_deg_param(
+        f"l_{elec_suffix}", deg_par_dict
     )
-    return LI_dis_c
+    eps_cbd = sim_params[f"eps_CBD_{elec_suffix}"] * read_deg_param(
+        f"eps_cbd_{elec_suffix}", deg_par_dict
+    )
+    if f"eps_s_{elec_suffix}" in deg_param_names:
+        eps_s = sim_params[f"eps_s_{elec_suffix}"] * read_deg_param(
+            f"eps_s_{elec_suffix}", deg_par_dict
+        )
+    elif f"eps_s_{elec_suffix}_am" in deg_param_names:
+        eps_s = eps_cbd + (
+            sim_params[f"eps_s_{elec_suffix}"] - eps_cbd
+        ) * read_deg_param(f"eps_s_{elec_suffix}_am", deg_par_dict)
+    eps_am = eps_s - eps_cbd
+
+    LI_ch = x0 * csmax * l * eps_am
+    return LI_ch
 
 
 def get_LI_ch(deg_par, deg_param_names, sim_params):
-    return get_LI_ch_a(deg_par, deg_param_names, sim_params) + get_LI_ch_c(
-        deg_par, deg_param_names, sim_params
+    return _get_LI(
+        deg_par,
+        deg_param_names,
+        sim_params,
+        cyc_mode="charge",
+        electrode="anode",
+    ) + _get_LI(
+        deg_par,
+        deg_param_names,
+        sim_params,
+        cyc_mode="charge",
+        electrode="cathode",
     )
 
 
 def get_LI_dis(deg_par, deg_param_names, sim_params):
-    return get_LI_dis_a(deg_par, deg_param_names, sim_params) + get_LI_dis_c(
-        deg_par, deg_param_names, sim_params
+    return _get_LI(
+        deg_par,
+        deg_param_names,
+        sim_params,
+        cyc_mode="discharge",
+        electrode="anode",
+    ) + _get_LI(
+        deg_par,
+        deg_param_names,
+        sim_params,
+        cyc_mode="discharge",
+        electrode="cathode",
     )
 
 
-def backout_cs0_a(deg_par, deg_param_names, l_bounds, u_bounds, sim_params):
+def backout_x0_a(deg_par, deg_param_names, l_bounds, u_bounds, sim_params):
     # We want LI ch = LI dis_a + Li dis_c
     LI_ch = get_LI_ch(deg_par, deg_param_names, sim_params)
-    LI_dis_c = get_LI_dis_c(deg_par, deg_param_names, sim_params)
-    LI_dis_a = get_LI_dis_a(deg_par, deg_param_names, sim_params)
+    LI_dis_c = _get_LI(
+        deg_par,
+        deg_param_names,
+        sim_params,
+        cyc_mode="discharge",
+        electrode="cathode",
+    )
+    LI_dis_a = _get_LI_dis_a(
+        deg_par,
+        deg_param_names,
+        sim_params,
+        cyc_mode="discharge",
+        electrode="anode",
+    )
 
-    if "cs0_a" in deg_param_names:
-        ind = deg_param_names.index("cs0_a")
+    if "x0_a" in deg_param_names:
+        ind = deg_param_names.index("x0_a")
         corr_factor = (LI_ch - LI_dis_c) / LI_dis_a
         min_val = l_bounds[ind]
         max_val = u_bounds[ind]
@@ -249,20 +122,20 @@ def backout_cs0_a(deg_par, deg_param_names, l_bounds, u_bounds, sim_params):
         if new_deg > max_val or new_deg < min_val:
             return False, None
         else:
-            logger.info(f"Adjusted cs0_a from {deg_par[ind]} to {new_deg}")
+            logger.info(f"Adjusted x0_a from {deg_par[ind]} to {new_deg}")
             return True, new_deg
     else:
         return False, None
 
 
-def backout_cs0_c(deg_par, deg_param_names, l_bounds, u_bounds, sim_params):
+def backout_x0_c(deg_par, deg_param_names, l_bounds, u_bounds, sim_params):
     # We want LI ch = LI dis_a + Li dis_c
     LI_ch = get_LI_ch(deg_par, deg_param_names, sim_params)
     LI_dis_c = get_LI_dis_c(deg_par, deg_param_names, sim_params)
     LI_dis_a = get_LI_dis_a(deg_par, deg_param_names, sim_params)
 
-    if "cs0_c" in deg_param_names:
-        ind = deg_param_names.index("cs0_c")
+    if "x0_c" in deg_param_names:
+        ind = deg_param_names.index("x0_c")
         corr_factor = (LI_ch - LI_dis_a) / LI_dis_c
         min_val = l_bounds[ind]
         max_val = u_bounds[ind]
@@ -270,22 +143,34 @@ def backout_cs0_c(deg_par, deg_param_names, l_bounds, u_bounds, sim_params):
         if new_deg > max_val or new_deg < min_val:
             return False, None
         else:
-            logger.info(f"Adjusted cs0_c from {deg_par[ind]} to {new_deg}")
+            logger.info(f"Adjusted x0_c from {deg_par[ind]} to {new_deg}")
             return True, new_deg
     else:
         return False, None
 
 
-def backout_cs0_a_chcc(
+def backout_x0_a_chcc(
     deg_par, deg_param_names, l_bounds, u_bounds, sim_params
 ):
     # We want LI dis = LI ch_a + Li ch_c
     LI_dis = get_LI_dis(deg_par, deg_param_names, sim_params)
-    LI_ch_c = get_LI_ch_c(deg_par, deg_param_names, sim_params)
-    LI_ch_a = get_LI_ch_a(deg_par, deg_param_names, sim_params)
+    LI_ch_c = _get_LI(
+        deg_par,
+        deg_param_names,
+        sim_params,
+        cyc_mode="charge",
+        electrode="cathode",
+    )
+    LI_ch_a = _get_LI(
+        deg_par,
+        deg_param_names,
+        sim_params,
+        cyc_mode="charge",
+        electrode="anode",
+    )
 
-    if "cs0_a_chcc" in deg_param_names:
-        ind = deg_param_names.index("cs0_a_chcc")
+    if "x0_a_chcc" in deg_param_names:
+        ind = deg_param_names.index("x0_a_chcc")
         corr_factor = (LI_dis - LI_ch_c) / LI_ch_a
         min_val = l_bounds[ind]
         max_val = u_bounds[ind]
@@ -293,24 +178,34 @@ def backout_cs0_a_chcc(
         if new_deg > max_val or new_deg < min_val:
             return False, None
         else:
-            logger.info(
-                f"Adjusted cs0_a_chcc from {deg_par[ind]} to {new_deg}"
-            )
+            logger.info(f"Adjusted x0_a_chcc from {deg_par[ind]} to {new_deg}")
             return True, new_deg
     else:
         return False, None
 
 
-def backout_cs0_c_chcc(
+def backout_x0_c_chcc(
     deg_par, deg_param_names, l_bounds, u_bounds, sim_params
 ):
     # We want LI dis = LI ch_a + Li ch_c
     LI_dis = get_LI_dis(deg_par, deg_param_names, sim_params)
-    LI_ch_c = get_LI_ch_c(deg_par, deg_param_names, sim_params)
-    LI_ch_a = get_LI_ch_a(deg_par, deg_param_names, sim_params)
+    LI_ch_c = _get_LI(
+        deg_par,
+        deg_param_names,
+        sim_params,
+        cyc_mode="charge",
+        electrode="cathode",
+    )
+    LI_ch_a = _get_LI(
+        deg_par,
+        deg_param_names,
+        sim_params,
+        cyc_mode="charge",
+        electrode="anode",
+    )
 
-    if "cs0_c_chcc" in deg_param_names:
-        ind = deg_param_names.index("cs0_c_chcc")
+    if "x0_c_chcc" in deg_param_names:
+        ind = deg_param_names.index("x0_c_chcc")
         corr_factor = (LI_dis - LI_ch_a) / LI_ch_c
         min_val = l_bounds[ind]
         max_val = u_bounds[ind]
@@ -318,9 +213,7 @@ def backout_cs0_c_chcc(
         if new_deg > max_val or new_deg < min_val:
             return False, None
         else:
-            logger.info(
-                f"Adjusted cs0_c_chcc from {deg_par[ind]} to {new_deg}"
-            )
+            logger.info(f"Adjusted x0_c_chcc from {deg_par[ind]} to {new_deg}")
             return True, new_deg
     else:
         return False, None
@@ -330,25 +223,25 @@ def enforce_li_conservation(
     sample_scaled, deg_param_names, l_bounds, u_bounds, sim_params
 ):
     if (
-        ("cs0_a" not in deg_param_names)
-        or ("cs0_c" not in deg_param_names)
-        or ("cs0_a_chcc" not in deg_param_names)
-        or ("cs0_c_chcc" not in deg_param_names)
+        ("x0_a" not in deg_param_names)
+        or ("x0_c" not in deg_param_names)
+        or ("x0_a_chcc" not in deg_param_names)
+        or ("x0_c_chcc" not in deg_param_names)
     ):
         return sample_scaled
 
-    ind_cs0_a = deg_param_names.index("cs0_a")
-    ind_cs0_c = deg_param_names.index("cs0_c")
-    ind_cs0_a_chcc = deg_param_names.index("cs0_a_chcc")
-    ind_cs0_c_chcc = deg_param_names.index("cs0_c_chcc")
+    ind_x0_a = deg_param_names.index("x0_a")
+    ind_x0_c = deg_param_names.index("x0_c")
+    ind_x0_a_chcc = deg_param_names.index("x0_a_chcc")
+    ind_x0_c_chcc = deg_param_names.index("x0_c_chcc")
 
     index_to_remove = []
 
     for isamp in range(sample_scaled.shape[0]):
         success = False
-        for name_enf in ["cs0_c_chcc", "cs0_a_chcc", "cs0_a", "cs0_c"]:
-            if not success and name_enf.lower() == "cs0_c_chcc":
-                success, val = backout_cs0_c_chcc(
+        for name_enf in ["x0_c_chcc", "x0_a_chcc", "x0_a", "x0_c"]:
+            if not success and name_enf.lower() == "x0_c_chcc":
+                success, val = backout_x0_c_chcc(
                     sample_scaled[isamp, :],
                     deg_param_names,
                     l_bounds,
@@ -356,9 +249,9 @@ def enforce_li_conservation(
                     sim_params,
                 )
                 if success:
-                    sample_scaled[isamp, ind_cs0_c_chcc] = val
-            if not success and name_enf.lower() == "cs0_a_chcc":
-                success, val = backout_cs0_a_chcc(
+                    sample_scaled[isamp, ind_x0_c_chcc] = val
+            if not success and name_enf.lower() == "x0_a_chcc":
+                success, val = backout_x0_a_chcc(
                     sample_scaled[isamp, :],
                     deg_param_names,
                     l_bounds,
@@ -366,9 +259,9 @@ def enforce_li_conservation(
                     sim_params,
                 )
                 if success:
-                    sample_scaled[isamp, ind_cs0_a_chcc] = val
-            if not success and name_enf.lower() == "cs0_a":
-                success, val = backout_cs0_a(
+                    sample_scaled[isamp, ind_x0_a_chcc] = val
+            if not success and name_enf.lower() == "x0_a":
+                success, val = backout_x0_a(
                     sample_scaled[isamp, :],
                     deg_param_names,
                     l_bounds,
@@ -376,9 +269,9 @@ def enforce_li_conservation(
                     sim_params,
                 )
                 if success:
-                    sample_scaled[isamp, ind_cs0_a] = val
-            if not success and name_enf.lower() == "cs0_c":
-                success, val = backout_cs0_c(
+                    sample_scaled[isamp, ind_x0_a] = val
+            if not success and name_enf.lower() == "x0_c":
+                success, val = backout_x0_c(
                     sample_scaled[isamp, :],
                     deg_param_names,
                     l_bounds,
@@ -386,7 +279,7 @@ def enforce_li_conservation(
                     sim_params,
                 )
                 if success:
-                    sample_scaled[isamp, ind_cs0_c] = val
+                    sample_scaled[isamp, ind_x0_c] = val
 
         if not success:
             index_to_remove.append(isamp)
@@ -586,30 +479,17 @@ def enforce_stoich_a(
 
     index_to_remove = []
     try:
-        ind_csanmax = deg_param_names.index("csanmax")
+        ind_x0_a = deg_param_names.index("x0_a")
     except ValueError:
-        ind_csanmax = -1
-
-    try:
-        ind_cs0_a = deg_param_names.index("cs0_a")
-    except ValueError:
-        ind_cs0_a = -1
+        ind_x0_a = -1
 
     for isamp in range(sample_scaled.shape[0]):
-        if ind_cs0_a > -1:
-            cs0_a = (
-                sim_params["x0_a"]
-                * sim_params["csanmax"]
-                * sample_scaled[isamp, ind_cs0_a]
-            )
+        if ind_x0_a > -1:
+            x0_a = sim_params["x0_a"] * sample_scaled[isamp, ind_x0_a]
         else:
-            cs0_a = sim_params["x0_a"] * sim_params["csanmax"]
-        if ind_csanmax > -1:
-            csanmax = sim_params["csanmax"] * sample_scaled[isamp, ind_csanmax]
-        else:
-            csanmax = sim_params["csanmax"]
+            x0_a = sim_params["x0_a"]
 
-        if cs0_a > csanmax or cs0_a < 0:
+        if x0_a > 1.0 or x0_a < 0:
             index_to_remove.append(isamp)
 
     if len(index_to_remove) > 0:
@@ -627,35 +507,22 @@ def enforce_stoich_c(
 
     index_to_remove = []
     try:
-        ind_cscamax = deg_param_names.index("cscamax")
+        ind_x0_c = deg_param_names.index("x0_c")
     except ValueError:
-        ind_cscamax = -1
-
-    try:
-        ind_cs0_c = deg_param_names.index("cs0_c")
-    except ValueError:
-        ind_cs0_c = -1
+        ind_x0_c = -1
 
     for isamp in range(sample_scaled.shape[0]):
-        if ind_cs0_c > -1:
-            cs0_c = (
-                sim_params["x0_c"]
-                * sim_params["cscamax"]
-                * sample_scaled[isamp, ind_cs0_c]
-            )
+        if ind_x0_c > -1:
+            x0_c = sim_params["x0_c"] * sample_scaled[isamp, ind_x0_c]
         else:
-            cs0_c = sim_params["x0_c"] * sim_params["cscamax"]
-        if ind_cscamax > -1:
-            cscamax = sim_params["cscamax"] * sample_scaled[isamp, ind_cscamax]
-        else:
-            cscamax = sim_params["cscamax"]
+            x0_c = sim_params["x0_c"]
 
-        if cs0_c > cscamax or cs0_c < 0:
+        if x0_c > 1.0 or x0_c < 0:
             index_to_remove.append(isamp)
 
     if len(index_to_remove) > 0:
         logger.warning(
-            f"Stoichiometry cathode {len(index_to_remove)} Failed index"
+            f"Stoichiometry anode {len(index_to_remove)} Failed index"
         )
         sample_scaled = np.delete(sample_scaled, index_to_remove, axis=0)
 
