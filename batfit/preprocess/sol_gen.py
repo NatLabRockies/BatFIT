@@ -378,10 +378,11 @@ def single_run(
     sim, C_rate = mod_sim(
         sim, sim_params, deg_param_sample, cyc_mode, run_mode=run_mode
     )
+    sim.pre()
+    # print(deg_param_sample)
     # print_an(sim)
     # print_ca(sim)
 
-    sim.pre()
     time_s = time.time()
     if cyc_mode.lower() in ["discharge", "chargecc", "discharge-chargecc"]:
         rootsol = robust_CC(sim=sim, C_rate=C_rate, sim_params=sim_params)

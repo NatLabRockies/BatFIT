@@ -493,7 +493,9 @@ def set_electrodes(
     run_mode: str,
     is_p2d: bool,
 ):
-    for elec, suffix in zip([sim.ca, sim.an], ["c", "a"]):
+    for elec, suffix, long_name in zip(
+        [sim.ca, sim.an], ["c", "a"], ["ca", "an"]
+    ):
         # Ds and i0 are set through degradation parameters
         elec.Ds_deg = read_deg_param(
             key=f"ds_{suffix}", deg_param_sample=deg_param_sample
@@ -502,10 +504,14 @@ def set_electrodes(
             key=f"i0_{suffix}", deg_param_sample=deg_param_sample
         )
 
+        elec.Li_max = sim_params[f"cs{long_name}max"] * read_deg_param(
+            key=f"cs{long_name}max", deg_param_sample=deg_param_sample
+        )
+
         if f"eps_cbd_{suffix}" in deg_param_sample:
-            #logger.warning(
+            # logger.warning(
             #    "Changing CBD independently of AM is not recommended"
-            #)
+            # )
             elec.eps_CBD = (
                 sim_params[f"eps_CBD_{suffix}"]
                 * deg_param_sample[f"eps_cbd_{suffix}"]
@@ -514,9 +520,9 @@ def set_electrodes(
             elec.eps_CBD = sim_params[f"eps_CBD_{suffix}"]
 
         if f"eps_s_{suffix}" in deg_param_sample:
-            #logger.warning(
+            # logger.warning(
             #    "Changing eps_s independently of AM is not recommended"
-            #)
+            # )
             elec.eps_s = (
                 sim_params[f"eps_s_{suffix}"]
                 * deg_param_sample[f"eps_s_{suffix}"]
@@ -597,7 +603,7 @@ def print_an(sim):
 
 
 def print_ca(sim):
-    print("Anode")
+    print("Cathode")
     print(f"\tA_s = {sim.ca.A_s}")
     print(f"\tLi_max = {sim.ca.Li_max}")
     print(f"\tR_s = {sim.ca.R_s}")

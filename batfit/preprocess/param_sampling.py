@@ -293,7 +293,9 @@ def backout_cs0_a_chcc(
         if new_deg > max_val or new_deg < min_val:
             return False, None
         else:
-            logger.info(f"Adjusted cs0_a_chcc from {deg_par[ind]} to {new_deg}")
+            logger.info(
+                f"Adjusted cs0_a_chcc from {deg_par[ind]} to {new_deg}"
+            )
             return True, new_deg
     else:
         return False, None
@@ -316,7 +318,9 @@ def backout_cs0_c_chcc(
         if new_deg > max_val or new_deg < min_val:
             return False, None
         else:
-            logger.info(f"Adjusted cs0_c_chcc from {deg_par[ind]} to {new_deg}")
+            logger.info(
+                f"Adjusted cs0_c_chcc from {deg_par[ind]} to {new_deg}"
+            )
             return True, new_deg
     else:
         return False, None
@@ -386,12 +390,10 @@ def enforce_li_conservation(
 
         if not success:
             index_to_remove.append(isamp)
+
     if len(index_to_remove) > 0:
-        logger.warning(f"{len(index_to_remove)} Failed index")
-        # Reverse order of index_to_remove
-        index_to_remove = list(reversed(index_to_remove))
-        for ind in index_to_remove:
-            sample_scaled = np.delete(sample_scaled, ind, axis=0)
+        logger.warning(f"Li cons {len(index_to_remove)} Failed index")
+        sample_scaled = np.delete(sample_scaled, index_to_remove, axis=0)
 
     return sample_scaled
 
@@ -507,8 +509,10 @@ def enforce_pos_void_a(
             index_to_remove.append(isamp)
 
     if len(index_to_remove) > 0:
-        logger.warning(f"{len(index_to_remove)} Failed index")
-        sample_scaled = np.delete(sample_scaled, index_to_remove, axis=0) 
+        logger.warning(
+            f"Positive void anode {len(index_to_remove)} Failed index"
+        )
+        sample_scaled = np.delete(sample_scaled, index_to_remove, axis=0)
 
     return sample_scaled
 
@@ -568,8 +572,92 @@ def enforce_pos_void_c(
             index_to_remove.append(isamp)
 
     if len(index_to_remove) > 0:
-        logger.warning(f"{len(index_to_remove)} Failed index")
-        sample_scaled = np.delete(sample_scaled, index_to_remove, axis=0) 
+        logger.warning(
+            f"Positive void cathode {len(index_to_remove)} Failed index"
+        )
+        sample_scaled = np.delete(sample_scaled, index_to_remove, axis=0)
+
+    return sample_scaled
+
+
+def enforce_stoich_a(
+    sample_scaled, deg_param_names, l_bounds, u_bounds, sim_params
+):
+
+    index_to_remove = []
+    try:
+        ind_csanmax = deg_param_names.index("csanmax")
+    except ValueError:
+        ind_csanmax = -1
+
+    try:
+        ind_cs0_a = deg_param_names.index("cs0_a")
+    except ValueError:
+        ind_cs0_a = -1
+
+    for isamp in range(sample_scaled.shape[0]):
+        if ind_cs0_a > -1:
+            cs0_a = (
+                sim_params["x0_a"]
+                * sim_params["csanmax"]
+                * sample_scaled[isamp, ind_cs0_a]
+            )
+        else:
+            cs0_a = sim_params["x0_a"] * sim_params["csanmax"]
+        if ind_csanmax > -1:
+            csanmax = sim_params["csanmax"] * sample_scaled[isamp, ind_csanmax]
+        else:
+            csanmax = sim_params["csanmax"]
+
+        if cs0_a > csanmax or cs0_a < 0:
+            index_to_remove.append(isamp)
+
+    if len(index_to_remove) > 0:
+        logger.warning(
+            f"Stoichiometry anode {len(index_to_remove)} Failed index"
+        )
+        sample_scaled = np.delete(sample_scaled, index_to_remove, axis=0)
+
+    return sample_scaled
+
+
+def enforce_stoich_c(
+    sample_scaled, deg_param_names, l_bounds, u_bounds, sim_params
+):
+
+    index_to_remove = []
+    try:
+        ind_cscamax = deg_param_names.index("cscamax")
+    except ValueError:
+        ind_cscamax = -1
+
+    try:
+        ind_cs0_c = deg_param_names.index("cs0_c")
+    except ValueError:
+        ind_cs0_c = -1
+
+    for isamp in range(sample_scaled.shape[0]):
+        if ind_cs0_c > -1:
+            cs0_c = (
+                sim_params["x0_c"]
+                * sim_params["cscamax"]
+                * sample_scaled[isamp, ind_cs0_c]
+            )
+        else:
+            cs0_c = sim_params["x0_c"] * sim_params["cscamax"]
+        if ind_cscamax > -1:
+            cscamax = sim_params["cscamax"] * sample_scaled[isamp, ind_cscamax]
+        else:
+            cscamax = sim_params["cscamax"]
+
+        if cs0_c > cscamax or cs0_c < 0:
+            index_to_remove.append(isamp)
+
+    if len(index_to_remove) > 0:
+        logger.warning(
+            f"Stoichiometry cathode {len(index_to_remove)} Failed index"
+        )
+        sample_scaled = np.delete(sample_scaled, index_to_remove, axis=0)
 
     return sample_scaled
 
@@ -604,6 +692,12 @@ def get_samples(
         sample_scaled, deg_param_names, l_bounds, u_bounds, sim_params
     )
     sample_scaled = enforce_pos_void_c(
+        sample_scaled, deg_param_names, l_bounds, u_bounds, sim_params
+    )
+    sample_scaled = enforce_stoich_a(
+        sample_scaled, deg_param_names, l_bounds, u_bounds, sim_params
+    )
+    sample_scaled = enforce_stoich_c(
         sample_scaled, deg_param_names, l_bounds, u_bounds, sim_params
     )
     if li_cons:
