@@ -154,8 +154,8 @@ def parse_input(filename, parallel_env=None):
             logger.warning("Using default max v 4.1V")
             phy_par["vmax"] = 4.1
         if phy_par["model"].lower() == "p2d":
-            phy_par["eps_el"] = exp["separator"]["eps_el"]
-            phy_par["p_l"] = exp["separator"]["p_liq"]
+            phy_par["eps_el_s"] = exp["separator"]["eps_el"]
+            phy_par["p_l_s"] = exp["separator"]["p_liq"]
             phy_par["p_s_a"] = exp["anode"]["p_sol"]
             phy_par["p_l_a"] = exp["anode"]["p_liq"]
             phy_par["p_s_c"] = exp["cathode"]["p_sol"]
@@ -277,12 +277,12 @@ def parse_input(filename, parallel_env=None):
                 exp["separator charge"]["eps_el"]
                 == exp["separator discharge"]["eps_el"]
             )
-            phy_par["eps_el"] = exp["separator discharge"]["eps_el"]
+            phy_par["eps_el_s"] = exp["separator discharge"]["eps_el"]
             assert (
                 exp["separator charge"]["p_liq"]
                 == exp["separator discharge"]["p_liq"]
             )
-            phy_par["p_l"] = exp["separator discharge"]["p_liq"]
+            phy_par["p_l_s"] = exp["separator discharge"]["p_liq"]
             assert (
                 exp["anode charge"]["p_sol"] == exp["anode discharge"]["p_sol"]
             )
@@ -461,11 +461,11 @@ def set_separator(
         sim.sep.thick = sim_params["L_s"] * read_deg_param(
             deg_param_sample["l_s"], deg_param_sample=deg_param_sample
         )
-        sim.sep.eps_el = sim_params["eps_el"] * read_deg_param(
-            deg_param_sample["eps_el"], deg_param_sample=deg_param_sample
+        sim.sep.eps_el = sim_params["eps_el_s"] * read_deg_param(
+            deg_param_sample["eps_el_s"], deg_param_sample=deg_param_sample
         )
-        sim.sep.p_liq = sim_params["p_l"] * read_deg_param(
-            deg_param_sample["p_l"], deg_param_sample=deg_param_sample
+        sim.sep.p_liq = sim_params["p_l_s"] * read_deg_param(
+            deg_param_sample["p_l_s"], deg_param_sample=deg_param_sample
         )
 
         return sim

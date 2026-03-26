@@ -1,5 +1,5 @@
 cycling mode: discharge
-degradation parameter names: i0_a, ds_c, x0_a, x0_c, i0_c, eps_s_c_am, eps_s_a_am, ds_a, ce, eps_el_a, eps_el_c, eps_el, de, t0, kappa, gamma
+degradation parameter names: i0_a, ds_c, x0_a, x0_c, i0_c, eps_s_c_am, eps_s_a_am, ds_a, ce, eps_el_a, eps_el_c, eps_el_s, de, t0, kappa, gamma
 
 min degradation parameter:
     i0_a:       0.1
@@ -13,7 +13,7 @@ min degradation parameter:
     ce:         0.5
     eps_el_a:    0.7
     eps_el_c:    0.7
-    eps_el:      0.7
+    eps_el_s:      0.7
     de:         0.2
     t0:         0.5
     kappa:      0.5
@@ -32,7 +32,7 @@ max degradation parameter:
     ce:         2.0
     eps_el_a:    1.0
     eps_el_c:    1.0
-    eps_el:      1.0
+    eps_el_s:      1.0
     de:         10.0
     t0:         2.0
     kappa:      2.0
