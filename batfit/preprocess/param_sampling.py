@@ -12,9 +12,11 @@ from batfit.preprocess.utils import from_degparamlist_to_degparamdict
 
 
 def round_samples(samples):
-    for i in range(len(samples)):
-        for j in range(len(samples[i])):
-            samples[i][j] = round(samples[i][j], 5)
+    samples_rounded = samples.copy()
+    for i in range(len(samples_rounded)):
+        for j in range(len(samples_rounded[i])):
+            samples_rounded[i][j] = round(samples_rounded[i][j], 5)
+    return samples_rounded
 
 
 def _get_LI(
@@ -346,7 +348,6 @@ def enforce_li_conservation(
 #    else:
 #        return True, deg_eps_el_c
 
-
 def enforce_pos_void_a(
     sample_scaled, deg_param_names, l_bounds, u_bounds, sim_params
 ):
@@ -398,7 +399,7 @@ def enforce_pos_void_a(
 
         void = 1 - eps_s - eps_el
 
-        if void < 0 or eps_cbd > eps_s:
+        if void < -np.finfo(float).eps or eps_cbd > eps_s:
             index_to_remove.append(isamp)
 
     if len(index_to_remove) > 0:
@@ -461,7 +462,7 @@ def enforce_pos_void_c(
 
         void = 1 - eps_s - eps_el
 
-        if void < 0 or eps_cbd > eps_s:
+        if void < -np.finfo(float).eps or eps_cbd > eps_s:
             index_to_remove.append(isamp)
 
     if len(index_to_remove) > 0:
@@ -553,7 +554,12 @@ def get_samples(
     else:
         sampler = qmc.LatinHypercube(d=n_params)
         sample = sampler.random(n=n_int)
+
     sample_scaled = qmc.scale(sample, l_bounds, u_bounds)
+
+
+    samples_scaled = round_samples(sample_scaled)
+
 
     sample_scaled = enforce_pos_void_a(
         sample_scaled, deg_param_names, l_bounds, u_bounds, sim_params
@@ -572,7 +578,6 @@ def get_samples(
             sample_scaled, deg_param_names, l_bounds, u_bounds, sim_params
         )
 
-    round_samples(sample_scaled)
 
     return sample_scaled
 
