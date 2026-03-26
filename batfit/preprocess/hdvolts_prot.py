@@ -3,7 +3,7 @@ from bmlite import Experiment
 
 
 def define_diffcap_experiment(sim_params, atol=1e-9, max_step=1000):
-    diffcap = Experiment()
+    diffcap = Experiment(atol=atol, max_step=max_step)
     diffcap.add_step(
         "current_A",
         -0.2277978276,
@@ -12,11 +12,9 @@ def define_diffcap_experiment(sim_params, atol=1e-9, max_step=1000):
             "voltage_V",
             sim_params["vmax"],
         ),
-        atol=atol,
-        max_step=max_step,
     )
     diffcap.add_step(
-        "current_A", 0.0, (3600.0, 40), atol=atol, max_step=max_step
+        "current_A", 0.0, (3600.0, 40)
     )
     diffcap.add_step(
         "current_A",
@@ -26,18 +24,16 @@ def define_diffcap_experiment(sim_params, atol=1e-9, max_step=1000):
             "voltage_V",
             sim_params["vmin"],
         ),
-        atol=atol,
-        max_step=max_step,
     )
     diffcap.add_step(
-        "current_A", 0.0, (3600.0, 40), atol=atol, max_step=max_step
+        "current_A", 0.0, (3600.0, 40)
     )
 
     return diffcap
 
 
 def define_pre_hppc_experiment(sim_params, atol=1e-9, max_step=1000):
-    pre_hppc = Experiment()
+    pre_hppc = Experiment(atol=atol, max_step=max_step)
     pre_hppc.add_step(
         "current_A",
         -0.9117096352,
@@ -46,8 +42,6 @@ def define_pre_hppc_experiment(sim_params, atol=1e-9, max_step=1000):
             "voltage_V",
             sim_params["vmax"],
         ),
-        atol=atol,
-        max_step=max_step,
     )
     pre_hppc.add_step(
         "voltage_V",
@@ -57,8 +51,6 @@ def define_pre_hppc_experiment(sim_params, atol=1e-9, max_step=1000):
             "current_A",
             0.23,
         ),
-        atol=atol,
-        max_step=max_step,
     )
     pre_hppc.add_step("current_A", 0.0, (60 * 60, 40))
     pre_hppc.add_step(
@@ -69,8 +61,6 @@ def define_pre_hppc_experiment(sim_params, atol=1e-9, max_step=1000):
             "voltage_V",
             sim_params["vmin"],
         ),
-        atol=atol,
-        max_step=max_step,
     )
     pre_hppc.add_step("current_A", 0.0, (60 * 60, 40))
 
@@ -78,7 +68,7 @@ def define_pre_hppc_experiment(sim_params, atol=1e-9, max_step=1000):
 
 
 def define_hppc_experiment(sim_params, atol=1e-9, max_step=1000):
-    hppc = define_pre_hppc_experiment(sim_params)
+    hppc = define_pre_hppc_experiment(sim_params, atol=atol, max_step=max_step)
     hppc.add_step(
         "current_A",
         -0.9117085305,
@@ -87,8 +77,6 @@ def define_hppc_experiment(sim_params, atol=1e-9, max_step=1000):
             "voltage_V",
             sim_params["vmax"],
         ),
-        max_step=max_step,
-        atol=atol,
     )
     hppc.add_step(
         "voltage_V",
@@ -98,8 +86,6 @@ def define_hppc_experiment(sim_params, atol=1e-9, max_step=1000):
             "current_A",
             0.23,
         ),
-        max_step=max_step,
-        atol=atol,
     )
     step18_current = {
         1: 4.559677946,
@@ -148,7 +134,7 @@ def define_hppc_experiment(sim_params, atol=1e-9, max_step=1000):
     }
     for pulse in range(7):
         hppc.add_step(
-            "current_A", 0.0, (60.0 * 60, 40), max_step=max_step, atol=atol
+            "current_A", 0.0, (60.0 * 60, 40)
         )
         hppc.add_step(
             "current_A",
@@ -158,11 +144,9 @@ def define_hppc_experiment(sim_params, atol=1e-9, max_step=1000):
                 "voltage_V",
                 sim_params["vmin"],
             ),
-            max_step=max_step,
-            atol=atol,
         )
         hppc.add_step(
-            "current_A", 0.0, (40, 100), max_step=max_step, atol=atol
+            "current_A", 0.0, (40, 100)
         )
         hppc.add_step(
             "current_A",
@@ -170,8 +154,6 @@ def define_hppc_experiment(sim_params, atol=1e-9, max_step=1000):
                 step21_current[pulse + 1], step21_currentstd[pulse + 1]
             ),
             (10, 100),
-            max_step=max_step,
-            atol=atol,
         )
         hppc.add_step(
             "current_A",
@@ -187,8 +169,6 @@ def define_hppc_experiment(sim_params, atol=1e-9, max_step=1000):
                 "voltage_V",
                 sim_params["vmin"],
             ),
-            max_step=max_step,
-            atol=atol,
         )
 
     return hppc
