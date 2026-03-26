@@ -92,7 +92,10 @@ def mod_sim(
     return sim, C_rate
 
 
-def robust_DiffCap(sim, sim_params):
+def robust_DiffCap(sim, sim_params, force_fail=False):
+    if force_fail:
+        return None
+
     sol = None
     try:
         exp = define_diffcap_experiment(sim_params)
@@ -125,7 +128,10 @@ def robust_DiffCap(sim, sim_params):
     return sol
 
 
-def robust_preHPPC(sim, sim_params):
+def robust_preHPPC(sim, sim_params, force_fail=False):
+    if force_fail:
+        return None
+
     sol = None
     try:
         exp = define_pre_hppc_experiment(sim_params)
@@ -158,7 +164,9 @@ def robust_preHPPC(sim, sim_params):
     return sol
 
 
-def robust_HPPC(sim, sim_params):
+def robust_HPPC(sim, sim_params, force_fail=False):
+    if force_fail:
+        return None
     sol = None
     try:
         exp = define_hppc_experiment(sim_params)
@@ -193,7 +201,9 @@ def robust_HPPC(sim, sim_params):
     return sol
 
 
-def robust_LHRH(sim, df, charge, protocol, sim_params, bat_model):
+def robust_LHRH(sim, df, charge, protocol, sim_params, bat_model, force_fail=False):
+    if force_fail:
+        return None
     rootsol = None
     try:
         stmp = sim.run(charge, reset_state=False)
@@ -289,7 +299,9 @@ def robust_LHRH(sim, df, charge, protocol, sim_params, bat_model):
     return rootsol
 
 
-def robust_CC(sim, C_rate, sim_params):
+def robust_CC(sim, C_rate, sim_params, force_fail=False):
+    if force_fail:
+        return None
 
     t_step = (3600 / abs(C_rate), 10000)
     t_step_init = (10 / abs(C_rate), 150)
@@ -378,14 +390,21 @@ def single_run(
     sim, C_rate = mod_sim(
         sim, sim_params, deg_param_sample, cyc_mode, run_mode=run_mode
     )
-    sim.pre()
+   
+    # if any exception occured during pre, then fail
+    force_fail = False
+    try:
+        sim.pre()
+    except Exception:
+        force_fail = True
+
     # print(deg_param_sample)
     # print_an(sim)
     # print_ca(sim)
 
     time_s = time.time()
     if cyc_mode.lower() in ["discharge", "chargecc", "discharge-chargecc"]:
-        rootsol = robust_CC(sim=sim, C_rate=C_rate, sim_params=sim_params)
+        rootsol = robust_CC(sim=sim, C_rate=C_rate, sim_params=sim_params, force_fail=force_fail)
         if rootsol is None:
             print(f"All sim failed for {deg_param_sample}")
         else:
@@ -396,6 +415,7 @@ def single_run(
             rootsol = robust_DiffCap(
                 sim=sim,
                 sim_params=sim_params,
+                force_fail=force_fail,
             )
             if rootsol is None:
                 print(f"All sim failed for {deg_param_sample}")
@@ -405,6 +425,7 @@ def single_run(
             rootsol = robust_HPPC(
                 sim=sim,
                 sim_params=sim_params,
+                force_fail=force_fail,
             )
             if rootsol is None:
                 print(f"All sim failed for {deg_param_sample}")
@@ -414,6 +435,7 @@ def single_run(
             rootsol = robust_preHPPC(
                 sim=sim,
                 sim_params=sim_params,
+                force_fail=force_fail,
             )
             if rootsol is None:
                 print(f"All sim failed for {deg_param_sample}")
@@ -451,6 +473,7 @@ def single_run(
                 protocol=reg,
                 sim_params=sim_params,
                 bat_model=bat_model,
+                force_fail=force_fail,
             )
             if rootsol is None:
                 print(f"All sim failed for {deg_param_sample}")
@@ -477,6 +500,7 @@ def single_run(
                 protocol=long,
                 sim_params=sim_params,
                 bat_model=bat_model,
+                force_fail=force_fail,
             )
             if rootsol is None:
                 print(f"All sim failed for {deg_param_sample}")
@@ -503,6 +527,7 @@ def single_run(
                 protocol=long,
                 sim_params=sim_params,
                 bat_model=bat_model,
+                force_fail=force_fail,
             )
             if rootsol is None:
                 print(f"All sim failed for {deg_param_sample}")
