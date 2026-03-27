@@ -201,7 +201,9 @@ def robust_HPPC(sim, sim_params, force_fail=False):
     return sol
 
 
-def robust_LHRH(sim, df, charge, protocol, sim_params, bat_model, force_fail=False):
+def robust_LHRH(
+    sim, df, charge, protocol, sim_params, bat_model, force_fail=False
+):
     if force_fail:
         return None
     rootsol = None
@@ -390,8 +392,8 @@ def single_run(
     sim, C_rate = mod_sim(
         sim, sim_params, deg_param_sample, cyc_mode, run_mode=run_mode
     )
-   
-    # if any exception occured during pre, then fail
+
+    # if any exception occurred during pre, then fail
     force_fail = False
     try:
         sim.pre()
@@ -404,7 +406,12 @@ def single_run(
 
     time_s = time.time()
     if cyc_mode.lower() in ["discharge", "chargecc", "discharge-chargecc"]:
-        rootsol = robust_CC(sim=sim, C_rate=C_rate, sim_params=sim_params, force_fail=force_fail)
+        rootsol = robust_CC(
+            sim=sim,
+            C_rate=C_rate,
+            sim_params=sim_params,
+            force_fail=force_fail,
+        )
         if rootsol is None:
             print(f"All sim failed for {deg_param_sample}")
         else:
@@ -559,7 +566,6 @@ def single_run_save(
     phis_c_max,
     folder_save=".",
     bad_par_filename="bad_par.txt",
-    bad_sol_filename="bad_sol.txt",
     only_phi_CC=True,
     n_points_reduce=512,
     cyc_mode="discharge",
@@ -725,8 +731,6 @@ def single_run_save(
         return save_dict, param_string
     except (AssertionError, TypeError, AttributeError) as err:
         print(f"ERROR: {err}")
-        with open(os.path.join(folder_save, bad_sol_filename), "a+") as f:
-            f.write(f"solution{param_string}.npz\n")
         with open(os.path.join(folder_save, bad_par_filename), "a+") as f:
             string_par = ""
             for parameter in params_list:
@@ -746,7 +750,6 @@ def save_datapoint(
     save_combined_sols=True,
     db: PickleDB | None = None,
     bad_par_filename="bad_par.txt",
-    bad_sol_filename="bad_sol.txt",
     only_phi_CC=True,
     n_points_reduce=512,
     cyc_mode="discharge",
@@ -767,7 +770,6 @@ def save_datapoint(
             phis_c_max=phis_c_max,
             folder_save=folder_save,
             bad_par_filename=bad_par_filename,
-            bad_sol_filename=bad_sol_filename,
             only_phi_CC=only_phi_CC,
             n_points_reduce=n_points_reduce,
             cyc_mode=cyc_mode,
@@ -797,7 +799,6 @@ def save_datapoint(
                 phis_c_max=phis_c_max,
                 folder_save=folder_save,
                 bad_par_filename=bad_par_filename,
-                bad_sol_filename=bad_sol_filename,
                 only_phi_CC=only_phi_CC,
                 n_points_reduce=n_points_reduce,
                 cyc_mode=cyc_mode,
@@ -816,7 +817,6 @@ def save_datapoint(
             phis_c_max=phis_c_max,
             folder_save=folder_save,
             bad_par_filename=bad_par_filename,
-            bad_sol_filename=bad_sol_filename,
             only_phi_CC=only_phi_CC,
             n_points_reduce=n_points_reduce,
             cyc_mode=cyc_mode,
@@ -834,7 +834,6 @@ def save_datapoint(
             phis_c_max=phis_c_max,
             folder_save=folder_save,
             bad_par_filename=bad_par_filename,
-            bad_sol_filename=bad_sol_filename,
             only_phi_CC=only_phi_CC,
             n_points_reduce=n_points_reduce,
             cyc_mode=cyc_mode,
@@ -852,7 +851,6 @@ def save_datapoint(
             phis_c_max=phis_c_max,
             folder_save=folder_save,
             bad_par_filename=bad_par_filename,
-            bad_sol_filename=bad_sol_filename,
             only_phi_CC=only_phi_CC,
             n_points_reduce=n_points_reduce,
             cyc_mode=cyc_mode,
@@ -870,7 +868,6 @@ def save_datapoint(
             phis_c_max=phis_c_max,
             folder_save=folder_save,
             bad_par_filename=bad_par_filename,
-            bad_sol_filename=bad_sol_filename,
             only_phi_CC=only_phi_CC,
             n_points_reduce=n_points_reduce,
             cyc_mode=cyc_mode,
@@ -974,37 +971,23 @@ def save_datapoint(
 def clean_sol_par(
     folder_save=".",
     param_list_file="parameter_list.txt",
-    sol_list_file="solution_list.txt",
     bad_par_file="bad_par.txt",
-    bad_sol_file="bad_sol.txt",
     param_list_multi_file="parameter_list_multi.txt",
-    sol_list_multi_file="solution_list_multi.txt",
 ):
 
     param_list_file = os.path.join(folder_save, param_list_file)
-    sol_list_file = os.path.join(folder_save, sol_list_file)
     bad_par_list_file = os.path.join(folder_save, bad_par_list_file)
-    bad_sol_list_file = os.path.join(folder_save, bad_sol_list_file)
     param_list_multi_file = os.path.join(folder_save, param_list_multi_file)
-    sol_list_multi_file = os.path.join(folder_save, sol_list_multi_file)
 
     with open(param_list_file, "r+") as f:
         old_par_lines = f.readlines()
-    with open(sol_list_file, "r+") as f:
-        old_sol_lines = f.readlines()
     if not os.path.isfile(bad_par_file):
         with open(param_list_multi_file, "w+") as f:
             for line in old_par_lines:
                 f.write(line)
-        with open(sol_list_multi_file, "w+") as f:
-            for line in old_sol_lines:
-                f.write(line)
         return
-
     with open(bad_par_file, "r+") as f:
         bad_par_lines = f.readlines()
-    with open(bad_sol_file, "r+") as f:
-        bad_sol_lines = f.readlines()
 
     with open(param_list_multi_file, "w+") as f:
         count_remove = 0
@@ -1014,14 +997,6 @@ def clean_sol_par(
             else:
                 count_remove += 1
         print(f"Removed {count_remove} param")
-    with open(sol_list_multi_file, "w+") as f:
-        count_remove = 0
-        for line in old_sol_lines:
-            if line not in bad_sol_lines:
-                f.write(line)
-            else:
-                count_remove += 1
-        print(f"Removed {count_remove} sol")
 
 
 def read_list_param(
@@ -1037,25 +1012,10 @@ def read_list_param(
     return parameter_list
 
 
-def read_list_sol(
-    folder_save=".", sol_list_file="solution_list.txt", solution_list=[]
-):
-    sol_list_file = os.path.join(folder_save, sol_list_file)
-    if not os.path.isfile(sol_list_file):
-        return solution_list
-    with open(sol_list_file, "r+") as f:
-        lines = f.readlines()
-    for line in lines:
-        solution_list.append(line[:-1])
-    return solution_list
-
-
 def multi_run_ser(
     sim_params,
     param_list_file="parameter_list.txt",
-    sol_list_file="solution_list.txt",
     bad_par_file="bad_par.txt",
-    bad_sol_file="bad_sol.txt",
     save_separate_sols=False,
     save_combined_sols=True,
     folder_save=".",
@@ -1067,30 +1027,16 @@ def multi_run_ser(
     log_dir = Path(folder_save)
     log_dir.mkdir(parents=True, exist_ok=True)
     remove_file(os.path.join(folder_save, bad_par_file))
-    remove_file(os.path.join(folder_save, bad_sol_file))
     remove_file(os.path.join(folder_save, "sols.pkl"))
 
     deg_parameter_list = read_list_param(
         folder_save=folder_save, param_list_file=param_list_file
     )
-    solution_list = read_list_sol(
-        folder_save=folder_save, sol_list_file=sol_list_file
-    )
-    try:
-        assert len(deg_parameter_list) == len(solution_list)
-    except AssertionError:
-        msg = f"ERROR: deg_parameter_list (len={len(deg_parameter_list)}) and"
-        msg += f"solution_list (len={len(solution_list)}) are inconsistent"
-        print(msg)
-        sys.exit()
-
-    nsim = len(solution_list)
+    nsim = len(deg_parameter_list)
 
     db = PickleDB(filename=os.path.join(folder_save, "sols.pkl"))
 
-    for count, (deg_param_entry, solution_entry) in enumerate(
-        zip(deg_parameter_list, solution_list)
-    ):
+    for count, deg_param_entry in enumerate(deg_parameter_list):
         if cyc_mode.lower() in [
             "discharge",
             "chargecc",
@@ -1119,7 +1065,6 @@ def multi_run_ser(
                 save_combined_sols=save_combined_sols,
                 db=db,
                 bad_par_filename="bad_par.txt",
-                bad_sol_filename="bad_sol.txt",
                 only_phi_CC=only_phi_CC,
                 cyc_mode=cyc_mode,
                 n_points_reduce=n_points_reduce,
@@ -1150,7 +1095,6 @@ def multi_run_ser(
                 save_combined_sols=save_combined_sols,
                 db=db,
                 bad_par_filename="bad_par.txt",
-                bad_sol_filename="bad_sol.txt",
                 only_phi_CC=only_phi_CC,
                 cyc_mode=cyc_mode,
                 n_points_reduce=n_points_reduce,
@@ -1172,14 +1116,12 @@ def merge_badpar_badsol(
     parallel_env=None,
     folder_save=".",
     bad_par_file="bad_par.txt",
-    bad_sol_file="bad_sol.txt",
 ):
     parallel_env.comm.Barrier()
 
     if not parallel_env.irank == parallel_env.iroot:
         return
     param_list = []
-    sol_list = []
 
     for rank in range(
         parallel_env.iroot, parallel_env.nProc + parallel_env.iroot
@@ -1189,11 +1131,6 @@ def merge_badpar_badsol(
             param_list_file=f"bad_par_filename_{rank}.txt",
             parameter_list=param_list,
         )
-        sol_list = read_list_sol(
-            folder_save=folder_save,
-            sol_list_file=f"bad_sol_filename_{rank}.txt",
-            solution_list=sol_list,
-        )
 
     with open(os.path.join(folder_save, bad_par_file), "w+") as f:
         for param_entry in param_list:
@@ -1201,15 +1138,11 @@ def merge_badpar_badsol(
             for parameter in param_entry:
                 string_par += f"{parameter:g} "
             f.write(f"{string_par}\n")
-    with open(os.path.join(folder_save, bad_sol_file), "w+") as f:
-        for sol_entry in sol_list:
-            f.write(sol_entry + "\n")
 
     for rank in range(
         parallel_env.iroot, parallel_env.nProc + parallel_env.iroot
     ):
         remove_file(os.path.join(folder_save, f"bad_par_filename_{rank}.txt"))
-        remove_file(os.path.join(folder_save, f"bad_sol_filename_{rank}.txt"))
 
 
 def merge_combined_sols(
@@ -1308,9 +1241,7 @@ def merge_combined_sols(
 def multi_run(
     sim_params,
     param_list_file="parameter_list.txt",
-    sol_list_file="solution_list.txt",
     bad_par_file="bad_par.txt",
-    bad_sol_file="bad_sol.txt",
     save_separate_sols=False,
     save_combined_sols=True,
     folder_save=".",
@@ -1325,9 +1256,7 @@ def multi_run(
         return multi_run_ser(
             sim_params=sim_params,
             param_list_file=param_list_file,
-            sol_list_file=sol_list_file,
             bad_par_file=bad_par_file,
-            bad_sol_file=bad_sol_file,
             folder_save=folder_save,
             n_points_reduce=n_points_reduce,
         )
@@ -1337,24 +1266,17 @@ def multi_run(
             log_dir = Path(folder_save)
             log_dir.mkdir(parents=True, exist_ok=True)
             remove_file(os.path.join(folder_save, bad_par_file))
-            remove_file(os.path.join(folder_save, bad_sol_file))
             for rank in range(
                 parallel_env.iroot, parallel_env.nProc + parallel_env.iroot
             ):
                 remove_file(
                     os.path.join(folder_save, f"bad_par_filename_{rank}.txt")
                 )
-                remove_file(
-                    os.path.join(folder_save, f"bad_sol_filename_{rank}.txt")
-                )
 
         parallel_env.comm.Barrier()
 
         deg_parameter_list = read_list_param(
             folder_save=folder_save, param_list_file=param_list_file
-        )
-        solution_list = read_list_sol(
-            folder_save=folder_save, sol_list_file=sol_list_file
         )
         parallel_env.printRoot("INFO: partition data to simulate")
         nsim_, startSim_ = parallel_env.partitionData(len(deg_parameter_list))
@@ -1372,11 +1294,8 @@ def multi_run(
             )
         )
 
-        for count_, (deg_param_entry_, solution_entry_) in enumerate(
-            zip(
-                deg_parameter_list[startSim_ : startSim_ + nsim_],
-                solution_list[startSim_ : startSim_ + nsim_],
-            )
+        for count_, deg_param_entry_ in enumerate(
+            deg_parameter_list[startSim_ : startSim_ + nsim_]
         ):
             if cyc_mode.lower() in [
                 "discharge",
@@ -1407,7 +1326,6 @@ def multi_run(
                     save_combined_sols=save_combined_sols,
                     db=db_,
                     bad_par_filename=f"bad_par_filename_{parallel_env.irank}.txt",
-                    bad_sol_filename=f"bad_sol_filename_{parallel_env.irank}.txt",
                     only_phi_CC=only_phi_CC,
                     cyc_mode=cyc_mode,
                     n_points_reduce=n_points_reduce,
@@ -1439,7 +1357,6 @@ def multi_run(
                     save_combined_sols=save_combined_sols,
                     db=db_,
                     bad_par_filename=f"bad_par_filename_{parallel_env.irank}.txt",
-                    bad_sol_filename=f"bad_sol_filename_{parallel_env.irank}.txt",
                     only_phi_CC=only_phi_CC,
                     cyc_mode=cyc_mode,
                     n_points_reduce=n_points_reduce,
@@ -1450,7 +1367,6 @@ def multi_run(
             parallel_env=parallel_env,
             folder_save=folder_save,
             bad_par_file="bad_par.txt",
-            bad_sol_file="bad_sol.txt",
         )
         if save_combined_sols:
             merge_combined_sols(

@@ -348,6 +348,7 @@ def enforce_li_conservation(
 #    else:
 #        return True, deg_eps_el_c
 
+
 def enforce_pos_void_a(
     sample_scaled, deg_param_names, l_bounds, u_bounds, sim_params
 ):
@@ -386,7 +387,7 @@ def enforce_pos_void_a(
             eps_s = (
                 eps_cbd
                 + (sim_params[f"eps_s_a"] - eps_cbd)
-                * deg_param_sample[f"eps_s_a_am"]
+                * sample_scaled[isamp, ind_eps_s_a_am]
             )
         else:
             eps_s = sim_params["eps_s_a"]
@@ -449,7 +450,7 @@ def enforce_pos_void_c(
             eps_s = (
                 eps_cbd
                 + (sim_params[f"eps_s_c"] - eps_cbd)
-                * deg_param_sample[f"eps_s_c_am"]
+                * sample_scaled[isamp, ind_eps_s_c_am]
             )
         else:
             eps_s = sim_params["eps_s_c"]
@@ -557,9 +558,7 @@ def get_samples(
 
     sample_scaled = qmc.scale(sample, l_bounds, u_bounds)
 
-
     samples_scaled = round_samples(sample_scaled)
-
 
     sample_scaled = enforce_pos_void_a(
         sample_scaled, deg_param_names, l_bounds, u_bounds, sim_params
@@ -577,7 +576,6 @@ def get_samples(
         sample_scaled = enforce_li_conservation(
             sample_scaled, deg_param_names, l_bounds, u_bounds, sim_params
         )
-
 
     return sample_scaled
 
@@ -642,7 +640,6 @@ def write_exec(
     deg_param_names=None,
     folder_save=".",
     param_list_file="parameter_list.txt",
-    sol_list_file="solution_list.txt",
     sim_params=None,
 ):
 
@@ -657,7 +654,6 @@ def write_exec(
     log_dir.mkdir(parents=True, exist_ok=True)
     # os.makedirs(folder_save, exist_ok=True)
     param_list_file = os.path.join(folder_save, param_list_file)
-    sol_list_file = os.path.join(folder_save, sol_list_file)
 
     with open(param_list_file, "w+") as f:
         for sample in samples:
@@ -669,18 +665,6 @@ def write_exec(
                 str_par += f"{s:g} "
             str_par += "\n"
             f.write(str_par)
-
-    with open(sol_list_file, "w+") as f:
-        for sample in samples:
-            str_sol = ""
-            sample_aug = [1] * sim_params["n_params"]
-            for i, id_p in enumerate(id_param):
-                sample_aug[id_p] = sample[i]
-            str_sol += "solution"
-            for s in sample_aug:
-                str_sol += f"_{s:g}"
-            str_sol += ".npz\n"
-            f.write(str_sol)
 
 
 if __name__ == "__main__":

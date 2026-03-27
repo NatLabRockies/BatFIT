@@ -13,9 +13,7 @@ def define_diffcap_experiment(sim_params, atol=1e-9, max_step=1000):
             sim_params["vmax"],
         ),
     )
-    diffcap.add_step(
-        "current_A", 0.0, (3600.0, 40)
-    )
+    diffcap.add_step("current_A", 0.0, (3600.0, 40))
     diffcap.add_step(
         "current_A",
         0.2277980605,
@@ -25,9 +23,7 @@ def define_diffcap_experiment(sim_params, atol=1e-9, max_step=1000):
             sim_params["vmin"],
         ),
     )
-    diffcap.add_step(
-        "current_A", 0.0, (3600.0, 40)
-    )
+    diffcap.add_step("current_A", 0.0, (3600.0, 40))
 
     return diffcap
 
@@ -133,9 +129,7 @@ def define_hppc_experiment(sim_params, atol=1e-9, max_step=1000):
         7: 7.6841e-05,
     }
     for pulse in range(7):
-        hppc.add_step(
-            "current_A", 0.0, (60.0 * 60, 40)
-        )
+        hppc.add_step("current_A", 0.0, (60.0 * 60, 40))
         hppc.add_step(
             "current_A",
             step18_current[pulse + 1],
@@ -145,9 +139,7 @@ def define_hppc_experiment(sim_params, atol=1e-9, max_step=1000):
                 sim_params["vmin"],
             ),
         )
-        hppc.add_step(
-            "current_A", 0.0, (40, 100)
-        )
+        hppc.add_step("current_A", 0.0, (40, 100))
         hppc.add_step(
             "current_A",
             -np.random.normal(
