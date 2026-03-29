@@ -1,6 +1,9 @@
 import os
+import sys
 
 import numpy as np
+
+from batfit import logger
 
 
 def remove_file(filename):
@@ -10,7 +13,22 @@ def remove_file(filename):
         pass
 
 
-def reduce_npoints_dict(sol_dict, n_points_reduce=512):
+def reduce_npoints_dict(sol_dict: dict, n_points_reduce: int = 512):
+    """
+    Reduce the number of points through time in the solution
+    """
+
+    try:
+        assert isinstance(sol_dict, dict)
+        assert "t" in sol_dict
+        assert "phis_c" in sol_dict
+    except AssertionError:
+        err_msg = "'t' and 'phis_c' need to be sol_dict"
+        if isinstance(sol_dict, dict):
+            err_msg += f"Found {list(sol_dict.keys())}"
+        logger.error(err_msg)
+        sys.exit()
+
     new_sol_dict = {}
     t_int = np.linspace(
         np.nanmin(sol_dict["t"]),
