@@ -159,7 +159,7 @@ def check_assembled_data(
         raise NotImplementedError
 
     # Don't check this, we might be in a situation where we post processed the assembled data
-    #if combined_pickle_file is not None:
+    # if combined_pickle_file is not None:
     #    with open(combined_pickle_file, "rb") as f:
     #        sols = pickle.load(f)
     #        assert len(sols) == tmp["X_data"].shape[0]
