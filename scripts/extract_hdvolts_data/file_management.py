@@ -130,6 +130,7 @@ def get_data_folder(
 def cells_protocols_pairs():
     # Only include cells that are consistently observed in HPPC, Diffcap, *Cycle*
     pairs = {
+        "LH-1": [14],
         "LH-2": [17],
         "LH-3": [19, 20, 21],
         "LH-4": [22, 23],

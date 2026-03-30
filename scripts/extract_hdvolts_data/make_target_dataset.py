@@ -9,7 +9,7 @@ from batfit import logger
 from batfit.preprocess.utils import reduce_npoints_dict
 
 
-def make_target_data(data_type: str, rpt_ids=[-1, 1, 2, 3, 4, 5, 6, 7, 8, 9]):
+def make_target_data(data_type: str, rpt_ids=[-1, 1, 2, 3, 4, 5, 6, 7, 8]):
     """
     Extract and store data by RPT, protocl and cell id
     """

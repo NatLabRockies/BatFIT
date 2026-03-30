@@ -48,6 +48,12 @@ for protocol in file_names:
         for cell_in in file_names[protocol][rpt_id]:
             filename = file_names[protocol][rpt_id][cell_in]
             cycle_df = read_single_csv(filename, data_type="hppc")
+            A = get_voltage(cycle_df).to_numpy()
+            B=get_elapsed_test_time(cycle_df).to_numpy()
+            ind=np.argwhere(A>3.9)
+            if B[ind[0]]<100:
+                print(f"\n\n ERROR for {protocol} RPT {rpt_id}  Cell {cell_in}\n\n")
+                breakpoint()
             plt.plot(
                 get_elapsed_test_time(cycle_df),
                 get_voltage(cycle_df),
