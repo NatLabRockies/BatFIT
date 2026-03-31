@@ -55,7 +55,7 @@ bash run.sh
 ## Citing this Work
 
 ```
-SWR BatFit
+SWR-26-034
 
 arxiv citation
 ```
