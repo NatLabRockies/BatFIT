@@ -39,6 +39,7 @@ def read_perf(model_folder):
     test_filename = os.path.join(model_folder, "test_loss.csv")
     vals_test = np.loadtxt(test_filename, delimiter=";", skiprows=1)
     end_loss = vals_test[-1,1]
+    min_loss = vals_test[:,1].min()
     rmse_file = Path(os.path.join(model_folder, "post.txt"))
     if not rmse_file.is_file():
         logger.error(f"The file {rmse_file} does not exist")
@@ -51,7 +52,7 @@ def read_perf(model_folder):
                     perf = float(line.split()[1][:])
                 if line.startswith("COV"):
                     cov = float(line.split()[1][:])
-    return perf, cov, end_loss
+    return perf, cov, end_loss, min_loss
 
 def read_recipe(model_folder):
     assert os.path.isabs(model_folder)
@@ -67,10 +68,12 @@ def find_best(root_folder):
     best_perf = np.inf
     best_cov = np.inf
     best_end_loss = np.inf
+    best_min_loss = np.inf
     best_perf_cov = np.inf
     worst_perf = 0
     worst_cov = 0
     worst_end_loss = -np.inf
+    worst_min_loss = -np.inf
     worst_perf_cov = 0
 
     # Get list of model folder
@@ -86,7 +89,7 @@ def find_best(root_folder):
     for model_folder in model_folders:
         model_id = get_model_id(model_folder)
         recipe = read_recipe(model_folder)
-        perf, cov, end_loss = read_perf(model_folder)
+        perf, cov, end_loss, min_loss = read_perf(model_folder)
         perf_cov = perf + cov
         if perf < best_perf:
             best_perf = perf
@@ -104,6 +107,14 @@ def find_best(root_folder):
             worst_end_loss = end_loss
             worst_end_loss_recipe = recipe
             worst_end_loss_id = model_id
+        if min_loss < best_min_loss:
+            best_min_loss = min_loss
+            best_min_loss_recipe = recipe
+            best_min_loss_id = model_id
+        if min_loss > worst_min_loss:
+            worst_min_loss = min_loss
+            worst_min_loss_recipe = recipe
+            worst_min_loss_id = model_id
         if cov < best_cov:
             best_cov = cov
             best_cov_recipe = recipe
@@ -134,6 +145,9 @@ def find_best(root_folder):
     results["best_end_loss"] = best_end_loss
     results["best_end_loss_recipe"] = best_end_loss_recipe
     results["best_end_loss_id"] = best_end_loss_id
+    results["best_min_loss"] = best_min_loss
+    results["best_min_loss_recipe"] = best_min_loss_recipe
+    results["best_min_loss_id"] = best_min_loss_id
     results["worst_perf"] = worst_perf
     results["worst_perf_recipe"] = worst_perf_recipe
     results["worst_perf_id"] = worst_perf_id
@@ -146,6 +160,9 @@ def find_best(root_folder):
     results["worst_end_loss"] = worst_end_loss
     results["worst_end_loss_recipe"] = worst_end_loss_recipe
     results["worst_end_loss_id"] = worst_end_loss_id
+    results["worst_min_loss"] = worst_min_loss
+    results["worst_min_loss_recipe"] = worst_min_loss_recipe
+    results["worst_min_loss_id"] = worst_min_loss_id
     return results
 
 
@@ -153,12 +170,14 @@ root_folder = "/scratch/mhassana/LHX/tune_diffcap_2M"
 results = find_best(
     root_folder
 )
-print(f"\tLoss {results['best_end_loss']:.2g} model {results['best_end_loss_id']}")
+print(f"\tEnd Loss {results['best_end_loss']:.2g} model {results['best_end_loss_id']}")
+print(f"\tMin Loss {results['best_min_loss']:.2g} model {results['best_min_loss_id']}")
 print(f"\tPERF {results['best_perf']:.2g} model {results['best_perf_id']}")
 print(f"\tCOV {results['best_cov']:.2g} model {results['best_cov_id']}")
 print(f"\tPERF+COV {results['best_perf_cov']:.2g} model {results['best_perf_cov_id']}")
 
-print(f"\tLoss {results['worst_end_loss']:.2g} model {results['worst_end_loss_id']}")
+print(f"\tEnd Loss {results['worst_end_loss']:.2g} model {results['worst_end_loss_id']}")
+print(f"\tMin Loss {results['worst_min_loss']:.2g} model {results['worst_min_loss_id']}")
 print(f"\tPERF {results['worst_perf']:.2g} model {results['worst_perf_id']}")
 print(f"\tCOV {results['worst_cov']:.2g} model {results['worst_cov_id']}")
 print(f"\tPERF+COV {results['worst_perf_cov']:.2g} model {results['worst_perf_cov_id']}")
