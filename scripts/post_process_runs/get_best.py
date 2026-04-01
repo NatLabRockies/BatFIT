@@ -1,12 +1,10 @@
 import os
 import sys
-from pathlib import Path
-
 import numpy as np
 import yaml
-
-from batfit import logger
+from pathlib import Path
 from batfit.basicutilityc import ReadInput as ri
+from batfit import logger
 
 
 def is_valid_model(model_folder):
@@ -19,12 +17,11 @@ def is_valid_model(model_folder):
             exist_recipe = True
         if filename.startswith("post.txt"):
             exist_post = True
-
+     
     if exist_recipe and exist_post:
         return True
     else:
         return False
-
 
 def get_model_id(model_folder):
     if model_folder.startswith("models"):
@@ -37,9 +34,11 @@ def get_model_id(model_folder):
         sys.exit()
     return model_id
 
-
 def read_perf(model_folder):
     assert os.path.isabs(model_folder)
+    test_filename = os.path.join(model_folder, "test_loss.csv")
+    vals_test = np.loadtxt(test_filename, delimiter=";", skiprows=1)
+    end_loss = vals_test[-1,1]
     rmse_file = Path(os.path.join(model_folder, "post.txt"))
     if not rmse_file.is_file():
         logger.error(f"The file {rmse_file} does not exist")
@@ -52,8 +51,7 @@ def read_perf(model_folder):
                     perf = float(line.split()[1][:])
                 if line.startswith("COV"):
                     cov = float(line.split()[1][:])
-    return perf, cov
-
+    return perf, cov, end_loss
 
 def read_recipe(model_folder):
     assert os.path.isabs(model_folder)
@@ -64,32 +62,31 @@ def read_recipe(model_folder):
     recipe_filename = os.path.join(model_folder, filename)
     return ri.basic_input(recipe_filename)
 
-
 def find_best(root_folder):
     folder = root_folder
     best_perf = np.inf
     best_cov = np.inf
+    best_end_loss = np.inf
     best_perf_cov = np.inf
     worst_perf = 0
     worst_cov = 0
+    worst_end_loss = -np.inf
     worst_perf_cov = 0
 
     # Get list of model folder
     model_folders = []
     files = os.listdir(root_folder)
     for filename in files:
-        if os.path.isdir(
-            os.path.join(root_folder, filename)
-        ) and filename.startswith("models"):
+        if os.path.isdir(os.path.join(root_folder, filename)) and filename.startswith("models"):
             if is_valid_model(os.path.join(root_folder, filename)):
-                model_folders += [os.path.join(root_folder, filename)]
+                model_folders += [os.path.join(root_folder,filename)]
 
     logger.info(f"Found {len(model_folders)} valid model folder")
-
+    
     for model_folder in model_folders:
         model_id = get_model_id(model_folder)
         recipe = read_recipe(model_folder)
-        perf, cov = read_perf(model_folder)
+        perf, cov, end_loss = read_perf(model_folder)
         perf_cov = perf + cov
         if perf < best_perf:
             best_perf = perf
@@ -99,6 +96,14 @@ def find_best(root_folder):
             worst_perf = perf
             worst_perf_recipe = recipe
             worst_perf_id = model_id
+        if end_loss < best_end_loss:
+            best_end_loss = end_loss
+            best_end_loss_recipe = recipe
+            best_end_loss_id = model_id
+        if end_loss > worst_end_loss:
+            worst_end_loss = end_loss
+            worst_end_loss_recipe = recipe
+            worst_end_loss_id = model_id
         if cov < best_cov:
             best_cov = cov
             best_cov_recipe = recipe
@@ -126,6 +131,9 @@ def find_best(root_folder):
     results["best_perf_cov"] = best_perf_cov
     results["best_perf_cov_recipe"] = best_perf_cov_recipe
     results["best_perf_cov_id"] = best_perf_cov_id
+    results["best_end_loss"] = best_end_loss
+    results["best_end_loss_recipe"] = best_end_loss_recipe
+    results["best_end_loss_id"] = best_end_loss_id
     results["worst_perf"] = worst_perf
     results["worst_perf_recipe"] = worst_perf_recipe
     results["worst_perf_id"] = worst_perf_id
@@ -135,19 +143,25 @@ def find_best(root_folder):
     results["worst_perf_cov"] = worst_perf_cov
     results["worst_perf_cov_recipe"] = worst_perf_cov_recipe
     results["worst_perf_cov_id"] = worst_perf_cov_id
+    results["worst_end_loss"] = worst_end_loss
+    results["worst_end_loss_recipe"] = worst_end_loss_recipe
+    results["worst_end_loss_id"] = worst_end_loss_id
     return results
 
 
-root_folder = "/scratch/mhassana/LHX/tune_diffcap_1M"
-results = find_best(root_folder)
+root_folder = "/scratch/mhassana/LHX/tune_diffcap_2M"
+results = find_best(
+    root_folder
+)
+print(f"\tLoss {results['best_end_loss']:.2g} model {results['best_end_loss_id']}")
 print(f"\tPERF {results['best_perf']:.2g} model {results['best_perf_id']}")
 print(f"\tCOV {results['best_cov']:.2g} model {results['best_cov_id']}")
-print(
-    f"\tPERF+COV {results['best_perf_cov']:.2g} model {results['best_perf_cov_id']}"
-)
+print(f"\tPERF+COV {results['best_perf_cov']:.2g} model {results['best_perf_cov_id']}")
 
+print(f"\tLoss {results['worst_end_loss']:.2g} model {results['worst_end_loss_id']}")
 print(f"\tPERF {results['worst_perf']:.2g} model {results['worst_perf_id']}")
 print(f"\tCOV {results['worst_cov']:.2g} model {results['worst_cov_id']}")
-print(
-    f"\tPERF+COV {results['worst_perf_cov']:.2g} model {results['worst_perf_cov_id']}"
-)
+print(f"\tPERF+COV {results['worst_perf_cov']:.2g} model {results['worst_perf_cov_id']}")
+
+
+
