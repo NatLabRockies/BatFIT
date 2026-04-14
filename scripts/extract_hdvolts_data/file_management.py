@@ -53,9 +53,9 @@ def get_available_rpt_folder(
     list_folder = os.listdir(cycling_protocol_folder)
     available_rpt_folder = []
     available_rpt_id = []
-    if "BOL" in list_folder:
-        available_rpt_folder.append("BOL")
-        available_rpt_id.append(-1)
+    #if "BOL" in list_folder:
+    #    available_rpt_folder.append("BOL")
+    #    available_rpt_id.append(-1)
     available_rpt_folder += [
         folder for folder in list_folder if folder.startswith("RPT")
     ]
@@ -130,19 +130,20 @@ def get_data_folder(
 def cells_protocols_pairs():
     # Only include cells that are consistently observed in HPPC, Diffcap, *Cycle*
     pairs = {
-        "LH-1": [14],
-        "LH-2": [17],
+        "LH-1": [13, 14, 15],
+        "LH-2": [16, 17, 18],
         "LH-3": [19, 20, 21],
         "LH-4": [22, 23],
         "RH-1": [1],
         "RH-2": [4, 5, 6],
         "RH-3": [7, 8, 9],
+        "RH-4": [10, 11, 12],
     }
     return pairs
 
 
 def format_cell_name(cell_id: int) -> str:
-    return f"{cell_id:03}"
+    return f"{cell_id:02}"
 
 
 def get_data_file(
@@ -165,7 +166,8 @@ def get_data_file(
     file_keep = {}
     for cell in cells:
         for file in list_files:
-            if file.endswith(format_cell_name(cell) + ".csv"):
+            if file.startswith("600" + format_cell_name(cell)):
+            #if file.endswith(format_cell_name(cell) + ".csv"):
                 file_keep[cell] = os.path.join(data_folder, file)
     return file_keep
 
