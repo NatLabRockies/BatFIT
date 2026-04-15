@@ -105,6 +105,22 @@ if __name__ == "__main__":
     OCV_an_extrap = np.append(OCV_an_extrap, OCV_add)
 
 
+    data_ocv_an = {
+        'x': X_an_extrap,
+        'V': OCV_an_extrap
+    }
+    data_ocv_ca = {
+        'x': X_ca_extrap,
+        'V': OCV_ca_extrap
+    }
+
+    df_an = pd.DataFrame(data_ocv_an)
+    df_an.to_csv("graphite_siox_ocv.csv", index=False)
+
+    df_ca = pd.DataFrame(data_ocv_ca)
+    df_ca.to_csv("nmc811_ocv.csv", index=False)
+
+
     cs_an = PchipInterpolator(X_an_extrap, OCV_an_extrap)
     cs_ca = PchipInterpolator(X_ca_extrap, OCV_ca_extrap)
     #cs_an = CubicSpline(X_an_extrap, OCV_an_extrap)
@@ -115,18 +131,18 @@ if __name__ == "__main__":
     y_dense_ca = cs_ca(x_dense)
 
     fig = plt.figure()
-    plt.plot(x_bm_an, ocv_bm_an, color="k", linewidth=3, label="paper")
+    plt.plot(x_bm_an, ocv_bm_an, color="k", linewidth=1, label="paper")
     plt.plot(X_an, OCV_an, color="b", linewidth=3, label="bumjun")
-    plt.plot(x_dense, y_dense_an, color="r", linewidth=3, label="Spline")
+    plt.plot(x_dense, y_dense_an, "--", color="r", linewidth=3, label="Spline")
     #plt.plot(X_an_extrap, OCV_an_extrap, "o", color="k", linewidth=3)
     ax = plt.gca()
     ax.set_ylim([0,1.5])
     pretty_labels("X / SOC", "OCV Gr Si [V]", fontsize=16, fontname="Times", grid=False)
     pretty_legend(fontsize=16, fontname="Times")
     fig = plt.figure()
-    plt.plot(x_bm_ca, ocv_bm_ca, color="k", linewidth=3, label="paper")
+    plt.plot(x_bm_ca, ocv_bm_ca, color="k", linewidth=1, label="paper")
     plt.plot(X_ca, OCV_ca, color="b", linewidth=3, label="bumjun")
-    plt.plot(x_dense, y_dense_ca, color="r", linewidth=3, label="Spline")
+    plt.plot(x_dense, y_dense_ca, "--", color="r", linewidth=3, label="Spline")
     #plt.plot(X_ca_extrap, OCV_ca_extrap, "o", color="k", linewidth=3)
     pretty_labels("X / SOC", "OCV NMC 811 [V]", fontsize=16, fontname="Times", grid=False)
     pretty_legend(fontsize=16, fontname="Times")
