@@ -42,7 +42,7 @@ dependencies = [
     "numpyro",
     "ruamel.yaml",
     "torch2jax",
-    "batmods-lite @ git+https://github.com/NatLabRockies/batmods-lite.git@main",
+    "batmods-lite @ git+https://github.com/NatLabRockies/batmods-lite.git@slowGrSiOxNMC811",
 ]
 
 [tool.setuptools.dynamic]

@@ -1,4 +1,4 @@
-cycling mode: diffcap
+cycling mode: posthppc
 degradation parameter names: i0_a, ds_c, csanmax, cscamax, x0_a, x0_c, i0_c, eps_s_c, eps_s_a, eps_cbd_c, eps_cbd_a, eps_el_c, eps_el_a, ds_a, ce, eps_el_s, de, t0, kappa, gamma, area, l_a, l_s, l_c, rs_a, rs_c, p_l_s, p_s_a, p_l_a, p_s_c, p_l_c
 
 min degradation parameter:
