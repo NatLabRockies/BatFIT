@@ -254,7 +254,7 @@ def make_noise_levels(
             (a_max_dis[:, inds, :], a_max_chcc[:, inds, :]), dim=1
         )
 
-    if cyc_mode.lower() in ["rh", "lh", "diffcap", "hppc"]:
+    if cyc_mode.lower() in ["rh", "lh", "diffcap", "hppc", "posthppc"]:
         noise_levels = noise_levels_single[:, inds, :]
         a_min = a_min_single[:, inds, :]
         a_max = a_max_single[:, inds, :]

@@ -16,6 +16,7 @@ from batfit.preprocess.pickledb import PickleDB
 from .hdvolts_prot import (
     define_diffcap_experiment,
     define_hppc_experiment,
+    define_post_hppc_experiment,
     define_pre_hppc_experiment,
 )
 from .sim_setup import *
@@ -102,16 +103,23 @@ def robust_DiffCap(sim, sim_params, force_fail=False):
         sol = sim.run(exp, reset_state=True, bar=False)
         assert all(sol.success)
     except:
+        #for atol, max_step in zip(
+        #    [1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12, 1e-13],
+        #    [
+        #        int(1e3),
+        #        int(1e4),
+        #        int(1e5),
+        #        int(1e6),
+        #        int(1e6),
+        #        int(1e6),
+        #        int(1e6),
+        #        int(1e6),
+        #    ],
+        #):
         for atol, max_step in zip(
-            [1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12, 1e-13],
+            [1e-6, 1e-12],
             [
                 int(1e3),
-                int(1e4),
-                int(1e5),
-                int(1e6),
-                int(1e6),
-                int(1e6),
-                int(1e6),
                 int(1e6),
             ],
         ):
@@ -174,16 +182,23 @@ def robust_HPPC(sim, sim_params, force_fail=False):
         assert all(sol.success)
     except:
         counter = 0
+        #for atol, max_step in zip(
+        #    [1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12, 1e-13],
+        #    [
+        #        int(1e3),
+        #        int(1e4),
+        #        int(1e5),
+        #        int(1e6),
+        #        int(1e6),
+        #        int(1e6),
+        #        int(1e6),
+        #        int(1e6),
+        #    ],
+        #):
         for atol, max_step in zip(
-            [1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12, 1e-13],
+            [1e-6, 1e-12],
             [
                 int(1e3),
-                int(1e4),
-                int(1e5),
-                int(1e6),
-                int(1e6),
-                int(1e6),
-                int(1e6),
                 int(1e6),
             ],
         ):
@@ -200,10 +215,54 @@ def robust_HPPC(sim, sim_params, force_fail=False):
         pass
     return sol
 
+def robust_postHPPC(sim, sim_params, force_fail=False):
+    if force_fail:
+        return None
+    sol = None
+    exp = define_post_hppc_experiment(sim_params)
+    try:
+        exp = define_post_hppc_experiment(sim_params)
+        sol = sim.run(exp, reset_state=True, bar=False)
+        assert all(sol.success)
+    except:
+        counter = 0
+        #for atol, max_step in zip(
+        #    [1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12, 1e-13],
+        #    [
+        #        int(1e3),
+        #        int(1e4),
+        #        int(1e5),
+        #        int(1e6),
+        #        int(1e6),
+        #        int(1e6),
+        #        int(1e6),
+        #        int(1e6),
+        #    ],
+        #):
+        for atol, max_step in zip(
+            [1e-6, 1e-13],
+            [
+                int(1e3),
+                int(1e6),
+            ],
+        ):
+            try:
+                counter += 1
+                exp = define_post_hppc_experiment(
+                    sim_params, atol=atol, max_step=max_step
+                )
+                sol = sim.run(exp, reset_state=False, bar=False)
+                assert all(sol.success)
+                break
+            except:
+                pass
+        pass
+    return sol
 
 def robust_LHRH(
     sim, df, charge, protocol, sim_params, bat_model, force_fail=False
 ):
+    raise NotImplementedError("timespan needs to be defined differently now")
     if force_fail:
         return None
     rootsol = None
@@ -302,6 +361,7 @@ def robust_LHRH(
 
 
 def robust_CC(sim, C_rate, sim_params, force_fail=False):
+    raise NotImplementedError("timespan needs to be defined differently now")
     if force_fail:
         return None
 
@@ -417,7 +477,7 @@ def single_run(
         else:
             print(f"Success for {deg_param_sample}")
 
-    elif cyc_mode.lower() in ["diffcap", "hppc", "prehppc"]:
+    elif cyc_mode.lower() in ["diffcap", "hppc", "prehppc", "posthppc"]:
         if cyc_mode.lower() == "diffcap":
             rootsol = robust_DiffCap(
                 sim=sim,
@@ -430,6 +490,16 @@ def single_run(
                 print(f"Success for {deg_param_sample}")
         if cyc_mode.lower() == "hppc":
             rootsol = robust_HPPC(
+                sim=sim,
+                sim_params=sim_params,
+                force_fail=force_fail,
+            )
+            if rootsol is None:
+                print(f"All sim failed for {deg_param_sample}")
+            else:
+                print(f"Success for {deg_param_sample}")
+        if cyc_mode.lower() == "posthppc":
+            rootsol = robust_postHPPC(
                 sim=sim,
                 sim_params=sim_params,
                 force_fail=force_fail,
@@ -558,7 +628,6 @@ def single_run(
 
     return params_list, rootsol
 
-
 def single_run_save(
     params_list,
     rootsol,
@@ -660,6 +729,7 @@ def single_run_save(
             "lh",
             "lh2",
             "hppc",
+            "posthppc",
             "prehppc",
             "diffcap",
         ]:
@@ -807,7 +877,7 @@ def save_datapoint(
         if save_dict_chcc is None:
             save_separate_sols = False
             save_combined_sols = False
-    if cyc_mode.lower() in ["diffcap", "hppc", "prehppc"]:
+    if cyc_mode.lower() in ["diffcap", "hppc", "prehppc", "posthppc"]:
         p_list = params_list
         rsol = rootsol
         save_dict, param_string = single_run_save(
@@ -883,6 +953,7 @@ def save_datapoint(
         "discharge",
         "chargecc",
         "hppc",
+        "posthppc",
         "prehppc",
         "diffcap",
     ]:
@@ -931,6 +1002,7 @@ def save_datapoint(
             "lh",
             "lh2",
             "hppc",
+            "posthppc",
             "prehppc",
             "diffcap",
         ]:
@@ -958,6 +1030,7 @@ def save_datapoint(
             "lh",
             "lh2",
             "hppc",
+            "posthppc",
             "prehppc",
             "diffcap",
         ]:
@@ -1045,6 +1118,7 @@ def multi_run_ser(
             "lh2",
             "prehppc",
             "hppc",
+            "posthppc",
             "diffcap",
         ]:
             params_list, root_sol = single_run(
@@ -1305,6 +1379,7 @@ def multi_run(
                 "lh2",
                 "prehppc",
                 "hppc",
+                "posthppc",
                 "diffcap",
             ]:
                 params_list, root_sol = single_run(

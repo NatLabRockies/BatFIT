@@ -2,82 +2,83 @@ import numpy as np
 from bmlite import Experiment
 
 
-def define_diffcap_experiment(sim_params, atol=1e-9, max_step=1000):
-    diffcap = Experiment(atol=atol, max_step=max_step)
-    diffcap.add_step(
+def define_diffcap_experiment(sim_params, expr=None, atol=1e-9, max_step=1000):
+    if expr is None:
+        expr = Experiment(atol=atol, max_step=max_step)
+    expr.add_step(
         "current_A",
         -0.2277978276,
-        (2000 * 60.0, 1000),
+        (2000 * 60.0, 120.0),
         limits=(
             "voltage_V",
             sim_params["vmax"],
         ),
     )
-    diffcap.add_step("current_A", 0.0, (3600.0, 40))
-    diffcap.add_step(
+    expr.add_step("current_A", 0.0, (3600.0, 90.0))
+    expr.add_step(
         "current_A",
         0.2277980605,
-        (2000 * 60.0, 1000),
+        (2000 * 60.0, 120.0),
         limits=(
             "voltage_V",
             sim_params["vmin"],
         ),
     )
-    diffcap.add_step("current_A", 0.0, (3600.0, 40))
+    expr.add_step("current_A", 0.0, (3600.0, 90.0))
 
-    return diffcap
+    return expr
 
 
-def define_pre_hppc_experiment(sim_params, atol=1e-9, max_step=1000):
-    pre_hppc = Experiment(atol=atol, max_step=max_step)
-    pre_hppc.add_step(
+def define_pre_hppc_experiment(sim_params, expr=None, atol=1e-9, max_step=1000):
+    if expr is None:
+        expr = Experiment(atol=atol, max_step=max_step)
+    expr.add_step(
         "current_A",
         -0.9117096352,
-        (400 * 60.0, 200),
+        (400 * 60.0, 60.0),
         limits=(
             "voltage_V",
             sim_params["vmax"],
         ),
     )
-    pre_hppc.add_step(
+    expr.add_step(
         "voltage_V",
         sim_params["vmax"],
-        (100 * 60, 40),
+        (100 * 60, 150.0),
         limits=(
             "current_A",
             0.23,
         ),
     )
-    pre_hppc.add_step("current_A", 0.0, (60 * 60, 40))
-    pre_hppc.add_step(
+    expr.add_step("current_A", 0.0, (60 * 60, 90.0))
+    expr.add_step(
         "current_A",
         0.9117092553,
-        (400 * 60.0, 200),
+        (400 * 60.0, 60.0),
         limits=(
             "voltage_V",
             sim_params["vmin"],
         ),
     )
-    pre_hppc.add_step("current_A", 0.0, (60 * 60, 40))
+    expr.add_step("current_A", 0.0, (60 * 60, 90.0))
+    return expr
 
-    return pre_hppc
-
-
-def define_hppc_experiment(sim_params, atol=1e-9, max_step=1000):
-    hppc = define_pre_hppc_experiment(sim_params, atol=atol, max_step=max_step)
-    hppc.add_step(
+def define_post_hppc_experiment(sim_params, expr=None, atol=1e-9, max_step=1000):
+    if expr is None:
+        expr = Experiment(atol=atol, max_step=max_step)
+    expr.add_step(
         "current_A",
         -0.9117085305,
-        (400 * 60.0, 200),
+        (400 * 60.0, 60.0),
         limits=(
             "voltage_V",
             sim_params["vmax"],
         ),
     )
-    hppc.add_step(
+    expr.add_step(
         "voltage_V",
         sim_params["vmax"],
-        (100 * 60.0, 200),
+        (100 * 60.0, 150.0),
         limits=(
             "current_A",
             0.23,
@@ -129,25 +130,25 @@ def define_hppc_experiment(sim_params, atol=1e-9, max_step=1000):
         7: 7.6841e-05,
     }
     for pulse in range(7):
-        hppc.add_step("current_A", 0.0, (60.0 * 60, 40))
-        hppc.add_step(
+        expr.add_step("current_A", 0.0, (60.0 * 60, 90.0))
+        expr.add_step(
             "current_A",
             step18_current[pulse + 1],
-            (30.0, 100),
+            (30.0, 0.3),
             limits=(
                 "voltage_V",
                 sim_params["vmin"],
             ),
         )
-        hppc.add_step("current_A", 0.0, (40, 100))
-        hppc.add_step(
+        expr.add_step("current_A", 0.0, (40, 0.4))
+        expr.add_step(
             "current_A",
             -np.random.normal(
                 step21_current[pulse + 1], step21_currentstd[pulse + 1]
             ),
-            (10, 100),
+            (10, 0.1),
         )
-        hppc.add_step(
+        expr.add_step(
             "current_A",
             0.9117080293,
             (
@@ -155,7 +156,7 @@ def define_hppc_experiment(sim_params, atol=1e-9, max_step=1000):
                 * np.random.normal(
                     step23_time[pulse + 1], step23_timestd[pulse + 1]
                 ),
-                200,
+                8.0,
             ),
             limits=(
                 "voltage_V",
@@ -163,4 +164,12 @@ def define_hppc_experiment(sim_params, atol=1e-9, max_step=1000):
             ),
         )
 
-    return hppc
+    return expr
+
+def define_hppc_experiment(sim_params, expr=None, atol=1e-9, max_step=1000):
+    if expr is None:
+        expr = Experiment(atol=atol, max_step=max_step)
+    expr = define_pre_hppc_experiment(sim_params, expr=expr, atol=atol, max_step=max_step)
+    expr = define_post_hppc_experiment(sim_params, expr=expr, atol=atol, max_step=max_step)
+
+    return expr

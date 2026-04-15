@@ -43,7 +43,7 @@ def parse_input(filename, parallel_env=None):
         pass
     elif cyc_mode.lower() in ["rh", "lh", "lh2"]:
         pass
-    elif cyc_mode.lower() in ["diffcap", "hppc", "prehppc"]:
+    elif cyc_mode.lower() in ["diffcap", "hppc", "prehppc", "posthppc"]:
         pass
     else:
         raise NotImplementedError
@@ -89,6 +89,7 @@ def parse_input(filename, parallel_env=None):
         "lh",
         "lh2",
         "hppc",
+        "posthppc",
         "diffcap",
         "prehppc",
     ]:

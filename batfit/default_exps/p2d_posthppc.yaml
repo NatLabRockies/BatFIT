@@ -78,7 +78,7 @@ macroscopic:
     model:      P2D
     temp:       303.15                # Temperature                              [K]
     area:       0.103675                # Cell area                              [m^2]
-    material:   graphiteSiOx_nmc811
+    material:   ./graphiteSiOx_nmc811.yaml
 
 electrolyte:
     Li_0:       1.0                 # Initial Li+ conc.              [kmol/m3]

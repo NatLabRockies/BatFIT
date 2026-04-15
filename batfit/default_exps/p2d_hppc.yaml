@@ -78,7 +78,7 @@ macroscopic:
     model:      P2D
     temp:       303.15                # Temperature                              [K]
     area:       0.103675                # Cell area                              [m^2]
-    material:   graphiteSiOx_nmc811
+    material:   ./graphiteSiOx_nmc811.yaml
 
 electrolyte:
     Li_0:       1.0                 # Initial Li+ conc.              [kmol/m3]
@@ -91,7 +91,7 @@ electrolyte:
 anode:
     Nx:         32                  # Number of x discretizations          [-]
     Nr:         30                  # Number of r discretizations          [-]
-    thick:      85.2e-6             # Thickness                            [m]
+    thick:      87.0e-6             # Thickness                            [m]
     R_s:        5.86e-6             # Secondary particle radius            [m]
     eps_s:      0.75                # Solid-phase volume frac.             [-]
     eps_el:     0.25                # Electrolyte volume frac.             [-]
@@ -104,7 +104,7 @@ anode:
     x_0:        0.07                # Initial intercalation frac.          [-]
     i0_deg:     1.0                 # Degradation factor for i0            [-]
     Ds_deg:     1.0                 # Degradation factor for Ds            [-]
-    material:   GraphiteSiOx        # Anode active material class          [-]
+    material:   GraphiteSiOxSlow        # Anode active material class          [-]
 
 separator:
     Nx:         32                  # Number of x discretizations          [-]
@@ -115,7 +115,7 @@ separator:
 cathode:
     Nx:         32                  # Number of x discretizations          [-]
     Nr:         30                  # Number of r discretizations          [-]
-    thick:      75.6e-6             # Thickness                            [m]
+    thick:      69.0e-6             # Thickness                            [m]
     R_s:        5.22e-6             # Secondary particle radius            [m]
     eps_s:      0.665               # Solid-phase volume frac.             [-]
     eps_el:     0.335               # Electrolyte volume frac.             [-]
@@ -128,6 +128,6 @@ cathode:
     x_0:        0.89                # Initial intercalation frac.          [-]
     i0_deg:     1.0                 # Degradation factor for i0            [-]
     Ds_deg:     1.0                 # Degradation factor for Ds            [-]
-    material:   NMC811              # Cathode active material class        [-]
+    material:   NMC811Slow              # Cathode active material class        [-]
 
     
