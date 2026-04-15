@@ -460,13 +460,13 @@ def set_separator(
         return sim
     else:
         sim.sep.thick = sim_params["L_s"] * read_deg_param(
-            deg_param_sample["l_s"], deg_param_sample=deg_param_sample
+            key="l_s", deg_param_sample=deg_param_sample
         )
         sim.sep.eps_el = sim_params["eps_el_s"] * read_deg_param(
-            deg_param_sample["eps_el_s"], deg_param_sample=deg_param_sample
+            key="eps_el_s", deg_param_sample=deg_param_sample
         )
         sim.sep.p_liq = sim_params["p_l_s"] * read_deg_param(
-            deg_param_sample["p_l_s"], deg_param_sample=deg_param_sample
+            key="p_l_s", deg_param_sample=deg_param_sample
         )
 
         return sim
