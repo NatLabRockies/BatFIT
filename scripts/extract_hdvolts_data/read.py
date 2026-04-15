@@ -31,7 +31,7 @@ def clip_after_sequence(df: pd.DataFrame, sequence: list) -> pd.DataFrame:
     # We convert to a numpy array for fast positional indexing
     change_mask = (df["Step"] != df["Step"].shift(1)).to_numpy()
     block_start_indices = np.where(change_mask)[0]
-
+    
     # 2. Create the compressed list of block values (e.g. [13, 14, 16, 13])
     block_vals = df["Step"].iloc[block_start_indices].tolist()
 
@@ -75,12 +75,24 @@ def remove_rogue_twos(df: pd.DataFrame) -> pd.DataFrame:
 
     return clean_df
 
+def remove_rogue_p(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Removes singular 'rogue' records where the state is P
+    """
+    is_p = df["State"] == 'P'
+
+    is_rogue = is_p
+
+    clean_df = df[~is_rogue].copy()
+
+    return clean_df
 
 def apply_hppc_filter(df: pd.DataFrame) -> pd.DataFrame:
     """
     Removes all rows before the first occurrence of 'C' in a specific column.
     """
     df = remove_rogue_twos(df)
+    df = remove_rogue_p(df)
     try:
         is_c = df["State"] == "C"
     except KeyError:
