@@ -1,0 +1,99 @@
+cycling mode: diffcap
+degradation parameter names: i0_a, ds_c, x0_a, x0_c, i0_c, eps_s_c, eps_s_a, ds_a, ce, de, area, l_a, l_s, l_c
+
+min degradation parameter:
+    i0_a:       0.1
+    ds_c:       0.1
+    x0_a:      0.3
+    x0_c:      0.78
+    i0_c:       0.1
+    eps_s_c:    0.7
+    eps_s_a:    0.7
+    ds_a:       0.1
+    ce:         0.7
+    de:         0.1
+    area:       0.9
+    l_a:        0.9
+    l_s:        0.9
+    l_c:        0.9
+
+
+max degradation parameter:
+    i0_a:       10.0
+    ds_c:       10.0
+    x0_a:      2.0
+    x0_c:      1.08
+    i0_c:       10.0
+    eps_s_c:    1.15
+    eps_s_a:    1.15
+    ds_a:       2.0
+    ce:         1.3
+    de:         10.0
+    area:       1.1
+    l_a:        1.1
+    l_s:        1.1
+    l_c:        1.1
+
+
+
+macroscopic:
+    vmin:       2.5
+    vmax:       4.2
+    tmax:       180000
+    cap:        4.56               # Nominal capacity                       [A*h]
+    model:      P2D
+    temp:       303.15                # Temperature                              [K]
+    area:       0.103675                # Cell area                              [m^2]
+    material:   ./graphiteSiOx_nmc811.yaml
+
+electrolyte:
+    Li_0:       1.0                 # Initial Li+ conc.              [kmol/m3]
+    material:   Gen2Electrolyte     # Electrolyte material class           [-]
+    D_deg:      1.0                 # Degradation factor for D             [-]
+    t0_deg:     1.0                 # Degradation factor for t0            [-]
+    kappa_deg:  1.0                 # Degradation factor for kappa         [-]
+    gamma_deg:  1.0                 # Degradation factor for gamma         [-]
+
+anode:
+    Nx:         32                  # Number of x discretizations          [-]
+    Nr:         30                  # Number of r discretizations          [-]
+    thick:      87.0e-6             # Thickness                            [m]
+    R_s:        5.86e-6             # Secondary particle radius            [m]
+    eps_s:      0.75                # Solid-phase volume frac.             [-]
+    eps_el:     0.25                # Electrolyte volume frac.             [-]
+    eps_CBD:    0.02                 # Carbon-binder-domain volume frac.    [-]
+    p_sol:      2.91                # Solids Bruggeman factor (eps**p)     [-]
+    p_liq:      2.91                # Liquids Bruggeman factor (eps**p)    [-]
+    alpha_a:    0.5                 # Anodic charge transfer coeff.        [-]
+    alpha_c:    0.5                 # Cathodic charge transfer coeff.      [-]
+    Li_max:     29.583              # Maximum solid-phase Li conc.   [kmol/m3]
+    x_0:        0.07                # Initial intercalation frac.          [-]
+    i0_deg:     1.0                 # Degradation factor for i0            [-]
+    Ds_deg:     1.0                 # Degradation factor for Ds            [-]
+    material:   GraphiteSiOxSlow    # Anode active material class          [-]
+
+separator:
+    Nx:         32                  # Number of x discretizations          [-]
+    thick:      12.e-6              # Thickness                            [m]
+    eps_el:     0.47                # Electrolyte volume frac.             [-]
+    p_liq:      2.57                # Liquids Bruggeman factor (eps**p)    [-]
+
+cathode:
+    Nx:         32                  # Number of x discretizations          [-]
+    Nr:         30                  # Number of r discretizations          [-]
+    thick:      69.0e-6             # Thickness                            [m]
+    R_s:        5.22e-6             # Secondary particle radius            [m]
+    eps_s:      0.665               # Solid-phase volume frac.             [-]
+    eps_el:     0.335               # Electrolyte volume frac.             [-]
+    eps_CBD:    0.02                 # Carbon-binder-domain volume frac.    [-]
+    p_sol:      2.43                # Solids Bruggeman factor (eps**p)     [-]
+    p_liq:      2.43                # Liquids Bruggeman factor (eps**p)    [-]
+    alpha_a:    0.5                 # Anodic charge transfer coeff.        [-]
+    alpha_c:    0.5                 # Cathodic charge transfer coeff.      [-]
+    Li_max:     51.765              # Maximum solid-phase Li conc.   [kmol/m3]
+    x_0:        0.89                # Initial intercalation frac.          [-]
+    i0_deg:     1.0                 # Degradation factor for i0            [-]
+    Ds_deg:     1.0                 # Degradation factor for Ds            [-]
+    material:   NMC811Slow          # Cathode active material class        [-]
+
+    
