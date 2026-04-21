@@ -52,7 +52,7 @@ def from_sol_to_data(data_root_folder, filename, n_points):
     t_grid = np.linspace(min_t, max_t, n_points)
     y_grid = np.interp(t_grid, sol["t"], sol["phis_c"])
     params = from_name_to_params(filename)
-    x = np.vstack((t_grid, y_grid))
+    x = np.vstack((t_grid, y_grid)).astype("float32")
     y = params
     return x, y
 
@@ -76,6 +76,7 @@ def from_sol_dict_to_xy(
         if "dqdv" in target_mode.lower():
             dqdv_grid = np.interp(t_grid, sol_dict["t_diff"], sol_dict["dqdv"])
             x = np.vstack((x, np.reshape(dqdv_grid, (1, -1))))
+        x = x.astype("float32")
         y = combined_sols[key]["params"]
     else:
         min_t = np.amin(sol_dict["t"])
@@ -85,6 +86,7 @@ def from_sol_dict_to_xy(
         if "phi" in target_mode.lower():
             phi_grid = np.interp(t_grid, sol_dict["t"], sol_dict["phis_c"])
             x = np.vstack((x, np.reshape(phi_grid, (1, -1))))
+        x = x.astype("float32")
         y = combined_sols[key]["params"]
 
     return x, y
@@ -277,6 +279,9 @@ def assemble_all_data(
             suffix="Complete",
             length=50,
         )
+    import gc
+    del combined_sols
+    gc.collect()
 
     X_data = np.array(X_data).astype("float32")
     Y_data = np.array(Y_data).astype("float32")
@@ -749,17 +754,17 @@ def split_dataset_from_np(
         logger.info(f"Saving data at {data_split_filename}")
         np.savez(
             data_split_filename,
-            X_train=X_train.astype("float32"),
-            Y_train=Y_train.astype("float32"),
-            X_test=X_test.astype("float32"),
-            Y_test=Y_test.astype("float32"),
+            X_train=X_train.astype("float32", copy=False),
+            Y_train=Y_train.astype("float32", copy=False),
+            X_test=X_test.astype("float32", copy=False),
+            Y_test=Y_test.astype("float32", copy=False),
         )
 
     return (
-        X_train.astype("float32"),
-        Y_train.astype("float32"),
-        X_test.astype("float32"),
-        Y_test.astype("float32"),
+        X_train.astype("float32", copy=False),
+        Y_train.astype("float32", copy=False),
+        X_test.astype("float32", copy=False),
+        Y_test.astype("float32", copy=False),
     )
 
 
