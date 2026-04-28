@@ -93,13 +93,18 @@ def from_sol_dict_to_xy(
 
 
 def from_combined_sols_to_data(
-    combined_sols, key, n_points, target_mode, cyc_mode, n_points_min=0
+    combined_sols, key, n_points, target_mode, cyc_mode, n_points_min=0, t_max_min=0,
 ):
     if cyc_mode.lower() in ["discharge", "chargecc"]:
         sol_dict = combined_sols[key]["sol"]
         if sol_dict["phis_c"].shape[0] < n_points_min:
             logger.warning(
                 f"Found and removed solution with {sol_dict['phis_c'].shape[0]} points"
+            )
+            return None, None
+        if sol_dict["t"].max() < t_max_min:
+            logger.warning(
+                f"Found and removed solution with max t {sol_dict['t'].max()}"
             )
             return None, None
         x, y = from_sol_dict_to_xy(
@@ -113,6 +118,11 @@ def from_combined_sols_to_data(
                 f"Found and removed solution with {sol_dict['phis_c'].shape[0]} points"
             )
             return None, None
+        if sol_dict["t"].max() < t_max_min:
+            logger.warning(
+                f"Found and removed solution with max t {sol_dict['t'].max()}"
+            )
+            return None, None
         x, y = from_sol_dict_to_xy(
             sol_dict, combined_sols, key, n_points, target_mode, diff_cap=False
         )
@@ -124,6 +134,11 @@ def from_combined_sols_to_data(
                 f"Found and removed solution with {sol_dis_dict['phis_c'].shape[0]} points"
             )
             return None, None
+        if sol_dict["t"].max() < t_max_min:
+            logger.warning(
+                f"Found and removed solution with max t {sol_dict['t'].max()}"
+            )
+            return None, None
         x_dis, y_dis = from_sol_dict_to_xy(
             sol_dis_dict, combined_sols, key, n_points, target_mode
         )
@@ -131,6 +146,11 @@ def from_combined_sols_to_data(
         if sol_chcc_dict["phis_c"].shape[0] < n_points_min:
             logger.warning(
                 f"Found and removed solution with {sol_chcc_dict['phis_c'].shape[0]} points"
+            )
+            return None, None
+        if sol_dict["t"].max() < t_max_min:
+            logger.warning(
+                f"Found and removed solution with max t {sol_dict['t'].max()}"
             )
             return None, None
         x_chcc, y_chcc = from_sol_dict_to_xy(
@@ -199,6 +219,7 @@ def assemble_all_data(
     data_root_folder,
     n_points=100,
     n_points_min=0,
+    t_max_min=0,
     combined_pickle_file=None,
     target_mode="phi",
     save_data=True,
@@ -258,7 +279,6 @@ def assemble_all_data(
                 file,
                 n_points,
                 target_mode,
-                n_points_min=n_points_min,
             )
         else:
             x, y = from_combined_sols_to_data(
@@ -268,6 +288,7 @@ def assemble_all_data(
                 target_mode,
                 cyc_mode,
                 n_points_min=n_points_min,
+                t_max_min=t_max_min,
             )
         if x is not None and y is not None:
             X_data.append(x)
