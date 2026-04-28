@@ -1330,6 +1330,7 @@ def train_model(
         length=50,
     )
 
+    current_step=0
     for epoch in range(num_epochs):
         # Set LR for this epoch
         temp = temp_schedule(epoch, 0, num_epochs * 3 // 4, 0.1, 1.0)
@@ -1337,7 +1338,7 @@ def train_model(
             param_group["lr"] = learning_rate_schedule(
                 epoch, num_epochs * 3 // 4, learning_rate, learning_rate_end
             )
-
+       
         for step, batch in enumerate(train_data_loader):
             current_step = epoch * num_batch + (step + 1)
             # Reinitialize grads
