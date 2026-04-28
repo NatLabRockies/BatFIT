@@ -4,7 +4,7 @@ import random
 import sys
 import time
 from pathlib import Path
-
+import re
 import bmlite as bm
 import numpy as np
 import pandas as pd
@@ -134,7 +134,6 @@ def robust_DiffCap(sim, sim_params, force_fail=False):
                 pass
         pass
     return sol
-
 
 def robust_preHPPC(sim, sim_params, force_fail=False):
     if force_fail:
@@ -627,6 +626,9 @@ def single_run(
             )
 
     return params_list, rootsol
+
+
+
 
 def single_run_save(
     params_list,
@@ -1191,38 +1193,68 @@ def merge_badpar_badsol(
     folder_save=".",
     bad_par_file="bad_par.txt",
 ):
-    parallel_env.comm.Barrier()
+    if parallel_env is not None:
+        parallel_env.comm.Barrier()
 
-    if not parallel_env.irank == parallel_env.iroot:
-        return
-    param_list = []
+        if not parallel_env.irank == parallel_env.iroot:
+            return
+        param_list = []
 
-    for rank in range(
-        parallel_env.iroot, parallel_env.nProc + parallel_env.iroot
-    ):
-        param_list = read_list_param(
-            folder_save=folder_save,
-            param_list_file=f"bad_par_filename_{rank}.txt",
-            parameter_list=param_list,
-        )
+        for rank in range(
+            parallel_env.iroot, parallel_env.nProc + parallel_env.iroot
+        ):
+            param_list = read_list_param(
+                folder_save=folder_save,
+                param_list_file=f"bad_par_filename_{rank}.txt",
+                parameter_list=param_list,
+            )
 
-    with open(os.path.join(folder_save, bad_par_file), "w+") as f:
-        for param_entry in param_list:
-            string_par = ""
-            for parameter in param_entry:
-                string_par += f"{parameter:g} "
-            f.write(f"{string_par}\n")
+        with open(os.path.join(folder_save, bad_par_file), "w+") as f:
+            for param_entry in param_list:
+                string_par = ""
+                for parameter in param_entry:
+                    string_par += f"{parameter:g} "
+                f.write(f"{string_par}\n")
 
-    for rank in range(
-        parallel_env.iroot, parallel_env.nProc + parallel_env.iroot
-    ):
-        remove_file(os.path.join(folder_save, f"bad_par_filename_{rank}.txt"))
+        for rank in range(
+            parallel_env.iroot, parallel_env.nProc + parallel_env.iroot
+        ):
+            remove_file(os.path.join(folder_save, f"bad_par_filename_{rank}.txt"))
+    else:
+        def list_bad_par_files(folder_save="."):
+            directory = Path(folder_save)
+            files = list(directory.glob("bad_par_filename_*.txt"))
+            def extract_rank(filepath):
+                match = re.search(r'bad_par_filename_(\d+)\.txt', filepath.name)
+                if match:
+                    return int(match.group(1))
+                return -1
+            sorted_files = sorted(files, key=extract_rank)
+            return sorted_files
+
+        param_list = []
+        sorted_files =  list_bad_par_files(folder_save=folder_save)
+        for filename in sorted_files:
+            param_list = read_list_param(
+                folder_save=folder_save,
+                param_list_file=filename,
+                parameter_list=param_list,
+            )
+
+        with open(os.path.join(folder_save, bad_par_file), "w+") as f:
+            for param_entry in param_list:
+                string_par = ""
+                for parameter in param_entry:
+                    string_par += f"{parameter:g} "
+                f.write(f"{string_par}\n")
+
+        for filename in sorted_files:
+            remove_file(os.path.join(folder_save, filename))
 
 
 def merge_combined_sols(
     sim_params,
     parallel_env=None,
-    nProc=None,
     folder_save=".",
     combined_sols_filename="sols.pkl",
     n_points_reduce: int | None = None,
@@ -1273,15 +1305,25 @@ def merge_combined_sols(
         ) as f:
             pickle.dump(sols, f)
     else:
+        def list_sols_files(folder_save="."):
+            directory = Path(folder_save)
+            files = list(directory.glob("sols_*.pkl"))
+            def extract_rank(filepath):
+                match = re.search(r'sols_(\d+)\.pkl', filepath.name)
+                if match:
+                    return int(match.group(1))
+                return -1
+            sorted_files = sorted(files, key=extract_rank)
+            return sorted_files
 
-        assert nProc is not None
         logger.info("Merging all databases")
-
         sols = {}
-        offset_arr = np.zeros(nProc, dtype=int)
+        sorted_files = list_sols_files(folder_save=folder_save)
+        offset_arr = np.zeros(len(sorted_files), dtype=int)
 
-        for rank in range(1, nProc + 1):
-            file_to_merge = os.path.join(folder_save, f"sols_{rank}.pkl")
+        for ifile, filename in enumerate(sorted_files):
+            rank = ifile+1
+            file_to_merge = os.path.join(folder_save, filename)
             logger.info(f"Treating {file_to_merge}")
             try:
                 db_ = PickleDB(filename=file_to_merge, read_from_existing=True)
@@ -1302,9 +1344,10 @@ def merge_combined_sols(
             except FileNotFoundError:
                 logger.warning(f"{file_to_merge} was not found")
 
+       
         logger.info("Writing final database")
-        for rank in range(1, nProc + 1):
-            remove_file(os.path.join(folder_save, f"sols_{rank}.pkl"))
+        for filename in sorted_files:
+            remove_file(os.path.join(folder_save, filename))
         remove_file(os.path.join(folder_save, combined_sols_filename))
         with open(
             os.path.join(folder_save, combined_sols_filename), "wb"
