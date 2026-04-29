@@ -13,6 +13,9 @@ from batfit import BATFIT_EXP, logger
 from batfit.preprocess.diff_cap import calc_dqdv_dvdq
 from batfit.preprocess.pickledb import PickleDB
 
+from .mppoc_prot import (
+    define_chirp_experiment,
+)
 from .hdvolts_prot import (
     define_diffcap_experiment,
     define_hppc_experiment,
@@ -92,6 +95,34 @@ def mod_sim(
 
     return sim, C_rate
 
+def robust_chirp(sim, sim_params, chirp_params, force_fail=False):
+    if force_fail:
+        return None
+
+    sol = None
+    try:
+        exp = define_chirp_experiment(sim_params, chirp_params)
+        sol = sim.run(exp, reset_state=True, bar=False)
+        assert all(sol.success)
+    except:
+        for atol, max_step in zip(
+            [1e-6, 1e-12],
+            [
+                int(1e3),
+                int(1e6),
+            ],
+        ):
+            try:
+                exp = define_chirp_experiment(
+                    sim_params, chirp_params, atol=atol, max_step=max_step
+                )
+                sol = sim.run(exp, reset_state=False, bar=False)
+                assert all(sol.success)
+                break
+            except:
+                pass
+        pass
+    return sol
 
 def robust_DiffCap(sim, sim_params, force_fail=False):
     if force_fail:
@@ -360,12 +391,12 @@ def robust_LHRH(
 
 
 def robust_CC(sim, C_rate, sim_params, force_fail=False):
-    raise NotImplementedError("timespan needs to be defined differently now")
+    #raise NotImplementedError("timespan needs to be defined differently now")
     if force_fail:
         return None
 
-    t_step = (3600 / abs(C_rate), 10000)
-    t_step_init = (10 / abs(C_rate), 150)
+    t_step = (3600.0 / abs(C_rate), 3600.0 / abs(10000.0*C_rate))
+    t_step_init = (10.0 / abs(C_rate), 10.0 / abs(150.0*C_rate))
 
     expr = bm.Experiment()
     if C_rate > 0:
@@ -433,12 +464,18 @@ def single_run(
     nsim=None,
     parallel_env=None,
     run_mode=None,
+    prot_param_sample=None,
 ):
 
     cyc_mode = sim_params["cyc_mode"]
     params_list = [
         deg_param_sample[key] for key in sim_params["deg_param_names"]
     ]
+    prot_params_list = None
+    if prot_param_sample is not None:
+        prot_params_list = [
+            prot_param_sample[key] for key in sim_params["prot_param_names"]
+        ]
     param_string = from_param_list_to_str(params_list)
 
     bat_model = None
@@ -476,6 +513,23 @@ def single_run(
         else:
             print(f"Success for {deg_param_sample}")
 
+    
+    elif cyc_mode.lower() in ["chirp"]:
+            assert prot_param_sample is not None
+            assert "time_start" in prot_param_sample
+            assert "amplitude" in prot_param_sample
+            assert "length" in prot_param_sample
+            rootsol = robust_chirp(
+                sim=sim,
+                sim_params=sim_params,
+                chirp_params=prot_param_sample,
+                force_fail=force_fail,
+            )
+
+            if rootsol is None:
+                print(f"All sim failed for {deg_param_sample} and protocol {prot_param_sample}")
+            else:
+                print(f"Success for {deg_param_sample} and protocol {prot_param_sample}")
     elif cyc_mode.lower() in ["diffcap", "hppc", "prehppc", "posthppc"]:
         if cyc_mode.lower() == "diffcap":
             rootsol = robust_DiffCap(
@@ -625,7 +679,7 @@ def single_run(
                 f"Elapsed time ({count+1}/{nsim}) = {time_e-time_s:.2f}s"
             )
 
-    return params_list, rootsol
+    return params_list, prot_params_list, rootsol
 
 
 
@@ -637,13 +691,20 @@ def single_run_save(
     phis_c_max,
     folder_save=".",
     bad_par_filename="bad_par.txt",
+    bad_prot_filename="bad_protocol.txt",
     only_phi_CC=True,
     n_points_reduce=512,
     cyc_mode="discharge",
     run_mode=None,
+    prot_params_list=None,
 ):
 
     param_string = from_param_list_to_str(params_list)
+    if prot_params_list is not None:
+        prot_param_string = from_prot_param_list_to_str(prot_params_list)
+    else:
+        prot_param_string = None
+
     if "p2d" in str(type(rootsol)).lower():
         run_p2d = True
         run_spm = False
@@ -734,6 +795,7 @@ def single_run_save(
             "posthppc",
             "prehppc",
             "diffcap",
+            "chirp",
         ]:
             diff_dict = {}
 
@@ -800,7 +862,7 @@ def single_run_save(
                 save_dict["dvdq_crop"] = dvdq_crop_int
                 save_dict["dqdv_crop"] = dqdv_crop_int
 
-        return save_dict, param_string
+        return save_dict, param_string, prot_param_string
     except (AssertionError, TypeError, AttributeError) as err:
         print(f"ERROR: {err}")
         with open(os.path.join(folder_save, bad_par_filename), "a+") as f:
@@ -809,7 +871,14 @@ def single_run_save(
                 string_par += f"{parameter:g} "
             f.write(f"{string_par}\n")
 
-        return None, None
+        if prot_params_list is not None:
+            with open(os.path.join(folder_save, bad_prot_filename), "a+") as f:
+                string_prot_par = ""
+                for parameter in prot_params_list:
+                    string_prot_par += f"{prot_parameter:g} "
+                f.write(f"{string_prot_par}\n")
+
+        return None, None, None
 
 
 def save_datapoint(
@@ -822,10 +891,12 @@ def save_datapoint(
     save_combined_sols=True,
     db: PickleDB | None = None,
     bad_par_filename="bad_par.txt",
+    bad_prot_filename="bad_prot.txt",
     only_phi_CC=True,
     n_points_reduce=512,
     cyc_mode="discharge",
     run_mode=None,
+    prot_params_list=None,
 ):
 
     if cyc_mode.lower() in ["discharge-chargecc", "discharge"]:
@@ -835,7 +906,7 @@ def save_datapoint(
         else:
             p_list = params_list
             rsol = rootsol
-        save_dict_dis, param_string_dis = single_run_save(
+        save_dict_dis, param_string_dis, _ = single_run_save(
             p_list,
             rsol,
             phis_c_min=phis_c_min,
@@ -864,7 +935,7 @@ def save_datapoint(
             save_dict_chcc = None
             param_string_chcc = None
         else:
-            save_dict_chcc, param_string_chcc = single_run_save(
+            save_dict_chcc, param_string_chcc, _ = single_run_save(
                 p_list,
                 rsol,
                 phis_c_min=phis_c_min,
@@ -882,7 +953,7 @@ def save_datapoint(
     if cyc_mode.lower() in ["diffcap", "hppc", "prehppc", "posthppc"]:
         p_list = params_list
         rsol = rootsol
-        save_dict, param_string = single_run_save(
+        save_dict, param_string, _ = single_run_save(
             p_list,
             rsol,
             phis_c_min=phis_c_min,
@@ -896,10 +967,30 @@ def save_datapoint(
         if save_dict is None:
             save_separate_sols = False
             save_combined_sols = False
+    if cyc_mode.lower() in ["chirp"]:
+        p_list = params_list
+        prot_p_list=prot_params_list
+        rsol = rootsol
+        save_dict, param_string, prot_param_string = single_run_save(
+            p_list,
+            rsol,
+            phis_c_min=phis_c_min,
+            phis_c_max=phis_c_max,
+            folder_save=folder_save,
+            bad_par_filename=bad_par_filename,
+            bad_prot_filename=bad_prot_filename,
+            only_phi_CC=only_phi_CC,
+            n_points_reduce=n_points_reduce,
+            cyc_mode=cyc_mode,
+            prot_params_list=prot_p_list,
+        )
+        if save_dict is None:
+            save_separate_sols = False
+            save_combined_sols = False
     if cyc_mode.lower() in ["rh"]:
         p_list = params_list
         rsol = rootsol
-        save_dict_rh, param_string_rh = single_run_save(
+        save_dict_rh, param_string_rh, _ = single_run_save(
             p_list,
             rsol,
             phis_c_min=phis_c_min,
@@ -916,7 +1007,7 @@ def save_datapoint(
     if cyc_mode.lower() in ["lh"]:
         p_list = params_list
         rsol = rootsol
-        save_dict_lh, param_string_lh = single_run_save(
+        save_dict_lh, param_string_lh, _ = single_run_save(
             p_list,
             rsol,
             phis_c_min=phis_c_min,
@@ -933,7 +1024,7 @@ def save_datapoint(
     if cyc_mode.lower() in ["lh2"]:
         p_list = params_list
         rsol = rootsol
-        save_dict_lh, param_string_lh = single_run_save(
+        save_dict_lh, param_string_lh, _ = single_run_save(
             p_list,
             rsol,
             phis_c_min=phis_c_min,
@@ -958,6 +1049,7 @@ def save_datapoint(
         "posthppc",
         "prehppc",
         "diffcap",
+        "chirp"
     ]:
         raise NotImplementedError
 
@@ -1007,6 +1099,7 @@ def save_datapoint(
             "posthppc",
             "prehppc",
             "diffcap",
+            "chirp",
         ]:
             np.savez(
                 os.path.join(folder_save, f"solution{param_string}.npz"),
@@ -1026,6 +1119,10 @@ def save_datapoint(
 
         combined_data["params"] = params_list
         if cyc_mode.lower() in [
+            "chirp",
+        ]:
+            combined_data["prot_params"] = prot_params_list
+        if cyc_mode.lower() in [
             "discharge",
             "chargecc",
             "rh",
@@ -1035,6 +1132,7 @@ def save_datapoint(
             "posthppc",
             "prehppc",
             "diffcap",
+            "chirp",
         ]:
             combined_data["sol"] = save_dict
         elif cyc_mode.lower() == "discharge-chargecc":
@@ -1075,13 +1173,15 @@ def clean_sol_par(
 
 
 def read_list_param(
-    folder_save=".", param_list_file="parameter_list.txt", parameter_list=[]
+    folder_save=".", param_list_file="parameter_list.txt", parameter_list=None
 ):
     param_list_file = os.path.join(folder_save, param_list_file)
     if not os.path.isfile(param_list_file):
         return parameter_list
     with open(param_list_file, "r+") as f:
         lines = f.readlines()
+    if parameter_list is None:
+        parameter_list = []
     for line in lines:
         parameter_list.append([float(entry) for entry in line.split()])
     return parameter_list
@@ -1091,23 +1191,32 @@ def multi_run_ser(
     sim_params,
     param_list_file="parameter_list.txt",
     bad_par_file="bad_par.txt",
+    protocol_list_file="protocol_parameter_list.txt",
+    bad_protocol_file="bad_protocol.txt",
     save_separate_sols=False,
     save_combined_sols=True,
     folder_save=".",
     only_phi_CC=True,
     n_points_reduce=512,
+    protocol_params=None,
 ):
 
     cyc_mode = sim_params["cyc_mode"]
     log_dir = Path(folder_save)
     log_dir.mkdir(parents=True, exist_ok=True)
     remove_file(os.path.join(folder_save, bad_par_file))
+    remove_file(os.path.join(folder_save, bad_protocol_file))
     remove_file(os.path.join(folder_save, "sols.pkl"))
 
     deg_parameter_list = read_list_param(
         folder_save=folder_save, param_list_file=param_list_file
     )
     nsim = len(deg_parameter_list)
+    if cyc_mode in ["chirp"]:
+        protocol_parameter_list = read_list_param(
+            folder_save=folder_save, param_list_file=protocol_list_file
+        )
+        assert nsim == len(protocol_parameter_list)
 
     db = PickleDB(filename=os.path.join(folder_save, "sols.pkl"))
 
@@ -1123,7 +1232,8 @@ def multi_run_ser(
             "posthppc",
             "diffcap",
         ]:
-            params_list, root_sol = single_run(
+
+            params_list, prot_params_list, root_sol = single_run(
                 sim_params=sim_params,
                 deg_param_sample=from_degparamlist_to_degparamdict(
                     deg_param_entry, sim_params, parallel_env=None
@@ -1144,12 +1254,47 @@ def multi_run_ser(
                 only_phi_CC=only_phi_CC,
                 cyc_mode=cyc_mode,
                 n_points_reduce=n_points_reduce,
+                prot_params_list=prot_params_list,
+            )
+        elif cyc_mode.lower() in [
+            "chirp",
+        ]:
+            prot_parameter_list = read_list_param(
+                folder_save=folder_save, param_list_file=protocol_list_file
+            )
+            prot_param_entry = prot_parameter_list[count]
+            prot_param_sample = from_protparamlist_to_protparamdict(
+                prot_param_entry, sim_params, parallel_env=None
+            )
+            params_list, prot_params_list, root_sol = single_run(
+                sim_params=sim_params,
+                deg_param_sample=from_degparamlist_to_degparamdict(
+                    deg_param_entry, sim_params, parallel_env=None
+                ),
+                count=count,
+                nsim=nsim,
+                prot_param_sample=prot_param_sample,
+            )
+            save_datapoint(
+                params_list,
+                root_sol,
+                phis_c_min=sim_params["vmin"],
+                phis_c_max=sim_params["vmax"],
+                folder_save=folder_save,
+                save_separate_sols=save_separate_sols,
+                save_combined_sols=save_combined_sols,
+                db=db,
+                bad_par_filename="bad_par.txt",
+                only_phi_CC=only_phi_CC,
+                cyc_mode=cyc_mode,
+                n_points_reduce=n_points_reduce,
+                prot_params_list=prot_params_list,
             )
         elif cyc_mode.lower() == "discharge-chargecc":
             params_list = []
             root_sol = []
             for run_mode in ["discharge", "chargecc"]:
-                params_list_i, root_sol_i = single_run(
+                params_list_i, _, root_sol_i = single_run(
                     sim_params=sim_params,
                     deg_param_sample=from_degparamlist_to_degparamdict(
                         deg_param_entry, sim_params, parallel_env=None
@@ -1192,34 +1337,53 @@ def merge_badpar_badsol(
     parallel_env=None,
     folder_save=".",
     bad_par_file="bad_par.txt",
+    bad_prot_file="bad_prot.txt",
 ):
     if parallel_env is not None:
         parallel_env.comm.Barrier()
 
         if not parallel_env.irank == parallel_env.iroot:
             return
-        param_list = []
+        deg_param_list = []
+        prot_param_list = []
 
         for rank in range(
             parallel_env.iroot, parallel_env.nProc + parallel_env.iroot
         ):
-            param_list = read_list_param(
+            deg_param_list = read_list_param(
                 folder_save=folder_save,
                 param_list_file=f"bad_par_filename_{rank}.txt",
-                parameter_list=param_list,
+                parameter_list=deg_param_list,
             )
+            if sim_params["cyc_mode"].lower() in ["chirp"]:
+                prot_param_list = read_list_param(
+                    folder_save=folder_save,
+                    param_list_file=f"bad_prot_filename_{rank}.txt",
+                    parameter_list=prot_param_list,
+                )
 
         with open(os.path.join(folder_save, bad_par_file), "w+") as f:
-            for param_entry in param_list:
+            for param_entry in deg_param_list:
                 string_par = ""
                 for parameter in param_entry:
                     string_par += f"{parameter:g} "
                 f.write(f"{string_par}\n")
 
+        if sim_params["cyc_mode"].lower() in ["chirp"]:
+            with open(os.path.join(folder_save, bad_prot_file), "w+") as f:
+                for param_entry in prot_param_list:
+                    string_par = ""
+                    for parameter in param_entry:
+                        string_par += f"{parameter:g} "
+                    f.write(f"{string_par}\n")
+
+
         for rank in range(
             parallel_env.iroot, parallel_env.nProc + parallel_env.iroot
         ):
             remove_file(os.path.join(folder_save, f"bad_par_filename_{rank}.txt"))
+            if sim_params["cyc_mode"].lower() in ["chirp"]:
+                remove_file(os.path.join(folder_save, f"bad_prot_filename_{rank}.txt"))
     else:
         def list_bad_par_files(folder_save="."):
             directory = Path(folder_save)
@@ -1231,25 +1395,55 @@ def merge_badpar_badsol(
                 return -1
             sorted_files = sorted(files, key=extract_rank)
             return sorted_files
+        def list_bad_prot_files(folder_save="."):
+            directory = Path(folder_save)
+            files = list(directory.glob("bad_prot_filename_*.txt"))
+            def extract_rank(filepath):
+                match = re.search(r'bad_prot_filename_(\d+)\.txt', filepath.name)
+                if match:
+                    return int(match.group(1))
+                return -1
+            sorted_files = sorted(files, key=extract_rank)
+            return sorted_files
 
-        param_list = []
-        sorted_files =  list_bad_par_files(folder_save=folder_save)
-        for filename in sorted_files:
-            param_list = read_list_param(
+        deg_param_list = []
+        sorted_par_files =  list_bad_par_files(folder_save=folder_save)
+        for filename in sorted_par_files:
+            deg_param_list = read_list_param(
                 folder_save=folder_save,
                 param_list_file=filename,
-                parameter_list=param_list,
+                parameter_list=deg_param_list,
             )
+        if sim_params["cyc_mode"].lower() in ["chirp"]:
+            prot_param_list = []
+            sorted_prot_files =  list_bad_prot_files(folder_save=folder_save)
+            for filename in sorted_prot_files:
+                prot_param_list = read_list_param(
+                    folder_save=folder_save,
+                    param_list_file=filename,
+                    parameter_list=prot_param_list,
+                )
 
         with open(os.path.join(folder_save, bad_par_file), "w+") as f:
-            for param_entry in param_list:
+            for param_entry in deg_param_list:
                 string_par = ""
                 for parameter in param_entry:
                     string_par += f"{parameter:g} "
                 f.write(f"{string_par}\n")
 
-        for filename in sorted_files:
+        for filename in sorted_par_files:
             remove_file(os.path.join(folder_save, filename))
+
+        if sim_params["cyc_mode"].lower() in ["chirp"]:
+            with open(os.path.join(folder_save, bad_prot_file), "w+") as f:
+                for param_entry in prot_param_list:
+                    string_par = ""
+                    for parameter in param_entry:
+                        string_par += f"{parameter:g} "
+                    f.write(f"{string_par}\n")
+
+            for filename in sorted_prot_files:
+                remove_file(os.path.join(folder_save, filename))
 
 
 def merge_combined_sols(
@@ -1359,6 +1553,8 @@ def multi_run(
     sim_params,
     param_list_file="parameter_list.txt",
     bad_par_file="bad_par.txt",
+    protocol_list_file="protocol_parameter_list.txt",
+    bad_protocol_file="bad_protocol.txt",
     save_separate_sols=False,
     save_combined_sols=True,
     folder_save=".",
@@ -1374,6 +1570,8 @@ def multi_run(
             sim_params=sim_params,
             param_list_file=param_list_file,
             bad_par_file=bad_par_file,
+            protocol_list_file=protocol_list_file,
+            bad_protocol_file=bad_protocol_file,
             folder_save=folder_save,
             n_points_reduce=n_points_reduce,
         )
@@ -1389,12 +1587,20 @@ def multi_run(
                 remove_file(
                     os.path.join(folder_save, f"bad_par_filename_{rank}.txt")
                 )
+                remove_file(
+                    os.path.join(folder_save, f"bad_prot_filename_{rank}.txt")
+                )
 
         parallel_env.comm.Barrier()
 
         deg_parameter_list = read_list_param(
             folder_save=folder_save, param_list_file=param_list_file
         )
+        if cyc_mode.lower() in ["chirp"]:
+            prot_parameter_list = read_list_param(
+                folder_save=folder_save, param_list_file=protocol_list_file
+            )
+
         parallel_env.printRoot("INFO: partition data to simulate")
         nsim_, startSim_ = parallel_env.partitionData(len(deg_parameter_list))
 
@@ -1425,7 +1631,7 @@ def multi_run(
                 "posthppc",
                 "diffcap",
             ]:
-                params_list, root_sol = single_run(
+                params_list, _ ,root_sol = single_run(
                     sim_params=sim_params,
                     deg_param_sample=from_degparamlist_to_degparamdict(
                         deg_param_entry_, sim_params, parallel_env=parallel_env
@@ -1448,11 +1654,44 @@ def multi_run(
                     cyc_mode=cyc_mode,
                     n_points_reduce=n_points_reduce,
                 )
+            elif cyc_mode.lower() in [
+                "chirp",
+            ]:
+                prot_param_entry = prot_parameter_list[startSim_+count_]
+
+                params_list, prot_params_list, root_sol = single_run(
+                    sim_params=sim_params,
+                    deg_param_sample=from_degparamlist_to_degparamdict(
+                        deg_param_entry_, sim_params, parallel_env=parallel_env
+                    ),
+                    count=count_,
+                    nsim=nsim_,
+                    parallel_env=parallel_env,
+                    prot_param_sample=from_protparamlist_to_protparamdict(
+                        prot_param_entry, sim_params, parallel_env=parallel_env
+                    )
+                )
+                save_datapoint(
+                    params_list,
+                    root_sol,
+                    phis_c_min=sim_params["vmin"],
+                    phis_c_max=sim_params["vmax"],
+                    folder_save=folder_save,
+                    save_separate_sols=save_separate_sols,
+                    save_combined_sols=save_combined_sols,
+                    db=db_,
+                    bad_par_filename=f"bad_par_filename_{parallel_env.irank}.txt",
+                    bad_prot_filename=f"bad_prot_filename_{parallel_env.irank}.txt",
+                    only_phi_CC=only_phi_CC,
+                    cyc_mode=cyc_mode,
+                    n_points_reduce=n_points_reduce,
+                    prot_params_list=prot_params_list,
+                )
             elif cyc_mode.lower() == "discharge-chargecc":
                 params_list = []
                 root_sol = []
                 for run_mode in ["discharge", "chargecc"]:
-                    params_list_i, root_sol_i = single_run(
+                    params_list_i, _, root_sol_i = single_run(
                         sim_params=sim_params,
                         deg_param_sample=from_degparamlist_to_degparamdict(
                             deg_param_entry_, sim_params, parallel_env=None

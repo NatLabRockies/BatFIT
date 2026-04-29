@@ -22,6 +22,22 @@ def parse_input(filename, parallel_env=None):
     ]
     assert deg_param_names == deg_param_names_min
     assert deg_param_names == deg_param_names_max
+
+    prot_param_names = None
+    prot_param_min = None
+    prot_param_max = None
+    if cyc_mode.lower() in ["chirp"]:
+        prot_param_names_min = list(exp["min protocol parameter"].keys())
+        prot_param_names_max = list(exp["max protocol parameter"].keys())
+        assert set(prot_param_names_min) == set(prot_param_names_max)
+        prot_param_names = [
+            entry.strip()
+            for entry in exp["protocol parameter names"].split(",")
+        ]
+        assert prot_param_names == prot_param_names_min
+        assert prot_param_names == prot_param_names_max
+
+
     # deg_param_names = list(set(deg_param_names_min))
     # deg_param_names.sort()
     # deg_param_names = ["i0_a", "ds_c", "x0_a", "x0_c", "i0_c", "eps_s_c"]
@@ -43,7 +59,7 @@ def parse_input(filename, parallel_env=None):
         pass
     elif cyc_mode.lower() in ["rh", "lh", "lh2"]:
         pass
-    elif cyc_mode.lower() in ["diffcap", "hppc", "prehppc", "posthppc"]:
+    elif cyc_mode.lower() in ["diffcap", "hppc", "prehppc", "posthppc", "chirp"]:
         pass
     else:
         raise NotImplementedError
@@ -58,8 +74,22 @@ def parse_input(filename, parallel_env=None):
             for param_name in deg_param_names
         ]
     except KeyError:
-        logger.error("Mismatch of parameters")
+        logger.error("Mismatch of degradation parameters")
         raise KeyError
+    
+    if cyc_mode.lower() in ["chirp"]:
+        try:
+            prot_param_min = [
+                exp["min protocol parameter"][param_name]
+                for param_name in prot_param_names
+            ]
+            prot_param_max = [
+                exp["max protocol parameter"][param_name]
+                for param_name in prot_param_names
+            ]
+        except KeyError:
+            logger.error("Mismatch of protocol parameters")
+            raise KeyError
 
     if cyc_mode == "discharge-chargecc":
         try:
@@ -92,6 +122,7 @@ def parse_input(filename, parallel_env=None):
         "posthppc",
         "diffcap",
         "prehppc",
+        "chirp",
     ]:
         phy_par["model"] = exp["macroscopic"]["model"]
         phy_par["cap"] = exp["macroscopic"]["cap"]
@@ -331,13 +362,18 @@ def parse_input(filename, parallel_env=None):
 
     if parallel_env is None:
         print("deg param names = ", deg_param_names)
+        if cyc_mode.lower() in ["chirp"]:
+            print("prot param names = ", prot_param_names)
     else:
         parallel_env.printAll("deg param names = " + str(deg_param_names))
-    return deg_param_names, deg_param_min, deg_param_max, phy_par
+        if cyc_mode.lower() in ["chirp"]:
+            parallel_env.printAll("prot param names = " + str(prot_param_names))
+
+    return deg_param_names, deg_param_min, deg_param_max, prot_param_names, prot_param_min, prot_param_max, phy_par
 
 
 def make_params(filename, parallel_env=None):
-    deg_param_names, deg_param_min, deg_param_max, phy_par = parse_input(
+    deg_param_names, deg_param_min, deg_param_max, prot_param_names, prot_param_min, prot_param_max, phy_par = parse_input(
         filename, parallel_env=parallel_env
     )
 
@@ -350,7 +386,17 @@ def make_params(filename, parallel_env=None):
         params["deg_" + param_name + "_max"] = deg_param_max[
             deg_param_names.index(param_name)
         ]
-    params["n_params"] = len(deg_param_names)
+    params["n_deg_params"] = len(deg_param_names)
+    if prot_param_names is not None:
+        params["prot_param_names"] = prot_param_names
+        for param_name in prot_param_names:
+            params["prot_" + param_name + "_min"] = prot_param_min[
+                prot_param_names.index(param_name)
+            ]
+            params["prot_" + param_name + "_max"] = prot_param_max[
+                prot_param_names.index(param_name)
+            ]
+        params["n_prot_params"] = len(prot_param_names)
     for key in phy_par:
         params[key] = phy_par[key]
 

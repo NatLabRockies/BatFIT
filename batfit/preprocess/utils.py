@@ -167,6 +167,74 @@ def check_degparamlist(deg_param_list, sim_params, parallel_env=None):
                 parallel_env.printAll(msg)
                 parallel_env.comm.Abort()
 
+def from_prot_param_list_to_str(prot_params_list, prot_params_name=None):
+    prot_param_string = ""
+    if prot_params_list is not None:
+        if isinstance(prot_params_list[0], str):
+            prot_params_list_val = [float(val) for val in prot_params_list]
+        else:
+            prot_params_list_val = prot_params_list
+        if prot_params_name is None:
+            for prot_paramval in prot_params_list_val:
+                prot_param_string += "_"
+                prot_param_string += f"{prot_paramval:g}"
+        else:
+            for prot_paramval, name in zip(prot_params_list_val, prot_params_name):
+                prot_param_string += f"_{name}_"
+                prot_param_string += f"{prot_paramval:g}"
+    return prot_param_string
+
+
+def from_prot_param_list_to_dict(prot_params_list, prot_params):
+    prot_dict = {}
+    for ipar, name in enumerate(prot_params["prot_param_names"]):
+        if prot_params_list is not None:
+            if isinstance(prot_params_list[0], str):
+                prot_dict[name] = float(prot_params_list[ipar])
+            else:
+                prot_dict[name] = prot_params_list[ipar]
+        else:
+            prot_dict[name] = prot_params["prot_" + name + "_ref"]
+    return prot_dict
+
+def check_protparamdict(prot_param_dict, sim_params, parallel_env=None):
+    for prot_param_name in sim_params["prot_param_names"]:
+        try:
+            assert (
+                prot_param_dict[prot_param_name]
+                >= sim_params["prot_" + prot_param_name + "_min"]
+            )
+            assert (
+                prot_param_dict[prot_param_name]
+                <= sim_params["prot_" + prot_param_name + "_max"]
+            )
+        except AssertionError:
+            msg = f"ERROR: In dict {prot_param_dict}\n\tParameter {prot_param_name} = {prot_param_dict[prot_param_name]} out of bounds ({sim_params['prot_' + prot_param_name + '_min']}-{sim_params['prot_' + prot_param_name + '_max']})"
+            if parallel_env is None:
+                sys.exit(msg)
+            else:
+                parallel_env.printAll(msg)
+                parallel_env.comm.Abort()
+
+
+def check_protparamlist(prot_param_list, sim_params, parallel_env=None):
+    for prot_val, prot_param_name in zip(
+        prot_param_list, sim_params["prot_param_names"]
+    ):
+        try:
+            assert prot_val >= sim_params["prot_" + prot_param_name + "_min"]
+            assert prot_val <= sim_params["prot_" + prot_param_name + "_max"]
+
+        except AssertionError:
+            msg = f"ERROR: In list {prot_param_list}\n\t"
+            msg += f"Parameter {prot_param_name} = {prot_val} out of bounds"
+            msg += f"({sim_params['prot_' + prot_param_name + '_min']}-"
+            msg += f"{sim_params['prot_' + prot_param_name + '_max']})"
+            if parallel_env is None:
+                sys.exit(msg)
+            else:
+                parallel_env.printAll(msg)
+                parallel_env.comm.Abort()
 
 def from_degparamlist_to_degparamdict(
     deg_param_list: list[float],
@@ -207,3 +275,43 @@ def from_degparamdict_to_degparamlist(
         deg_param_list.append(deg_param_dict[deg_param_name])
     check_degparamlist(deg_param_list, sim_params, parallel_env)
     return deg_param_list
+
+def from_protparamlist_to_protparamdict(
+    prot_param_list: list[float],
+    sim_params: dict,
+    prot_param_names=None,
+    parallel_env=None,
+):
+
+    if prot_param_names is not None:
+        try:
+            assert sim_params["prot_param_names"] == prot_param_names
+        except AssertionError:
+            msg = f"ERROR: sim_params['prot_param_names'] and prot_param_names do not match\n"
+            msg += f"\tsim_params['prot_param_names'] = {sim_params['prot_param_names']}"
+            msg += f"\tprot_param_names = {prot_param_names}"
+            if parallel_env is None:
+                sys.exit(msg)
+            else:
+                parallel_env.printAll(msg)
+                parallel_env.comm.Abort()
+
+    check_protparamlist(prot_param_list, sim_params, parallel_env)
+    prot_param_dict = {}
+    for prot_param_val, prot_param_name in zip(
+        prot_param_list, sim_params["prot_param_names"]
+    ):
+        prot_param_dict[prot_param_name] = prot_param_val
+    check_protparamdict(prot_param_dict, sim_params, parallel_env)
+    return prot_param_dict
+
+
+def from_protparamdict_to_protparamlist(
+    prot_param_dict, sim_params, parallel_env=None
+):
+    check_protparamdict(prot_param_dict, sim_params, parallel_env)
+    prot_param_list = []
+    for prot_param_name in sim_params["prot_param_names"]:
+        prot_param_list.append(prot_param_dict[prot_param_name])
+    check_protparamlist(prot_param_list, sim_params, parallel_env)
+    return prot_param_list

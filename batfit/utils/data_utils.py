@@ -111,7 +111,7 @@ def from_combined_sols_to_data(
             sol_dict, combined_sols, key, n_points, target_mode
         )
         return x, y
-    elif cyc_mode.lower() in ["rh", "lh", "diffcap", "hppc", "prehppc", "posthppc"]:
+    elif cyc_mode.lower() in ["rh", "lh", "diffcap", "hppc", "prehppc", "posthppc","chirp"]:
         sol_dict = combined_sols[key]["sol"]
         if sol_dict["phis_c"].shape[0] < n_points_min:
             logger.warning(
