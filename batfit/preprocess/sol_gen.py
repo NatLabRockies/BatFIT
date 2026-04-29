@@ -874,7 +874,7 @@ def single_run_save(
         if prot_params_list is not None:
             with open(os.path.join(folder_save, bad_prot_filename), "a+") as f:
                 string_prot_par = ""
-                for parameter in prot_params_list:
+                for prot_parameter in prot_params_list:
                     string_prot_par += f"{prot_parameter:g} "
                 f.write(f"{string_prot_par}\n")
 
