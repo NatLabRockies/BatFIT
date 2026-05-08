@@ -239,10 +239,9 @@ def robust_postHPPC(sim, sim_params, force_fail=False):
         #    ],
         #):
         for atol, max_step in zip(
-            [1e-6, 1e-13],
+            [1e-12],
             [
                 int(1e3),
-                int(1e6),
             ],
         ):
             try:
