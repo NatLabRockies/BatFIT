@@ -693,6 +693,7 @@ def single_run_save(
     bad_par_filename="bad_par.txt",
     bad_prot_filename="bad_protocol.txt",
     only_phi_CC=True,
+    store_current=False,
     n_points_reduce=512,
     cyc_mode="discharge",
     run_mode=None,
@@ -727,6 +728,13 @@ def single_run_save(
                 )
         else:
             sol_dict = rootsol.to_dict()
+
+        if store_current:
+            if run_spm:
+                sol_dict["i"] = rootsol.vars["current_A"]
+            else:
+                sol_dict["i"] = np.expand_dims(rootsol.vars["voltage_V"], axis=1)
+
         if cyc_mode in ["discharge", "chargecc", "discharge-chargecc"]:
             if phis_c_min is not -np.inf:
                 try:
@@ -754,17 +762,23 @@ def single_run_save(
             if only_phi_CC:
                 save_dict["t"] = sol_dict["t"][:ind_t_max]
                 save_dict["phis_c"] = sol_dict["phis_c"][:ind_t_max]
+                if store_current:
+                    save_dict["i"] = sol_dict["i"][:ind_t_max]
             else:
                 save_dict["t"] = sol_dict["t"][:ind_t_max]
                 save_dict["cs_a"] = sol_dict["cs_a"][:ind_t_max]
                 save_dict["cs_c"] = sol_dict["cs_c"][:ind_t_max]
                 save_dict["phie"] = sol_dict["phie"][:ind_t_max]
                 save_dict["phis_c"] = sol_dict["phis_c"][:ind_t_max]
+                if store_current:
+                    save_dict["i"] = sol_dict["i"][:ind_t_max]
         elif run_p2d:
             # P2D
             if only_phi_CC:
                 save_dict["t"] = sol_dict["t"][:ind_t_max]
                 save_dict["phis_c"] = sol_dict["phis_c"][:ind_t_max, -1]
+                if store_current:
+                    save_dict["i"] = sol_dict["i"][:ind_t_max, -1]
             else:
                 save_dict["t"] = sol_dict["t"][:ind_t_max]
                 save_dict["cs_a"] = sol_dict["cs_a"][:ind_t_max]
@@ -777,6 +791,8 @@ def single_run_save(
                 save_dict["ie"] = sol_dict["ie"][:ind_t_max]
                 save_dict["j_a"] = sol_dict["j_a"][:ind_t_max]
                 save_dict["j_c"] = sol_dict["j_c"][:ind_t_max]
+                if store_current:
+                    save_dict["i"] = sol_dict["i"][:ind_t_max, -1]
 
         t = sol_dict["t"]
         phis_c = sol_dict["phis_c"]
@@ -893,6 +909,7 @@ def save_datapoint(
     bad_par_filename="bad_par.txt",
     bad_prot_filename="bad_prot.txt",
     only_phi_CC=True,
+    store_current=False,
     n_points_reduce=512,
     cyc_mode="discharge",
     run_mode=None,
@@ -914,6 +931,7 @@ def save_datapoint(
             folder_save=folder_save,
             bad_par_filename=bad_par_filename,
             only_phi_CC=only_phi_CC,
+            store_current=store_current,
             n_points_reduce=n_points_reduce,
             cyc_mode=cyc_mode,
             run_mode="discharge",
@@ -943,6 +961,7 @@ def save_datapoint(
                 folder_save=folder_save,
                 bad_par_filename=bad_par_filename,
                 only_phi_CC=only_phi_CC,
+                store_current=store_current,
                 n_points_reduce=n_points_reduce,
                 cyc_mode=cyc_mode,
                 run_mode="chargecc",
@@ -961,6 +980,7 @@ def save_datapoint(
             folder_save=folder_save,
             bad_par_filename=bad_par_filename,
             only_phi_CC=only_phi_CC,
+            store_current=store_current,
             n_points_reduce=n_points_reduce,
             cyc_mode=cyc_mode,
         )
@@ -980,6 +1000,7 @@ def save_datapoint(
             bad_par_filename=bad_par_filename,
             bad_prot_filename=bad_prot_filename,
             only_phi_CC=only_phi_CC,
+            store_current=store_current,
             n_points_reduce=n_points_reduce,
             cyc_mode=cyc_mode,
             prot_params_list=prot_p_list,
@@ -998,6 +1019,7 @@ def save_datapoint(
             folder_save=folder_save,
             bad_par_filename=bad_par_filename,
             only_phi_CC=only_phi_CC,
+            store_current=store_current,
             n_points_reduce=n_points_reduce,
             cyc_mode=cyc_mode,
         )
@@ -1015,6 +1037,7 @@ def save_datapoint(
             folder_save=folder_save,
             bad_par_filename=bad_par_filename,
             only_phi_CC=only_phi_CC,
+            store_current=store_current,
             n_points_reduce=n_points_reduce,
             cyc_mode=cyc_mode,
         )
@@ -1032,6 +1055,7 @@ def save_datapoint(
             folder_save=folder_save,
             bad_par_filename=bad_par_filename,
             only_phi_CC=only_phi_CC,
+            store_current=store_current,
             n_points_reduce=n_points_reduce,
             cyc_mode=cyc_mode,
         )
@@ -1197,6 +1221,7 @@ def multi_run_ser(
     save_combined_sols=True,
     folder_save=".",
     only_phi_CC=True,
+    store_current=False,
     n_points_reduce=512,
     protocol_params=None,
 ):
@@ -1252,6 +1277,7 @@ def multi_run_ser(
                 db=db,
                 bad_par_filename="bad_par.txt",
                 only_phi_CC=only_phi_CC,
+                store_current=store_current,
                 cyc_mode=cyc_mode,
                 n_points_reduce=n_points_reduce,
                 prot_params_list=prot_params_list,
@@ -1286,6 +1312,7 @@ def multi_run_ser(
                 db=db,
                 bad_par_filename="bad_par.txt",
                 only_phi_CC=only_phi_CC,
+                store_current=store_current,
                 cyc_mode=cyc_mode,
                 n_points_reduce=n_points_reduce,
                 prot_params_list=prot_params_list,
@@ -1317,6 +1344,7 @@ def multi_run_ser(
                 db=db,
                 bad_par_filename="bad_par.txt",
                 only_phi_CC=only_phi_CC,
+                store_current=store_current,
                 cyc_mode=cyc_mode,
                 n_points_reduce=n_points_reduce,
             )
@@ -1560,6 +1588,7 @@ def multi_run(
     folder_save=".",
     parallel_env=None,
     only_phi_CC=True,
+    store_current=False,
     n_points_reduce=512,
 ):
 
@@ -1574,6 +1603,8 @@ def multi_run(
             bad_protocol_file=bad_protocol_file,
             folder_save=folder_save,
             n_points_reduce=n_points_reduce,
+            store_current=store_current,
+            only_phi_CC=only_phi_CC,
         )
     else:
 
@@ -1651,6 +1682,7 @@ def multi_run(
                     db=db_,
                     bad_par_filename=f"bad_par_filename_{parallel_env.irank}.txt",
                     only_phi_CC=only_phi_CC,
+                    store_current=store_current,
                     cyc_mode=cyc_mode,
                     n_points_reduce=n_points_reduce,
                 )
@@ -1683,6 +1715,7 @@ def multi_run(
                     bad_par_filename=f"bad_par_filename_{parallel_env.irank}.txt",
                     bad_prot_filename=f"bad_prot_filename_{parallel_env.irank}.txt",
                     only_phi_CC=only_phi_CC,
+                    store_current=store_current,
                     cyc_mode=cyc_mode,
                     n_points_reduce=n_points_reduce,
                     prot_params_list=prot_params_list,
@@ -1715,6 +1748,7 @@ def multi_run(
                     db=db_,
                     bad_par_filename=f"bad_par_filename_{parallel_env.irank}.txt",
                     only_phi_CC=only_phi_CC,
+                    store_current=store_current,
                     cyc_mode=cyc_mode,
                     n_points_reduce=n_points_reduce,
                 )
