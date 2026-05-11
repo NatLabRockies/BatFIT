@@ -15,7 +15,7 @@ from batfit.utils.torch_utils import (
     save_model,
 )
 
-from .losses import (                                                                                                        
+from .param_utils.losses import (                                                                                                        
     correlated_normal_loss,                                                                                                  
     gumbel_loss,                                                                                                             
     independent_gumbel_loss,                                                                                                 
@@ -60,18 +60,18 @@ def _build_conv_layers(
         pool_l.append(nn.MaxPool1d(kernel_size=2, stride=2))
     return conv_l, pool_l
 
-def _build_conv_fc_layers(
-    input_shape_1:int , chan_list: list[int], fc_list: list[int]
+def _build_hidden_fcnn_layers(
+    input_shape:int , fc_list: list[int]
   ) -> list[nn.Module]:
     """
-    Build fully connected layer after conv
+    Build fully connected layer
     """
     fc_l = []
     for ifc, fc in enumerate(fc_list):
         if ifc == 0:
             fc_l.append(
                 nn.Linear(
-                    chan_list[-1] * input_shape_1 // (2 ** len(chan_list)),
+                    input_shape,
                     fc,
                 )
             )
@@ -79,6 +79,13 @@ def _build_conv_fc_layers(
             fc_l.append(nn.Linear(fc_list[ifc - 1], fc))
     return fc_l
 
+def _build_conv_fc_layers(
+    input_shape_1:int , chan_list: list[int], fc_list: list[int]
+  ) -> list[nn.Module]:
+    """
+    Build fully connected layer after conv
+    """
+    return _build_hidden_fcnn_layers(input_shape=chan_list[-1] * input_shape_1 // (2 ** len(chan_list)), fc_list=fc_list)
 
 def _build_cnn_encoder(
       input_shape_0, input_shape_1, chan_list, fc_list, leaky_relu_slope, cyc_mode
@@ -93,7 +100,7 @@ def _build_cnn_encoder(
         _cnn_layers.append(pool[ichan])
         _cnn_layers.append(nn.LeakyReLU(leaky_relu_slope))
     _cnn_layers.append(nn.Flatten())
-    for ifc, fc in enumerate(fc):
+    for ifc, fc_l in enumerate(fc):
         _cnn_layers.append(fc[ifc])
         _cnn_layers.append(nn.Tanh())
     cnn_layers = nn.Sequential(*_cnn_layers)
@@ -108,7 +115,7 @@ def _build_cnn_encoder(
             _cnn_layers_aux.append(pool_aux[ichan])
             _cnn_layers_aux.append(nn.LeakyReLU(leaky_relu_slope))
         _cnn_layers_aux.append(nn.Flatten())
-        for ifc, fc in enumerate(fc_aux):
+        for ifc, fc_aux_l in enumerate(fc_aux):
             _cnn_layers_aux.append(fc_aux[ifc])
             _cnn_layers_aux.append(nn.Tanh())
         cnn_layers_aux = nn.Sequential(*_cnn_layers_aux)
@@ -118,6 +125,48 @@ def _build_cnn_encoder(
         fc_list_end = fc_list[-1]
 
     return cnn_layers, cnn_layers_aux, fc_list_end
+
+
+def _build_output_heads(
+      fc_list_end, fc_mu_list, fc_gamma_list, output_dim, dependent_outputs, constrain_output
+  ):
+    # Mean
+    fc_mu = _build_hidden_fcnn_layers(fc_list_end, fc_mu_list)
+    fc_otpt_mu = nn.Linear(fc_mu_list[-1], output_dim)
+    
+    _mu_layers = []
+    for ifc, fc in enumerate(fc_mu):
+        _mu_layers.append(fc_mu[ifc])
+        _mu_layers.append(nn.Tanh())
+    _mu_layers.append(fc_otpt_mu)
+    if constrain_output:
+        _mu_layers.append(nn.Sigmoid())
+
+    # Variance or covariance
+    fc_gamma = _build_hidden_fcnn_layers(fc_list_end, fc_gamma_list)
+    if not dependent_outputs:
+        fc_otpt_gamma = nn.Linear(fc_gamma_list[-1], output_dim)
+    else:
+        fc_otpt_gamma = nn.Linear(
+            fc_gamma_list[-1], output_dim * (output_dim + 1) // 2
+        )
+
+    _gamma_layers = []
+    for ifc, fc in enumerate(fc_gamma):
+        _gamma_layers.append(fc_gamma[ifc])
+        _gamma_layers.append(nn.Tanh())
+    _gamma_layers.append(fc_otpt_gamma)
+
+    if constrain_output and not dependent_outputs:
+        _gamma_layers.append(nn.Sigmoid())
+    elif not constrain_output and not dependent_outputs:
+        _gamma_layers.append(nn.Softplus(beta=1.0, threshold=20.0))
+    elif dependent_outputs:
+        pass
+    
+    model_mu_layers = nn.Sequential(*_mu_layers)
+    model_gamma_layers = nn.Sequential(*_gamma_layers)
+    return model_mu_layers, model_gamma_layers
 
 class _ProbParamBase(nn.Module, ABC):
     def __init__(
@@ -199,6 +248,32 @@ class _ProbParamBase(nn.Module, ABC):
             mu_unscaled, min_par, amp_par
         ), self.inv_transform_gamma(gamma_unscaled, amp_par)
 
+    def _cholesky_cov(self, gamma):
+        # Create covariance matrix
+        L = torch.zeros(
+            gamma.size(0),
+            self.output_dim,
+            self.output_dim,
+            device=gamma.device,
+        )
+        # Indices of the lower triangular matrix
+        # first row is row coordinates
+        # second row is col coordinates
+        tril_indices = torch.tril_indices(
+            row=self.output_dim, col=self.output_dim, offset=0
+        )
+
+        # Fill lower triangular
+        L[:, tril_indices[0], tril_indices[1]] = gamma
+
+        # Apply softplus to diagonal for positive definiteness
+        diagonal_indices = torch.arange(self.output_dim)
+        L[:, diagonal_indices, diagonal_indices] = torch.nn.functional.softplus(
+            L[:, diagonal_indices, diagonal_indices], beta=1.0, threshold=20.0
+        )
+        return L @ L.transpose(-1, -2)
+
+
     @abstractmethod
     def forward(self, x):
         pass
@@ -246,57 +321,9 @@ class ProbParamCNN(_ProbParamBase):
 
         self.cnn_layers, self.cnn_layers_aux, fc_list_end = _build_cnn_encoder(input_shape_0, input_shape_1, chan_list, fc_list, leaky_relu_slope, cyc_mode)
 
-        self.fc_mu = []
-        for ifc, fc in enumerate(fc_mu_list):
-            if ifc == 0:
-                self.fc_mu.append(nn.Linear(fc_list_end, fc))
-            else:
-                self.fc_mu.append(nn.Linear(fc_mu_list[ifc - 1], fc))
-        self.fc_gamma = []
-        for ifc, fc in enumerate(fc_gamma_list):
-            if ifc == 0:
-                self.fc_gamma.append(nn.Linear(fc_list_end, fc))
-            else:
-                self.fc_gamma.append(nn.Linear(fc_gamma_list[ifc - 1], fc))
+        
+        self.model_mu_layers, self.model_gamma_layers = _build_output_heads(fc_list_end, fc_mu_list, fc_gamma_list, self.output_dim, self.dependent_outputs, self.constrain_output)
 
-        self.fc_otpt_mu = nn.Linear(fc_mu_list[-1], self.output_dim)
-        if not self.dependent_outputs:
-            self.fc_otpt_gamma = nn.Linear(fc_gamma_list[-1], self.output_dim)
-        else:
-            self.fc_otpt_gamma = nn.Linear(
-                fc_gamma_list[-1], self.output_dim * (self.output_dim + 1) // 2
-            )
-
-        # self.elu_act = nn.ELU(alpha=1.0)
-        self.softplus_act = nn.Softplus(beta=1.0, threshold=20.0)
-        self.softplus_smooth = nn.Softplus(beta=0.1, threshold=20.0)
-        self.softplus_sharp = nn.Softplus(beta=10.0, threshold=20.0)
-        self.leaky_act = nn.LeakyReLU(self.leaky_relu_slope)
-        self.tanh = nn.Tanh()
-        self.sigmoid = nn.Sigmoid()
-
-        self.mu_layers = []
-        for ifc, fc in enumerate(self.fc_mu):
-            self.mu_layers.append(self.fc_mu[ifc])
-            self.mu_layers.append(nn.Tanh())
-        self.mu_layers.append(self.fc_otpt_mu)
-        if self.constrain_output:
-            self.mu_layers.append(self.sigmoid)
-
-        self.gamma_layers = []
-        for ifc, fc in enumerate(self.fc_gamma):
-            self.gamma_layers.append(self.fc_gamma[ifc])
-            self.gamma_layers.append(nn.Tanh())
-        self.gamma_layers.append(self.fc_otpt_gamma)
-        if self.constrain_output and not self.dependent_outputs:
-            self.gamma_layers.append(self.sigmoid)
-        elif not self.constrain_output and not self.dependent_outputs:
-            self.gamma_layers.append(self.softplus_act)
-        elif self.dependent_outputs:
-            pass
-
-        self.model_mu_layers = nn.Sequential(*self.mu_layers)
-        self.model_gamma_layers = nn.Sequential(*self.gamma_layers)
 
     def forward(self, x):
         if self.cyc_mode.lower() == "discharge-chargecc":
@@ -310,41 +337,14 @@ class ProbParamCNN(_ProbParamBase):
 
             mu = self.model_mu_layers(x_conc)
             gamma = self.model_gamma_layers(x_conc)
-            last_x = x_conc
         else:
             x = self.cnn_layers(x)
 
             mu = self.model_mu_layers(x)
             gamma = self.model_gamma_layers(x)
-            last_x = x
 
         if self.dependent_outputs:
-            # Create covariance matrix
-            L = torch.zeros(
-                last_x.size(0),
-                self.output_dim,
-                self.output_dim,
-                device=last_x.device,
-            )
-            # Indices of the lower triangular matrix
-            # first row is row coordinates
-            # second row is col coordinates
-            tril_indices = torch.tril_indices(
-                row=self.output_dim, col=self.output_dim, offset=0
-            )
-
-            # Fill lower triangular
-            L[:, tril_indices[0], tril_indices[1]] = gamma
-
-            # Apply softplus to diagonal for positive definiteness
-            diagonal_indices = torch.arange(self.output_dim)
-            L[:, diagonal_indices, diagonal_indices] = self.softplus_act(
-                L[:, diagonal_indices, diagonal_indices]
-            )
-
-            # Covariance matrix
-            cov = L @ L.transpose(-1, -2)
-            gamma = cov
+            gamma=self._cholesky_cov(gamma)
 
         return mu, gamma
 
@@ -375,78 +375,27 @@ class ProbParamFCNN(_ProbParamBase):
             sim_config=sim_config,
         )
         self.hidden_list = hidden_list
+        elementary_fcnn = _build_hidden_fcnn_layers(input_shape[0], hidden_list)
         self.fcnn = []
-        for ihidden, hidden in enumerate(hidden_list):
-            if ihidden == 0:
-                self.fcnn.append(
-                    nn.Linear(
-                        in_features=input_shape[0],
-                        out_features=hidden,
-                    )
-                )
+        for ihidden, hidden in enumerate(elementary_fcnn):
+                self.fcnn.append(elementary_fcnn[ihidden])
                 self.fcnn.append(nn.Tanh())
-            else:
-                self.fcnn.append(
-                    nn.Linear(
-                        in_features=hidden_list[ihidden - 1],
-                        out_features=hidden,
-                    )
-                )
-                self.fcnn.append(nn.Tanh())
-
-        fc_list_end = hidden_list[-1]
-
-        self.fc_mu = []
-        for ifc, fc in enumerate(fc_mu_list):
-            if ifc == 0:
-                self.fc_mu.append(nn.Linear(fc_list_end, fc))
-            else:
-                self.fc_mu.append(nn.Linear(fc_mu_list[ifc - 1], fc))
-        self.fc_gamma = []
-        for ifc, fc in enumerate(fc_gamma_list):
-            if ifc == 0:
-                self.fc_gamma.append(nn.Linear(fc_list_end, fc))
-            else:
-                self.fc_gamma.append(nn.Linear(fc_gamma_list[ifc - 1], fc))
-
-        self.fc_otpt_mu = nn.Linear(fc_mu_list[-1], self.output_dim)
-        if not self.dependent_outputs:
-            self.fc_otpt_gamma = nn.Linear(fc_gamma_list[-1], self.output_dim)
+        if self.cyc_mode.lower() == "discharge-chargecc":
+            elementary_fcnn_aux = _build_hidden_fcnn_layers(input_shape[0], hidden_list)
+            self.fcnn_aux = []
+            for ihidden, hidden in enumerate(elementary_fcnn_aux):
+                self.fcnn_aux.append(elementary_fcnn_aux[ihidden])
+                self.fcnn_aux.append(nn.Tanh())
+            fc_list_end = 2*hidden_list[-1]
         else:
-            self.fc_otpt_gamma = nn.Linear(
-                fc_gamma_list[-1], self.output_dim * (self.output_dim + 1) // 2
-            )
+            fc_list_end = hidden_list[-1]
+        
 
-        # self.elu_act = nn.ELU(alpha=1.0)
-        self.softplus_act = nn.Softplus(beta=1.0, threshold=20.0)
-        self.softplus_smooth = nn.Softplus(beta=0.1, threshold=20.0)
-        self.softplus_sharp = nn.Softplus(beta=10.0, threshold=20.0)
-        self.tanh = nn.Tanh()
-        self.sigmoid = nn.Sigmoid()
-
-        self.mu_layers = []
-        for ifc, fc in enumerate(self.fc_mu):
-            self.mu_layers.append(self.fc_mu[ifc])
-            self.mu_layers.append(nn.Tanh())
-        self.mu_layers.append(self.fc_otpt_mu)
-        if self.constrain_output:
-            self.mu_layers.append(self.sigmoid)
-
-        self.gamma_layers = []
-        for ifc, fc in enumerate(self.fc_gamma):
-            self.gamma_layers.append(self.fc_gamma[ifc])
-            self.gamma_layers.append(nn.Tanh())
-        self.gamma_layers.append(self.fc_otpt_gamma)
-        if self.constrain_output and not self.dependent_outputs:
-            self.gamma_layers.append(self.sigmoid)
-        elif not self.constrain_output and not self.dependent_outputs:
-            self.gamma_layers.append(self.softplus_act)
-        elif self.dependent_outputs:
-            pass
+        self.model_mu_layers, self.model_gamma_layers = _build_output_heads(fc_list_end, fc_mu_list, fc_gamma_list, self.output_dim, self.dependent_outputs, self.constrain_output)
 
         self.fcnn_layers = nn.Sequential(*self.fcnn)
-        self.model_mu_layers = nn.Sequential(*self.mu_layers)
-        self.model_gamma_layers = nn.Sequential(*self.gamma_layers)
+        if self.cyc_mode.lower() == "discharge-chargecc":
+            self.fcnn_layers_aux = nn.Sequential(*self.fcnn_aux)
 
     def forward(self, x):
         if self.cyc_mode.lower() == "discharge-chargecc":
@@ -460,41 +409,14 @@ class ProbParamFCNN(_ProbParamBase):
 
             mu = self.model_mu_layers(x_conc)
             gamma = self.model_gamma_layers(x_conc)
-            last_x = x_conc
         else:
             x = self.fcnn_layers(x)
 
             mu = self.model_mu_layers(x)
             gamma = self.model_gamma_layers(x)
-            last_x = x
 
         if self.dependent_outputs:
-            # Create covariance matrix
-            L = torch.zeros(
-                last_x.size(0),
-                self.output_dim,
-                self.output_dim,
-                device=last_x.device,
-            )
-            # Indices of the lower triangular matrix
-            # first row is row coordinates
-            # second row is col coordinates
-            tril_indices = torch.tril_indices(
-                row=self.output_dim, col=self.output_dim, offset=0
-            )
-
-            # Fill lower triangular
-            L[:, tril_indices[0], tril_indices[1]] = gamma
-
-            # Apply softplus to diagonal for positive definiteness
-            diagonal_indices = torch.arange(self.output_dim)
-            L[:, diagonal_indices, diagonal_indices] = self.softplus_act(
-                L[:, diagonal_indices, diagonal_indices]
-            )
-
-            # Covariance matrix
-            cov = L @ L.transpose(-1, -2)
-            gamma = cov
+            gamma=self._cholesky_cov(gamma)
 
         return mu, gamma
 

@@ -10,6 +10,8 @@ from prettyPlot.plotting import *
 from batfit import BATFIT_DIR, BATFIT_EXP, logger
 from batfit.basicutilityc import ReadInput as ri
 from batfit.model.paramNN import *
+from batfit.model.param_utils.noise_utils import *
+from batfit.model.param_utils.train_utils import *
 from batfit.model.surrogateNN import SurrogateFCNN, mae_loss
 from batfit.utils.data_utils import *
 from batfit.utils.torch_utils import *
@@ -21,7 +23,6 @@ def make_data_loaders(inp):
     target_mode = inp.target_mode
     cyc_mode = inp.cyc_mode
     n_param_pred = inp.n_param_pred
-    enforce_licons = inp.enforce_licons
 
     X_data, Y_data = assemble_all_data(
         data_root_folder,
@@ -34,13 +35,8 @@ def make_data_loaders(inp):
     )
     tmp = np.load(os.path.join(data_root_folder, "assembled_data.npz"))
 
-    if enforce_licons and target_mode == "discharge-chargecc":
-        logger.info("Removing last input")
-        X_data = tmp["X_data"]
-        Y_data = tmp["Y_data"][:, :-1]
-    else:
-        X_data = tmp["X_data"]
-        Y_data = tmp["Y_data"]
+    X_data = tmp["X_data"]
+    Y_data = tmp["Y_data"]
 
     BATCH_SIZE = min(inp.batch_size, int(Y_data.shape[0] * 0.9))
     train_data_loader, test_data_loader = make_dataset_from_np(
@@ -86,7 +82,6 @@ def define_model(inp):
     target_mode = inp.target_mode
     cyc_mode = inp.cyc_mode
     n_param_pred = inp.n_param_pred
-    enforce_licons = inp.enforce_licons
     if target_mode != "encoded":
         input_shape = (2, inp.n_points)
 
@@ -101,7 +96,6 @@ def define_model(inp):
         n_param_pred=n_param_pred,
         constrain_output=True,
         dependent_outputs=False,
-        enforce_licons=enforce_licons,
         sim_config=inp.sim_config,
     )
     num_parameters = get_num_parameters(model)

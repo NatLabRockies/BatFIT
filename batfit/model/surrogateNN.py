@@ -60,8 +60,6 @@ def create_model_from_log(model_obj_file, model_state_dict_file, verbose=True):
         model = pickle.load(f)
     if not hasattr(model, "dependent_outputs"):
         model.dependent_outputs = False
-    if not hasattr(model, "enforce_licons"):
-        model.enforce_licons = False
     num_parameters = get_num_parameters(model)
     if verbose:
         print(f"\tNo. Trainable Parameters: {num_parameters}")

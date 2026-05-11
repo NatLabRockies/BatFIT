@@ -10,7 +10,6 @@ def define_model(inp):
     target_mode = inp.target_mode
     cyc_mode = inp.cyc_mode
     n_param_pred = inp.n_param_pred
-    enforce_licons = inp.enforce_licons
     if target_mode != "encoded":
         input_shape = (2,inp.n_points)
 
@@ -25,7 +24,6 @@ def define_model(inp):
         n_param_pred=n_param_pred,
         constrain_output=True,
         dependent_outputs=False,
-        enforce_licons=enforce_licons,
         sim_config=inp.sim_config,
     )
     num_parameters = get_num_parameters(model)
