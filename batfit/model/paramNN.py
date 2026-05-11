@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 import numpy as np
 import torch
 import torch.nn as nn
@@ -16,7 +17,6 @@ from batfit.utils.torch_utils import (
 
 from .losses import (                                                                                                        
     correlated_normal_loss,                                                                                                  
-    elbo_independent_normal_loss,                                                                                            
     gumbel_loss,                                                                                                             
     independent_gumbel_loss,                                                                                                 
     independent_normal_loss,                                                                                                 
@@ -25,46 +25,27 @@ from .losses import (
     pinball_loss,                                                                                                            
 ) 
 
-
-class ProbParamCNN(nn.Module):
+class _ProbParamBase(nn.Module, ABC):
     def __init__(
         self,
-        input_shape,
-        chan_list,
-        fc_list,
-        fc_mu_list,
-        fc_gamma_list,
         loss_fn,
-        leaky_relu_slope=0.2,
         cyc_mode="discharge",
         n_param_pred=6,
         dependent_outputs=False,
-        enforce_licons=False,
         constrain_output=False,
         encoder_model=None,
         sim_config=None,
-        prior=None,
     ):
-        logger.info("Creating probabilistic CNN model")
-        super(ProbParamCNN, self).__init__()
-        self.leaky_relu_slope = leaky_relu_slope
-        self.chan_list = chan_list
-        self.fc_list = fc_list
+        super(_ProbParamBase, self).__init__()
         self.loss_fn = loss_fn
         self.cyc_mode = cyc_mode
         self.n_param_pred = n_param_pred
         self.constrain_output = constrain_output
         self.sim_config = sim_config
         self.dependent_outputs = dependent_outputs
-        self.enforce_licons = enforce_licons
         self.encoder_model = encoder_model
-        self.prior = prior
-        if not self.cyc_mode.lower() == "discharge-chargecc":
-            self.enforce_licons = False
-        if self.enforce_licons:
-            self.output_dim = self.n_param_pred - 1
-        else:
-            self.output_dim = self.n_param_pred
+        self.output_dim = self.n_param_pred
+        
         if self.dependent_outputs:
             assert self.loss_fn == correlated_normal_loss
         else:
@@ -95,11 +76,71 @@ class ProbParamCNN(nn.Module):
                     ]
                 ).astype("float32")
             )
-            if self.enforce_licons:
-                self.max_par = self.max_par[:-1]
-                self.min_par = self.min_par[:-1]
-
             self.amp_par = self.max_par - self.min_par
+
+    def inv_transform_mu(self, mu_unscaled, min_par, amp_par):
+        mu = mu_unscaled * amp_par + min_par
+        return mu
+
+    def inv_transform_gamma(self, gamma_unscaled, amp_par):
+        gamma = gamma_unscaled * amp_par
+        return gamma
+
+    def transform_mu(self, mu_scaled, min_par, amp_par):
+        mu = (mu_scaled - min_par) / amp_par
+        return mu
+
+    def transform_gamma(self, gamma_scaled, amp_par):
+        gamma = gamma_scaled / amp_par
+        return gamma
+
+    def transform_output(self, mu_scaled, gamma_scaled, min_par, amp_par):
+        return self.transform_mu(
+            mu_scaled, min_par, amp_par
+        ), self.transform_gamma(gamma_scaled, amp_par)
+
+    def inv_transform_output(
+        self, mu_unscaled, gamma_unscaled, min_par, amp_par
+    ):
+        return self.inv_transform_mu(
+            mu_unscaled, min_par, amp_par
+        ), self.inv_transform_gamma(gamma_unscaled, amp_par)
+
+    @abstractmethod
+    def forward(self, x):
+        pass
+
+
+class ProbParamCNN(_ProbParamBase):
+    def __init__(
+        self,
+        input_shape,
+        chan_list,
+        fc_list,
+        fc_mu_list,
+        fc_gamma_list,
+        loss_fn,
+        leaky_relu_slope=0.2,
+        cyc_mode="discharge",
+        n_param_pred=6,
+        dependent_outputs=False,
+        constrain_output=False,
+        encoder_model=None,
+        sim_config=None,
+    ):
+        logger.info("Creating probabilistic CNN model")
+        super(ProbParamCNN, self).__init__(
+            loss_fn=loss_fn,
+            cyc_mode=cyc_mode,
+            n_param_pred=n_param_pred,
+            dependent_outputs=dependent_outputs,
+            constrain_output=constrain_output,
+            encoder_model=encoder_model,
+            sim_config=sim_config,
+        )
+        self.leaky_relu_slope = leaky_relu_slope
+        self.chan_list = chan_list
+        self.fc_list = fc_list
 
         assert len(chan_list) < int(np.log(input_shape[1]) / np.log(2))
 
@@ -271,34 +312,6 @@ class ProbParamCNN(nn.Module):
         self.model_mu_layers = nn.Sequential(*self.mu_layers)
         self.model_gamma_layers = nn.Sequential(*self.gamma_layers)
 
-    def inv_transform_mu(self, mu_unscaled, min_par, amp_par):
-        mu = mu_unscaled * amp_par + min_par
-        return mu
-
-    def inv_transform_gamma(self, gamma_unscaled, amp_par):
-        gamma = gamma_unscaled * amp_par
-        return gamma
-
-    def transform_mu(self, mu_scaled, min_par, amp_par):
-        mu = (mu_scaled - min_par) / amp_par
-        return mu
-
-    def transform_gamma(self, gamma_scaled, amp_par):
-        gamma = gamma_scaled / amp_par
-        return gamma
-
-    def transform_output(self, mu_scaled, gamma_scaled, min_par, amp_par):
-        return self.transform_mu(
-            mu_scaled, min_par, amp_par
-        ), self.transform_gamma(gamma_scaled, amp_par)
-
-    def inv_transform_output(
-        self, mu_unscaled, gamma_unscaled, min_par, amp_par
-    ):
-        return self.inv_transform_mu(
-            mu_unscaled, min_par, amp_par
-        ), self.inv_transform_gamma(gamma_unscaled, amp_par)
-
     def forward(self, x):
         if self.cyc_mode.lower() == "discharge-chargecc":
             nchans = x.shape[1]
@@ -350,7 +363,7 @@ class ProbParamCNN(nn.Module):
         return mu, gamma
 
 
-class ProbParamFCNN(nn.Module):
+class ProbParamFCNN(_ProbParamBase):
     def __init__(
         self,
         input_shape,
@@ -361,63 +374,21 @@ class ProbParamFCNN(nn.Module):
         cyc_mode="discharge",
         n_param_pred=6,
         dependent_outputs=False,
-        enforce_licons=False,
         constrain_output=False,
         encoder_model=None,
         sim_config=None,
     ):
         logger.info("Creating probabilistic FCNN model")
-        super(ProbParamFCNN, self).__init__()
+        super(ProbParamFCNN, self).__init__(
+            loss_fn=loss_fn,
+            cyc_mode=cyc_mode,
+            n_param_pred=n_param_pred,                                                                           
+            dependent_outputs=dependent_outputs,
+            constrain_output=constrain_output,
+            encoder_model=encoder_model,
+            sim_config=sim_config,
+        )
         self.hidden_list = hidden_list
-        self.loss_fn = loss_fn
-        self.cyc_mode = cyc_mode
-        self.n_param_pred = n_param_pred
-        self.constrain_output = constrain_output
-        self.sim_config = sim_config
-        self.dependent_outputs = dependent_outputs
-        self.enforce_licons = enforce_licons
-        self.encoder_model = encoder_model
-        if not self.cyc_mode.lower() == "discharge-chargecc":
-            self.enforce_licons = False
-        if self.enforce_licons:
-            self.output_dim = self.n_param_pred - 1
-        else:
-            self.output_dim = self.n_param_pred
-        if self.dependent_outputs:
-            assert self.loss_fn == correlated_normal_loss
-        else:
-            assert self.loss_fn in [
-                mse_loss,
-                gumbel_loss,
-                nll_loss,
-                independent_normal_loss,
-                independent_gumbel_loss,
-            ]
-
-        if self.sim_config is not None:
-            self.sim_params = make_params(self.sim_config)
-            self.max_par = torch.from_numpy(
-                np.array(
-                    [
-                        self.sim_params["deg_" + var_name + "_max"]
-                        for var_name in self.sim_params["deg_param_names"]
-                    ]
-                ).astype("float32")
-            )
-            self.min_par = torch.from_numpy(
-                np.array(
-                    [
-                        self.sim_params["deg_" + var_name + "_min"]
-                        for var_name in self.sim_params["deg_param_names"]
-                    ]
-                ).astype("float32")
-            )
-            if self.enforce_licons:
-                self.max_par = self.max_par[:-1]
-                self.min_par = self.min_par[:-1]
-
-            self.amp_par = self.max_par - self.min_par
-
         self.fcnn = []
         self.pool = []
         for ihidden, hidden in enumerate(hidden_list):
@@ -491,34 +462,6 @@ class ProbParamFCNN(nn.Module):
         self.fcnn_layers = nn.Sequential(*self.fcnn)
         self.model_mu_layers = nn.Sequential(*self.mu_layers)
         self.model_gamma_layers = nn.Sequential(*self.gamma_layers)
-
-    def inv_transform_mu(self, mu_unscaled, min_par, amp_par):
-        mu = mu_unscaled * amp_par + min_par
-        return mu
-
-    def inv_transform_gamma(self, gamma_unscaled, amp_par):
-        gamma = gamma_unscaled * amp_par
-        return gamma
-
-    def transform_mu(self, mu_scaled, min_par, amp_par):
-        mu = (mu_scaled - min_par) / amp_par
-        return mu
-
-    def transform_gamma(self, gamma_scaled, amp_par):
-        gamma = gamma_scaled / amp_par
-        return gamma
-
-    def transform_output(self, mu_scaled, gamma_scaled, min_par, amp_par):
-        return self.transform_mu(
-            mu_scaled, min_par, amp_par
-        ), self.transform_gamma(gamma_scaled, amp_par)
-
-    def inv_transform_output(
-        self, mu_unscaled, gamma_unscaled, min_par, amp_par
-    ):
-        return self.inv_transform_mu(
-            mu_unscaled, min_par, amp_par
-        ), self.inv_transform_gamma(gamma_unscaled, amp_par)
 
     def forward(self, x):
         if self.cyc_mode.lower() == "discharge-chargecc":

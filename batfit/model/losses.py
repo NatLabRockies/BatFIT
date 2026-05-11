@@ -60,34 +60,6 @@ def independent_normal_loss(mu, sigma, target):
     return nll.mean()
 
 
-def elbo_independent_normal_loss(mu, sigma, prior, target, temp):
-    """
-    Custom neg log like loss function.
-    output: Predicted values.
-    target: Ground truth labels.
-    """
-    sigma = torch.clamp(sigma, min=1e-4)
-    # post
-    posterior = dist.MultivariateNormal(
-        mu, covariance_matrix=torch.diag_embed(sigma**2)
-    )
-    if not posterior.mean.shape[0] == prior.mean.shape[0]:
-        prior_mean = (
-            prior.mean[0].reshape(1, -1).repeat(posterior.mean.shape[0], 1)
-        )
-        prior_cov = (
-            prior.covariance_matrix[0]
-            .reshape(1, sigma.shape[1], sigma.shape[1])
-            .repeat(posterior.mean.shape[0], 1, 1)
-        )
-        prior = dist.MultivariateNormal(
-            prior_mean, covariance_matrix=prior_cov
-        )
-    elbo = -posterior.log_prob(target) + temp * kl_divergence(posterior, prior)
-
-    return elbo.mean()
-
-
 def nll_loss(mu, sigma, target):
     return independent_normal_loss(mu, sigma, target)
 
