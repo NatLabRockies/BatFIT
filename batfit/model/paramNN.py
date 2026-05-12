@@ -463,3 +463,109 @@ class ProbParamFCNN(_ProbParamBase):
             gamma = self._cholesky_cov(gamma)
 
         return mu, gamma
+
+
+class ProbProtParamCNN(_ProbParamBase):
+    """CNN encoder for electrochemical signal with protocol parameter fusion.
+
+    The CNN encodes the input signal (time, voltage, etc.), then the flattened
+    CNN output is concatenated with the protocol parameters before passing through
+    optional additional FC layers. The combined representation is then split into
+    independent mu and gamma prediction heads.
+    """
+
+    def __init__(
+        self,
+        input_shape: tuple[int, int],
+        chan_list: list[int],
+        fc_list: list[int],
+        fc_prot_list: list[int],
+        fc_mu_list: list[int],
+        fc_gamma_list: list[int],
+        loss_fn,
+        n_prot_params: int,
+        leaky_relu_slope: float = 0.2,
+        cyc_mode: str = "chirp",
+        n_param_pred: int = 6,
+        dependent_outputs: bool = False,
+        constrain_output: bool = False,
+        encoder_model=None,
+        sim_config=None,
+    ):
+        logger.info(
+            "Creating probabilistic CNN model with protocol parameters"
+        )
+        assert cyc_mode.lower() != "discharge-chargecc"
+        if cyc_mode.lower() in ["discharge-chargecc"]:
+            raise NotImplementedError(
+                "We do a fusing after CNN encoding, we need to make it work for dual conv encoders"
+            )
+        super(ProbProtParamCNN, self).__init__(
+            loss_fn=loss_fn,
+            cyc_mode=cyc_mode,
+            n_param_pred=n_param_pred,
+            dependent_outputs=dependent_outputs,
+            constrain_output=constrain_output,
+            encoder_model=encoder_model,
+            sim_config=sim_config,
+        )
+        self.leaky_relu_slope = leaky_relu_slope
+        self.chan_list = chan_list
+        self.fc_list = fc_list
+        self.fc_prot_list = fc_prot_list
+        self.n_prot_params = n_prot_params
+
+        assert len(chan_list) < int(np.log(input_shape[1]) / np.log(2))
+
+        # Conv encoder that process electrochem signal
+        self.cnn_layers, _, _ = _build_cnn_encoder(
+            input_shape[0],
+            input_shape[1],
+            chan_list,
+            fc_list,
+            leaky_relu_slope,
+            cyc_mode,
+        )
+
+        # After CNN output + prot_params concatenation
+        prot_input_size = fc_list[-1] + n_prot_params
+        _prot_layers = []
+        if fc_prot_list:
+            prot_fc = _build_hidden_fcnn_layers(prot_input_size, fc_prot_list)
+            for ifc in range(len(prot_fc)):
+                _prot_layers.append(prot_fc[ifc])
+                _prot_layers.append(nn.Tanh())
+            fc_list_end = fc_prot_list[-1]
+        else:
+            fc_list_end = prot_input_size
+        self.prot_layers = nn.Sequential(*_prot_layers)
+
+        self.model_mu_layers, self.model_gamma_layers = _build_output_heads(
+            fc_list_end,
+            fc_mu_list,
+            fc_gamma_list,
+            self.output_dim,
+            self.dependent_outputs,
+            self.constrain_output,
+        )
+
+    def forward(
+        self, x: torch.Tensor, prot_params: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Forward pass combining electrochemical signal and protocol parameters.
+
+        :param x: electrochemical signal of shape (batch, channels, time)
+        :param prot_params: protocol parameters of shape (batch, n_prot_params)
+        :return: (mu, gamma) — predicted parameter means and variances/covariance
+        """
+        x = self.cnn_layers(x)
+        x = torch.cat((x, prot_params), dim=1)
+        x = self.prot_layers(x)
+
+        mu = self.model_mu_layers(x)
+        gamma = self.model_gamma_layers(x)
+
+        if self.dependent_outputs:
+            gamma = self._cholesky_cov(gamma)
+
+        return mu, gamma

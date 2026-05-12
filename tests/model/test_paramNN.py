@@ -1,10 +1,11 @@
+import pytest
 import torch
 
 from batfit.model.param_utils.losses import (
     correlated_normal_loss,
     independent_normal_loss,
 )
-from batfit.model.paramNN import ProbParamCNN, ProbParamFCNN
+from batfit.model.paramNN import ProbParamCNN, ProbParamFCNN, ProbProtParamCNN
 
 
 def test_ProbParamCNN():
@@ -136,3 +137,65 @@ def test_transform_output():
     mu_r, gamma_r = model.inv_transform_output(mu_s, gamma_s, min_par, amp_par)
     assert torch.allclose(mu, mu_r, atol=1e-5)
     assert torch.allclose(gamma, gamma_r, atol=1e-5)
+
+
+def test_ProbProtParamCNN():
+    batch = 4
+    n_points = 64
+    n_param_pred = 3
+    n_prot_params = 3
+
+    # With fc_prot_list: CNN out + prot_params -> fc_prot_list -> mu/gamma heads
+    model = ProbProtParamCNN(
+        input_shape=(2, n_points),
+        chan_list=[8],
+        fc_list=[16],
+        fc_prot_list=[32],
+        fc_mu_list=[8],
+        fc_gamma_list=[8],
+        loss_fn=independent_normal_loss,
+        n_prot_params=n_prot_params,
+        cyc_mode="chirp",
+        n_param_pred=n_param_pred,
+        constrain_output=False,
+    )
+    x = torch.rand(batch, 2, n_points)
+    prot_params = torch.rand(batch, n_prot_params)
+    mu, gamma = model(x, prot_params)
+    assert mu.shape == (batch, n_param_pred)
+    assert gamma.shape == (batch, n_param_pred)
+    # gamma should be positive (Softplus output)
+    assert gamma.min().item() > 0.0
+
+    # Without fc_prot_list: CNN out + prot_params fed directly to mu/gamma heads
+    model_noprot = ProbProtParamCNN(
+        input_shape=(2, n_points),
+        chan_list=[8],
+        fc_list=[16],
+        fc_prot_list=[],
+        fc_mu_list=[8],
+        fc_gamma_list=[8],
+        loss_fn=independent_normal_loss,
+        n_prot_params=n_prot_params,
+        cyc_mode="chirp",
+        n_param_pred=n_param_pred,
+        constrain_output=False,
+    )
+    mu2, gamma2 = model_noprot(x, prot_params)
+    assert mu2.shape == (batch, n_param_pred)
+    assert gamma2.shape == (batch, n_param_pred)
+
+    # discharge-chargecc mode must raise
+    with pytest.raises(AssertionError):
+        ProbProtParamCNN(
+            input_shape=(2, n_points),
+            chan_list=[8],
+            fc_list=[16],
+            fc_prot_list=[],
+            fc_mu_list=[8],
+            fc_gamma_list=[8],
+            loss_fn=independent_normal_loss,
+            n_prot_params=n_prot_params,
+            cyc_mode="discharge-chargecc",
+            n_param_pred=n_param_pred,
+        )
