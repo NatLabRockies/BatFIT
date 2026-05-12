@@ -52,7 +52,7 @@ def check_on_test(
 
     num_test = min(2, X_scaled.shape[0])
 
-    if isinstance(model, ProbParamNN):
+    if isinstance(model, ProbParamCNN):
         pred_scaled, gamma_scaled = model(
             torch.from_numpy(X_scaled[:num_test])
         )
@@ -66,22 +66,12 @@ def check_on_test(
         truth_unscaled = unscale_pred_from_scaler(truth_scaled, scaler_Y_file)
         probabilistic = True
 
-    elif isinstance(model, ParamNN):
-        pred_scaled = model(torch.from_numpy(X_scaled[:num_test]))
-        pred_scaled = pred_scaled.detach().numpy()
-        inp_unscaled, pred_unscaled = unscale_dataset_from_scaler(
-            X_scaled[:num_test], pred_scaled, scaler_X_file, scaler_Y_file
-        )
-        truth_scaled = Y_scaled[:num_test]
-        truth_unscaled = unscale_pred_from_scaler(truth_scaled, scaler_Y_file)
-        probabilistic = False
-
     else:
         raise NotImplementedError
 
     if not scale_y:
         pred_unscaled = pred_scaled
-        if isinstance(model, ProbParamNN):
+        if isinstance(model, ProbParamCNN):
             gamma_unscaled = gamma_scaled
 
     fig, axs = plt.subplots(1, num_test, figsize=(8 * num_test, 4))
@@ -106,7 +96,7 @@ def check_on_test(
                 f"Pred = {list_pred}\nUnc = {list_unc}\nTrue = {list_truth}"
             )
         else:
-            title = f"Pred = {list_pred}\nTrue = {list_true}"
+            title = f"Pred = {list_pred}\nTrue = {list_truth}"
         pretty_labels(
             "",
             "",
@@ -116,7 +106,7 @@ def check_on_test(
             grid=False,
         )
 
-    logdir = Path(figure_folder)
+    log_dir = Path(figure_folder)
     log_dir.mkdir(parents=True, exist_ok=True)
     # os.makedirs(figure_folder, exist_ok=True)
     plt.savefig(os.path.join(figure_folder, fig_name))
