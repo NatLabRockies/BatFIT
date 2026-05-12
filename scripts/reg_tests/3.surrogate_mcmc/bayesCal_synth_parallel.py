@@ -40,7 +40,11 @@ from batfit.calibration.data_utils import (
     load_observation_data,
     obs_filename,
 )
-from batfit.model.param_utils.noise_utils import make_noise_levels, apply_noise, apply_noise_unscaled
+from batfit.model.param_utils.noise_utils import (
+    apply_noise,
+    apply_noise_unscaled,
+    make_noise_levels,
+)
 
 
 def make_val_data(inp):

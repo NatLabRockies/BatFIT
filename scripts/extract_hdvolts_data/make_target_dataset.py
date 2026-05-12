@@ -11,7 +11,7 @@ from batfit.preprocess.utils import reduce_npoints_dict
 
 def make_target_data(data_type: str, rpt_ids=[-1, 1, 2, 3, 4, 5, 6, 7, 8]):
     """
-    Extract and store data by RPT, protocl and cell id
+    Extract and store data by RPT, protocol and cell id
     """
     data_folder = "data_target"
     os.makedirs(data_folder, exist_ok=True)

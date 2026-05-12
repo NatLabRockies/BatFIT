@@ -11,9 +11,11 @@ from torchsummary import summary
 
 from batfit import BATFIT_DIR, BATFIT_EXP, BATFIT_REG, logger
 from batfit.basicutilityc import ReadInput as ri
-from batfit.model.surrogateNN import SurrogateFCNN
 from batfit.model.surrogate_utils.losses import mae_loss as mae_loss_surr
-from batfit.model.surrogate_utils.train_utils import train_model as train_model_surr
+from batfit.model.surrogate_utils.train_utils import (
+    train_model as train_model_surr,
+)
+from batfit.model.surrogateNN import SurrogateFCNN
 from batfit.utils.data_utils import *
 from batfit.utils.torch_utils import *
 

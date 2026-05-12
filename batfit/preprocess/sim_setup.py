@@ -37,7 +37,6 @@ def parse_input(filename, parallel_env=None):
         assert prot_param_names == prot_param_names_min
         assert prot_param_names == prot_param_names_max
 
-
     # deg_param_names = list(set(deg_param_names_min))
     # deg_param_names.sort()
     # deg_param_names = ["i0_a", "ds_c", "x0_a", "x0_c", "i0_c", "eps_s_c"]
@@ -59,7 +58,13 @@ def parse_input(filename, parallel_env=None):
         pass
     elif cyc_mode.lower() in ["rh", "lh", "lh2"]:
         pass
-    elif cyc_mode.lower() in ["diffcap", "hppc", "prehppc", "posthppc", "chirp"]:
+    elif cyc_mode.lower() in [
+        "diffcap",
+        "hppc",
+        "prehppc",
+        "posthppc",
+        "chirp",
+    ]:
         pass
     else:
         raise NotImplementedError
@@ -76,7 +81,7 @@ def parse_input(filename, parallel_env=None):
     except KeyError:
         logger.error("Mismatch of degradation parameters")
         raise KeyError
-    
+
     if cyc_mode.lower() in ["chirp"]:
         try:
             prot_param_min = [
@@ -367,15 +372,31 @@ def parse_input(filename, parallel_env=None):
     else:
         parallel_env.printAll("deg param names = " + str(deg_param_names))
         if cyc_mode.lower() in ["chirp"]:
-            parallel_env.printAll("prot param names = " + str(prot_param_names))
+            parallel_env.printAll(
+                "prot param names = " + str(prot_param_names)
+            )
 
-    return deg_param_names, deg_param_min, deg_param_max, prot_param_names, prot_param_min, prot_param_max, phy_par
+    return (
+        deg_param_names,
+        deg_param_min,
+        deg_param_max,
+        prot_param_names,
+        prot_param_min,
+        prot_param_max,
+        phy_par,
+    )
 
 
 def make_params(filename, parallel_env=None):
-    deg_param_names, deg_param_min, deg_param_max, prot_param_names, prot_param_min, prot_param_max, phy_par = parse_input(
-        filename, parallel_env=parallel_env
-    )
+    (
+        deg_param_names,
+        deg_param_min,
+        deg_param_max,
+        prot_param_names,
+        prot_param_min,
+        prot_param_max,
+        phy_par,
+    ) = parse_input(filename, parallel_env=parallel_env)
 
     params = {}
     params["deg_param_names"] = deg_param_names

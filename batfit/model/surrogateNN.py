@@ -29,6 +29,7 @@ from batfit.utils.torch_utils import (
     prepare_log,
     save_model,
 )
+
 from .surrogate_utils.losses import mae_loss, mse_loss
 
 
@@ -107,5 +108,3 @@ class SurrogateFCNN(nn.Module):
 
         x = self.fcnn_layers(x)
         return x
-
-

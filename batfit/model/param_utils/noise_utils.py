@@ -71,7 +71,14 @@ def make_noise_levels(
             (a_max_dis[:, inds, :], a_max_chcc[:, inds, :]), dim=1
         )
 
-    if cyc_mode.lower() in ["rh", "lh", "diffcap", "hppc", "posthppc", "chirp"]:
+    if cyc_mode.lower() in [
+        "rh",
+        "lh",
+        "diffcap",
+        "hppc",
+        "posthppc",
+        "chirp",
+    ]:
         noise_levels = noise_levels_single[:, inds, :]
         a_min = a_min_single[:, inds, :]
         a_max = a_max_single[:, inds, :]
@@ -138,6 +145,7 @@ def sample_var(tens_m, tens_std, min_val, max_val, n=100):
     samp = torch.clamp(samp, min=min_val, max=max_val)
     return samp
 
+
 def cluster_rand(input_tensor):
     output_tensor = torch.empty_like(input_tensor)
     # Region 1: [0, 0.5)
@@ -194,5 +202,3 @@ def apply_noise_unscaled(
         )
     batch_in = torch.clamp(batch_in, min=a_min, max=a_max)
     return batch_in
-
-

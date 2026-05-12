@@ -1,5 +1,6 @@
 import torch
 
+
 def mse_loss(output, target):
     """
     Custom mean squared error loss function.
@@ -18,5 +19,3 @@ def mae_loss(output, target):
     """
     loss = torch.mean(torch.abs(output - target))
     return loss
-
-

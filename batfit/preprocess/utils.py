@@ -167,6 +167,7 @@ def check_degparamlist(deg_param_list, sim_params, parallel_env=None):
                 parallel_env.printAll(msg)
                 parallel_env.comm.Abort()
 
+
 def from_prot_param_list_to_str(prot_params_list, prot_params_name=None):
     prot_param_string = ""
     if prot_params_list is not None:
@@ -179,7 +180,9 @@ def from_prot_param_list_to_str(prot_params_list, prot_params_name=None):
                 prot_param_string += "_"
                 prot_param_string += f"{prot_paramval:g}"
         else:
-            for prot_paramval, name in zip(prot_params_list_val, prot_params_name):
+            for prot_paramval, name in zip(
+                prot_params_list_val, prot_params_name
+            ):
                 prot_param_string += f"_{name}_"
                 prot_param_string += f"{prot_paramval:g}"
     return prot_param_string
@@ -196,6 +199,7 @@ def from_prot_param_list_to_dict(prot_params_list, prot_params):
         else:
             prot_dict[name] = prot_params["prot_" + name + "_ref"]
     return prot_dict
+
 
 def check_protparamdict(prot_param_dict, sim_params, parallel_env=None):
     for prot_param_name in sim_params["prot_param_names"]:
@@ -236,6 +240,7 @@ def check_protparamlist(prot_param_list, sim_params, parallel_env=None):
                 parallel_env.printAll(msg)
                 parallel_env.comm.Abort()
 
+
 def from_degparamlist_to_degparamdict(
     deg_param_list: list[float],
     sim_params: dict,
@@ -275,6 +280,7 @@ def from_degparamdict_to_degparamlist(
         deg_param_list.append(deg_param_dict[deg_param_name])
     check_degparamlist(deg_param_list, sim_params, parallel_env)
     return deg_param_list
+
 
 def from_protparamlist_to_protparamdict(
     prot_param_list: list[float],

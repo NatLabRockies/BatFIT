@@ -8,6 +8,9 @@ import torch.distributions as dist
 from prettyPlot.progressBar import print_progress_bar
 
 from batfit import logger
+from batfit.model.ae import AECNN
+from batfit.model.paramNN import ProbParamCNN, ProbParamFCNN
+from batfit.model.vae import VAECNN
 from batfit.utils.data_utils import (
     scale_input_from_scaler,
     unscale_dataset_from_scaler,
@@ -21,12 +24,10 @@ from batfit.utils.torch_utils import (
     save_model,
 )
 
-from batfit.model.ae import AECNN
 from .losses import mse_loss
 from .metrics import *
 from .noise_utils import apply_noise
-from batfit.model.paramNN import ProbParamCNN, ProbParamFCNN
-from batfit.model.vae import VAECNN
+
 
 def create_model_from_log(model_obj_file, model_state_dict_file, verbose=True):
     if verbose:
@@ -93,6 +94,7 @@ def forward_pass(model, np_data_in, scaler_X_file, scaler_Y_file, scale_y):
         return (pred_unscaled, gamma_unscaled)
     else:
         return pred_unscaled
+
 
 def learning_rate_schedule(epoch, epoch_end, lr_beg, lr_end):
     epoch_delay = epoch_end // 10
@@ -201,7 +203,7 @@ def train_model(
         length=50,
     )
 
-    current_step=0
+    current_step = 0
     for epoch in range(num_epochs):
         # Set LR for this epoch
         temp = temp_schedule(epoch, 0, num_epochs * 3 // 4, 0.1, 1.0)
@@ -209,7 +211,7 @@ def train_model(
             param_group["lr"] = learning_rate_schedule(
                 epoch, num_epochs * 3 // 4, learning_rate, learning_rate_end
             )
-       
+
         for step, batch in enumerate(train_data_loader):
             current_step = epoch * num_batch + (step + 1)
             # Reinitialize grads

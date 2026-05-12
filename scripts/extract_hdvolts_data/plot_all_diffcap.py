@@ -32,7 +32,7 @@ for protocol in file_names:
             filename = file_names[protocol][rpt_id][cell_id]
             cycle_df = read_single_csv(filename, data_type="diffcap")
             A = get_voltage(cycle_df)
-            if A.shape[0]> 15000:
+            if A.shape[0] > 15000:
                 breakpoint()
                 continue
             plt.plot(

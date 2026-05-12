@@ -575,36 +575,62 @@ def get_samples(
     else:
         sampler = qmc.LatinHypercube(d=n_deg_params + n_prot_params)
         sample = sampler.random(n=n_int)
-        deg_sample = sample[:,:n_deg_params]
-        prot_sample = sample[:,n_deg_params:n_prot_params+n_deg_params]
+        deg_sample = sample[:, :n_deg_params]
+        prot_sample = sample[:, n_deg_params : n_prot_params + n_deg_params]
 
     deg_sample_scaled = qmc.scale(deg_sample, deg_l_bounds, deg_u_bounds)
     if n_prot_params > 0:
-        prot_sample_scaled = qmc.scale(prot_sample, prot_l_bounds, prot_u_bounds)
-        sample_scaled = round_samples(np.hstack((deg_sample_scaled, prot_sample_scaled)))
+        prot_sample_scaled = qmc.scale(
+            prot_sample, prot_l_bounds, prot_u_bounds
+        )
+        sample_scaled = round_samples(
+            np.hstack((deg_sample_scaled, prot_sample_scaled))
+        )
     else:
         prot_sample_scaled = prot_sample
         sample_scaled = deg_sample_scaled
 
-
     sample_scaled = enforce_pos_void_a(
-        sample_scaled, deg_param_names, deg_l_bounds + prot_l_bounds, deg_u_bounds + prot_u_bounds, sim_params
+        sample_scaled,
+        deg_param_names,
+        deg_l_bounds + prot_l_bounds,
+        deg_u_bounds + prot_u_bounds,
+        sim_params,
     )
     sample_scaled = enforce_pos_void_c(
-        sample_scaled, deg_param_names, deg_l_bounds + prot_l_bounds, deg_u_bounds + prot_u_bounds, sim_params
+        sample_scaled,
+        deg_param_names,
+        deg_l_bounds + prot_l_bounds,
+        deg_u_bounds + prot_u_bounds,
+        sim_params,
     )
     sample_scaled = enforce_stoich_a(
-        sample_scaled, deg_param_names, deg_l_bounds + prot_l_bounds, deg_u_bounds + prot_u_bounds, sim_params
+        sample_scaled,
+        deg_param_names,
+        deg_l_bounds + prot_l_bounds,
+        deg_u_bounds + prot_u_bounds,
+        sim_params,
     )
     sample_scaled = enforce_stoich_c(
-        sample_scaled, deg_param_names, deg_l_bounds + prot_l_bounds, deg_u_bounds + prot_u_bounds, sim_params
+        sample_scaled,
+        deg_param_names,
+        deg_l_bounds + prot_l_bounds,
+        deg_u_bounds + prot_u_bounds,
+        sim_params,
     )
     if li_cons:
         sample_scaled = enforce_li_conservation(
-            sample_scaled, deg_param_names, deg_l_bounds + prot_l_bounds, deg_u_bounds + prot_u_bounds, sim_params
+            sample_scaled,
+            deg_param_names,
+            deg_l_bounds + prot_l_bounds,
+            deg_u_bounds + prot_u_bounds,
+            sim_params,
         )
 
-    return sample_scaled[:,:n_deg_params], sample_scaled[:,n_deg_params:n_deg_params+n_prot_params]
+    return (
+        sample_scaled[:, :n_deg_params],
+        sample_scaled[:, n_deg_params : n_deg_params + n_prot_params],
+    )
 
 
 def hypercube_combinations(val_list):
@@ -617,7 +643,11 @@ def hypercube_combinations(val_list):
 
 
 def get_bounding_samples(
-    n_bound=None, deg_param_names=None, prot_param_names=None, sim_params=None, li_cons=False
+    n_bound=None,
+    deg_param_names=None,
+    prot_param_names=None,
+    sim_params=None,
+    li_cons=False,
 ):
 
     if not sim_params["cyc_mode"].lower() == "discharge-chargecc":
@@ -679,10 +709,17 @@ def get_bounding_samples(
 
     if li_cons:
         samples = enforce_li_conservation(
-            samples, deg_param_names, deg_l_bounds + prot_l_bounds, deg_u_bounds + prot_u_bounds, sim_params
+            samples,
+            deg_param_names,
+            deg_l_bounds + prot_l_bounds,
+            deg_u_bounds + prot_u_bounds,
+            sim_params,
         )
 
-    return samples[:,:n_deg_params], samples[:,n_deg_params:n_deg_params+n_prot_params]
+    return (
+        samples[:, :n_deg_params],
+        samples[:, n_deg_params : n_deg_params + n_prot_params],
+    )
 
 
 def write_exec(
@@ -713,13 +750,12 @@ def write_exec(
     for name in prot_param_names:
         id_prot_param.append(sim_params["prot_param_names"].index(name))
 
-
     log_dir = Path(folder_save)
     log_dir.mkdir(parents=True, exist_ok=True)
     # os.makedirs(folder_save, exist_ok=True)
     deg_param_list_file = os.path.join(folder_save, deg_param_list_file)
     prot_param_list_file = os.path.join(folder_save, prot_param_list_file)
-     
+
     with open(deg_param_list_file, "w+") as f:
         for sample in deg_samples:
             str_par = ""
@@ -730,7 +766,7 @@ def write_exec(
                 str_par += f"{s:g} "
             str_par += "\n"
             f.write(str_par)
-   
+
     if prot_samples is not None:
         with open(prot_param_list_file, "w+") as f:
             for sample in prot_samples:

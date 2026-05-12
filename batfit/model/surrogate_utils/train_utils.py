@@ -1,14 +1,16 @@
 import pickle
+
 import numpy as np
 import optuna
 import torch
 from prettyPlot.progressBar import print_progress_bar
 
 from batfit import logger
+from batfit.model.surrogateNN import SurrogateFCNN
 from batfit.utils.data_utils import (
     scale_input_from_scaler,
     unscale_dataset_from_scaler,
-)   
+)
 from batfit.utils.torch_utils import (
     get_device_type,
     get_num_parameters,
@@ -16,10 +18,9 @@ from batfit.utils.torch_utils import (
     log_training,
     prepare_log,
     save_model,
-)       
-    
+)
+
 from .losses import mse_loss
-from batfit.model.surrogateNN import SurrogateFCNN
 
 
 def create_model_from_log(model_obj_file, model_state_dict_file, verbose=True):
@@ -67,6 +68,7 @@ def forward_pass(model, np_data_in, scaler_X_file, scaler_Y_file, scale_y):
             raise NotImplementedError
 
     return pred_unscaled
+
 
 def learning_rate_schedule(epoch, epoch_end, lr_beg, lr_end):
     epoch_delay = epoch_end // 10

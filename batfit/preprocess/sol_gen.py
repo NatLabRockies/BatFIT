@@ -1,10 +1,11 @@
 import os
 import pickle
 import random
+import re
 import sys
 import time
 from pathlib import Path
-import re
+
 import bmlite as bm
 import numpy as np
 import pandas as pd
@@ -13,14 +14,14 @@ from batfit import BATFIT_EXP, logger
 from batfit.preprocess.diff_cap import calc_dqdv_dvdq
 from batfit.preprocess.pickledb import PickleDB
 
-from .mppoc_prot import (
-    define_chirp_experiment,
-)
 from .hdvolts_prot import (
     define_diffcap_experiment,
     define_hppc_experiment,
     define_post_hppc_experiment,
     define_pre_hppc_experiment,
+)
+from .mppoc_prot import (
+    define_chirp_experiment,
 )
 from .sim_setup import *
 from .utils import *
@@ -95,6 +96,7 @@ def mod_sim(
 
     return sim, C_rate
 
+
 def robust_chirp(sim, sim_params, chirp_params, force_fail=False):
     if force_fail:
         return None
@@ -124,6 +126,7 @@ def robust_chirp(sim, sim_params, chirp_params, force_fail=False):
         pass
     return sol
 
+
 def robust_DiffCap(sim, sim_params, force_fail=False):
     if force_fail:
         return None
@@ -134,7 +137,7 @@ def robust_DiffCap(sim, sim_params, force_fail=False):
         sol = sim.run(exp, reset_state=True, bar=False)
         assert all(sol.success)
     except:
-        #for atol, max_step in zip(
+        # for atol, max_step in zip(
         #    [1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12, 1e-13],
         #    [
         #        int(1e3),
@@ -146,7 +149,7 @@ def robust_DiffCap(sim, sim_params, force_fail=False):
         #        int(1e6),
         #        int(1e6),
         #    ],
-        #):
+        # ):
         for atol, max_step in zip(
             [1e-6, 1e-12],
             [
@@ -165,6 +168,7 @@ def robust_DiffCap(sim, sim_params, force_fail=False):
                 pass
         pass
     return sol
+
 
 def robust_preHPPC(sim, sim_params, force_fail=False):
     if force_fail:
@@ -212,7 +216,7 @@ def robust_HPPC(sim, sim_params, force_fail=False):
         assert all(sol.success)
     except:
         counter = 0
-        #for atol, max_step in zip(
+        # for atol, max_step in zip(
         #    [1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12, 1e-13],
         #    [
         #        int(1e3),
@@ -224,7 +228,7 @@ def robust_HPPC(sim, sim_params, force_fail=False):
         #        int(1e6),
         #        int(1e6),
         #    ],
-        #):
+        # ):
         for atol, max_step in zip(
             [1e-6, 1e-12],
             [
@@ -245,6 +249,7 @@ def robust_HPPC(sim, sim_params, force_fail=False):
         pass
     return sol
 
+
 def robust_postHPPC(sim, sim_params, force_fail=False):
     if force_fail:
         return None
@@ -256,7 +261,7 @@ def robust_postHPPC(sim, sim_params, force_fail=False):
         assert all(sol.success)
     except:
         counter = 0
-        #for atol, max_step in zip(
+        # for atol, max_step in zip(
         #    [1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12, 1e-13],
         #    [
         #        int(1e3),
@@ -268,7 +273,7 @@ def robust_postHPPC(sim, sim_params, force_fail=False):
         #        int(1e6),
         #        int(1e6),
         #    ],
-        #):
+        # ):
         for atol, max_step in zip(
             [1e-6, 1e-13],
             [
@@ -288,6 +293,7 @@ def robust_postHPPC(sim, sim_params, force_fail=False):
                 pass
         pass
     return sol
+
 
 def robust_LHRH(
     sim, df, charge, protocol, sim_params, bat_model, force_fail=False
@@ -391,12 +397,12 @@ def robust_LHRH(
 
 
 def robust_CC(sim, C_rate, sim_params, force_fail=False):
-    #raise NotImplementedError("timespan needs to be defined differently now")
+    # raise NotImplementedError("timespan needs to be defined differently now")
     if force_fail:
         return None
 
-    t_step = (3600.0 / abs(C_rate), 3600.0 / abs(10000.0*C_rate))
-    t_step_init = (10.0 / abs(C_rate), 10.0 / abs(150.0*C_rate))
+    t_step = (3600.0 / abs(C_rate), 3600.0 / abs(10000.0 * C_rate))
+    t_step_init = (10.0 / abs(C_rate), 10.0 / abs(150.0 * C_rate))
 
     expr = bm.Experiment()
     if C_rate > 0:
@@ -513,23 +519,26 @@ def single_run(
         else:
             print(f"Success for {deg_param_sample}")
 
-    
     elif cyc_mode.lower() in ["chirp"]:
-            assert prot_param_sample is not None
-            assert "time_start" in prot_param_sample
-            assert "amplitude" in prot_param_sample
-            assert "length" in prot_param_sample
-            rootsol = robust_chirp(
-                sim=sim,
-                sim_params=sim_params,
-                chirp_params=prot_param_sample,
-                force_fail=force_fail,
-            )
+        assert prot_param_sample is not None
+        assert "time_start" in prot_param_sample
+        assert "amplitude" in prot_param_sample
+        assert "length" in prot_param_sample
+        rootsol = robust_chirp(
+            sim=sim,
+            sim_params=sim_params,
+            chirp_params=prot_param_sample,
+            force_fail=force_fail,
+        )
 
-            if rootsol is None:
-                print(f"All sim failed for {deg_param_sample} and protocol {prot_param_sample}")
-            else:
-                print(f"Success for {deg_param_sample} and protocol {prot_param_sample}")
+        if rootsol is None:
+            print(
+                f"All sim failed for {deg_param_sample} and protocol {prot_param_sample}"
+            )
+        else:
+            print(
+                f"Success for {deg_param_sample} and protocol {prot_param_sample}"
+            )
     elif cyc_mode.lower() in ["diffcap", "hppc", "prehppc", "posthppc"]:
         if cyc_mode.lower() == "diffcap":
             rootsol = robust_DiffCap(
@@ -682,8 +691,6 @@ def single_run(
     return params_list, prot_params_list, rootsol
 
 
-
-
 def single_run_save(
     params_list,
     rootsol,
@@ -733,7 +740,9 @@ def single_run_save(
             if run_spm:
                 sol_dict["i"] = rootsol.vars["current_A"]
             else:
-                sol_dict["i"] = np.expand_dims(rootsol.vars["voltage_V"], axis=1)
+                sol_dict["i"] = np.expand_dims(
+                    rootsol.vars["voltage_V"], axis=1
+                )
 
         if cyc_mode in ["discharge", "chargecc", "discharge-chargecc"]:
             if phis_c_min is not -np.inf:
@@ -989,7 +998,7 @@ def save_datapoint(
             save_combined_sols = False
     if cyc_mode.lower() in ["chirp"]:
         p_list = params_list
-        prot_p_list=prot_params_list
+        prot_p_list = prot_params_list
         rsol = rootsol
         save_dict, param_string, prot_param_string = single_run_save(
             p_list,
@@ -1073,7 +1082,7 @@ def save_datapoint(
         "posthppc",
         "prehppc",
         "diffcap",
-        "chirp"
+        "chirp",
     ]:
         raise NotImplementedError
 
@@ -1405,37 +1414,50 @@ def merge_badpar_badsol(
                         string_par += f"{parameter:g} "
                     f.write(f"{string_par}\n")
 
-
         for rank in range(
             parallel_env.iroot, parallel_env.nProc + parallel_env.iroot
         ):
-            remove_file(os.path.join(folder_save, f"bad_par_filename_{rank}.txt"))
+            remove_file(
+                os.path.join(folder_save, f"bad_par_filename_{rank}.txt")
+            )
             if sim_params["cyc_mode"].lower() in ["chirp"]:
-                remove_file(os.path.join(folder_save, f"bad_prot_filename_{rank}.txt"))
+                remove_file(
+                    os.path.join(folder_save, f"bad_prot_filename_{rank}.txt")
+                )
     else:
+
         def list_bad_par_files(folder_save="."):
             directory = Path(folder_save)
             files = list(directory.glob("bad_par_filename_*.txt"))
+
             def extract_rank(filepath):
-                match = re.search(r'bad_par_filename_(\d+)\.txt', filepath.name)
+                match = re.search(
+                    r"bad_par_filename_(\d+)\.txt", filepath.name
+                )
                 if match:
                     return int(match.group(1))
                 return -1
+
             sorted_files = sorted(files, key=extract_rank)
             return sorted_files
+
         def list_bad_prot_files(folder_save="."):
             directory = Path(folder_save)
             files = list(directory.glob("bad_prot_filename_*.txt"))
+
             def extract_rank(filepath):
-                match = re.search(r'bad_prot_filename_(\d+)\.txt', filepath.name)
+                match = re.search(
+                    r"bad_prot_filename_(\d+)\.txt", filepath.name
+                )
                 if match:
                     return int(match.group(1))
                 return -1
+
             sorted_files = sorted(files, key=extract_rank)
             return sorted_files
 
         deg_param_list = []
-        sorted_par_files =  list_bad_par_files(folder_save=folder_save)
+        sorted_par_files = list_bad_par_files(folder_save=folder_save)
         for filename in sorted_par_files:
             deg_param_list = read_list_param(
                 folder_save=folder_save,
@@ -1444,7 +1466,7 @@ def merge_badpar_badsol(
             )
         if sim_params["cyc_mode"].lower() in ["chirp"]:
             prot_param_list = []
-            sorted_prot_files =  list_bad_prot_files(folder_save=folder_save)
+            sorted_prot_files = list_bad_prot_files(folder_save=folder_save)
             for filename in sorted_prot_files:
                 prot_param_list = read_list_param(
                     folder_save=folder_save,
@@ -1527,14 +1549,17 @@ def merge_combined_sols(
         ) as f:
             pickle.dump(sols, f)
     else:
+
         def list_sols_files(folder_save="."):
             directory = Path(folder_save)
             files = list(directory.glob("sols_*.pkl"))
+
             def extract_rank(filepath):
-                match = re.search(r'sols_(\d+)\.pkl', filepath.name)
+                match = re.search(r"sols_(\d+)\.pkl", filepath.name)
                 if match:
                     return int(match.group(1))
                 return -1
+
             sorted_files = sorted(files, key=extract_rank)
             return sorted_files
 
@@ -1544,7 +1569,7 @@ def merge_combined_sols(
         offset_arr = np.zeros(len(sorted_files), dtype=int)
 
         for ifile, filename in enumerate(sorted_files):
-            rank = ifile+1
+            rank = ifile + 1
             file_to_merge = os.path.join(folder_save, filename)
             logger.info(f"Treating {file_to_merge}")
             try:
@@ -1566,7 +1591,6 @@ def merge_combined_sols(
             except FileNotFoundError:
                 logger.warning(f"{file_to_merge} was not found")
 
-       
         logger.info("Writing final database")
         for filename in sorted_files:
             remove_file(os.path.join(folder_save, filename))
@@ -1662,7 +1686,7 @@ def multi_run(
                 "posthppc",
                 "diffcap",
             ]:
-                params_list, _ ,root_sol = single_run(
+                params_list, _, root_sol = single_run(
                     sim_params=sim_params,
                     deg_param_sample=from_degparamlist_to_degparamdict(
                         deg_param_entry_, sim_params, parallel_env=parallel_env
@@ -1689,7 +1713,7 @@ def multi_run(
             elif cyc_mode.lower() in [
                 "chirp",
             ]:
-                prot_param_entry = prot_parameter_list[startSim_+count_]
+                prot_param_entry = prot_parameter_list[startSim_ + count_]
 
                 params_list, prot_params_list, root_sol = single_run(
                     sim_params=sim_params,
@@ -1701,7 +1725,7 @@ def multi_run(
                     parallel_env=parallel_env,
                     prot_param_sample=from_protparamlist_to_protparamdict(
                         prot_param_entry, sim_params, parallel_env=parallel_env
-                    )
+                    ),
                 )
                 save_datapoint(
                     params_list,

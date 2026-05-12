@@ -9,12 +9,16 @@ from prettyPlot.plotting import *
 
 from batfit import BATFIT_DIR, BATFIT_EXP, logger
 from batfit.basicutilityc import ReadInput as ri
-from batfit.model.paramNN import ProbParamCNN
-from batfit.model.param_utils.losses import independent_normal_loss as independent_normal_loss_param
+from batfit.model.param_utils.losses import (
+    independent_normal_loss as independent_normal_loss_param,
+)
 from batfit.model.param_utils.noise_utils import make_noise_levels
-from batfit.model.param_utils.train_utils import train_model as train_model_param
-from batfit.model.surrogateNN import SurrogateFCNN
+from batfit.model.param_utils.train_utils import (
+    train_model as train_model_param,
+)
+from batfit.model.paramNN import ProbParamCNN
 from batfit.model.surrogate_utils.losses import mae_loss as mae_loss_surr
+from batfit.model.surrogateNN import SurrogateFCNN
 from batfit.utils.data_utils import *
 from batfit.utils.torch_utils import *
 

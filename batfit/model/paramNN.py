@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -15,25 +16,26 @@ from batfit.utils.torch_utils import (
     save_model,
 )
 
-from .param_utils.losses import (                                                                                                        
-    correlated_normal_loss,                                                                                                  
-    gumbel_loss,                                                                                                             
-    independent_gumbel_loss,                                                                                                 
-    independent_normal_loss,                                                                                                 
-    mse_loss,                                                                                                                
-    nll_loss,                                                                                                                
-    pinball_loss,                                                                                                            
-) 
+from .param_utils.losses import (
+    correlated_normal_loss,
+    gumbel_loss,
+    independent_gumbel_loss,
+    independent_normal_loss,
+    mse_loss,
+    nll_loss,
+    pinball_loss,
+)
+
 
 def _build_conv_layers(
-    input_shape_0:int , chan_list: list[int]
-  ) -> tuple[list[nn.Module], list[nn.Module]]:
+    input_shape_0: int, chan_list: list[int]
+) -> tuple[list[nn.Module], list[nn.Module]]:
     """
     Build convolution and maxpooling from channel list to reduce dimension
     """
     conv_l = []
     pool_l = []
-   
+
     # Conv layers
     for ichan, chan in enumerate(chan_list):
         if ichan == 0:
@@ -60,9 +62,10 @@ def _build_conv_layers(
         pool_l.append(nn.MaxPool1d(kernel_size=2, stride=2))
     return conv_l, pool_l
 
+
 def _build_hidden_fcnn_layers(
-    input_shape:int , fc_list: list[int]
-  ) -> list[nn.Module]:
+    input_shape: int, fc_list: list[int]
+) -> list[nn.Module]:
     """
     Build fully connected layer
     """
@@ -79,17 +82,27 @@ def _build_hidden_fcnn_layers(
             fc_l.append(nn.Linear(fc_list[ifc - 1], fc))
     return fc_l
 
+
 def _build_conv_fc_layers(
-    input_shape_1:int , chan_list: list[int], fc_list: list[int]
-  ) -> list[nn.Module]:
+    input_shape_1: int, chan_list: list[int], fc_list: list[int]
+) -> list[nn.Module]:
     """
     Build fully connected layer after conv
     """
-    return _build_hidden_fcnn_layers(input_shape=chan_list[-1] * input_shape_1 // (2 ** len(chan_list)), fc_list=fc_list)
+    return _build_hidden_fcnn_layers(
+        input_shape=chan_list[-1] * input_shape_1 // (2 ** len(chan_list)),
+        fc_list=fc_list,
+    )
+
 
 def _build_cnn_encoder(
-      input_shape_0, input_shape_1, chan_list, fc_list, leaky_relu_slope, cyc_mode
-  ):
+    input_shape_0,
+    input_shape_1,
+    chan_list,
+    fc_list,
+    leaky_relu_slope,
+    cyc_mode,
+):
     conv, pool = _build_conv_layers(input_shape_0, chan_list)
     fc = _build_conv_fc_layers(input_shape_1, chan_list, fc_list)
 
@@ -104,7 +117,7 @@ def _build_cnn_encoder(
         _cnn_layers.append(fc[ifc])
         _cnn_layers.append(nn.Tanh())
     cnn_layers = nn.Sequential(*_cnn_layers)
-    
+
     # If we process two separate protocols
     if cyc_mode.lower() == "discharge-chargecc":
         conv_aux, pool_aux = _build_conv_layers(input_shape_0, chan_list)
@@ -128,12 +141,17 @@ def _build_cnn_encoder(
 
 
 def _build_output_heads(
-      fc_list_end, fc_mu_list, fc_gamma_list, output_dim, dependent_outputs, constrain_output
-  ):
+    fc_list_end,
+    fc_mu_list,
+    fc_gamma_list,
+    output_dim,
+    dependent_outputs,
+    constrain_output,
+):
     # Mean
     fc_mu = _build_hidden_fcnn_layers(fc_list_end, fc_mu_list)
     fc_otpt_mu = nn.Linear(fc_mu_list[-1], output_dim)
-    
+
     _mu_layers = []
     for ifc, fc in enumerate(fc_mu):
         _mu_layers.append(fc_mu[ifc])
@@ -163,10 +181,11 @@ def _build_output_heads(
         _gamma_layers.append(nn.Softplus(beta=1.0, threshold=20.0))
     elif dependent_outputs:
         pass
-    
+
     model_mu_layers = nn.Sequential(*_mu_layers)
     model_gamma_layers = nn.Sequential(*_gamma_layers)
     return model_mu_layers, model_gamma_layers
+
 
 class _ProbParamBase(nn.Module, ABC):
     def __init__(
@@ -188,7 +207,7 @@ class _ProbParamBase(nn.Module, ABC):
         self.dependent_outputs = dependent_outputs
         self.encoder_model = encoder_model
         self.output_dim = self.n_param_pred
-        
+
         if self.dependent_outputs:
             assert self.loss_fn == correlated_normal_loss
         else:
@@ -268,11 +287,14 @@ class _ProbParamBase(nn.Module, ABC):
 
         # Apply softplus to diagonal for positive definiteness
         diagonal_indices = torch.arange(self.output_dim)
-        L[:, diagonal_indices, diagonal_indices] = torch.nn.functional.softplus(
-            L[:, diagonal_indices, diagonal_indices], beta=1.0, threshold=20.0
+        L[:, diagonal_indices, diagonal_indices] = (
+            torch.nn.functional.softplus(
+                L[:, diagonal_indices, diagonal_indices],
+                beta=1.0,
+                threshold=20.0,
+            )
         )
         return L @ L.transpose(-1, -2)
-
 
     @abstractmethod
     def forward(self, x):
@@ -319,11 +341,23 @@ class ProbParamCNN(_ProbParamBase):
             input_shape_0 = input_shape[0]
             input_shape_1 = input_shape[1]
 
-        self.cnn_layers, self.cnn_layers_aux, fc_list_end = _build_cnn_encoder(input_shape_0, input_shape_1, chan_list, fc_list, leaky_relu_slope, cyc_mode)
+        self.cnn_layers, self.cnn_layers_aux, fc_list_end = _build_cnn_encoder(
+            input_shape_0,
+            input_shape_1,
+            chan_list,
+            fc_list,
+            leaky_relu_slope,
+            cyc_mode,
+        )
 
-        
-        self.model_mu_layers, self.model_gamma_layers = _build_output_heads(fc_list_end, fc_mu_list, fc_gamma_list, self.output_dim, self.dependent_outputs, self.constrain_output)
-
+        self.model_mu_layers, self.model_gamma_layers = _build_output_heads(
+            fc_list_end,
+            fc_mu_list,
+            fc_gamma_list,
+            self.output_dim,
+            self.dependent_outputs,
+            self.constrain_output,
+        )
 
     def forward(self, x):
         if self.cyc_mode.lower() == "discharge-chargecc":
@@ -344,7 +378,7 @@ class ProbParamCNN(_ProbParamBase):
             gamma = self.model_gamma_layers(x)
 
         if self.dependent_outputs:
-            gamma=self._cholesky_cov(gamma)
+            gamma = self._cholesky_cov(gamma)
 
         return mu, gamma
 
@@ -368,30 +402,40 @@ class ProbParamFCNN(_ProbParamBase):
         super(ProbParamFCNN, self).__init__(
             loss_fn=loss_fn,
             cyc_mode=cyc_mode,
-            n_param_pred=n_param_pred,                                                                           
+            n_param_pred=n_param_pred,
             dependent_outputs=dependent_outputs,
             constrain_output=constrain_output,
             encoder_model=encoder_model,
             sim_config=sim_config,
         )
         self.hidden_list = hidden_list
-        elementary_fcnn = _build_hidden_fcnn_layers(input_shape[0], hidden_list)
+        elementary_fcnn = _build_hidden_fcnn_layers(
+            input_shape[0], hidden_list
+        )
         self.fcnn = []
         for ihidden, hidden in enumerate(elementary_fcnn):
-                self.fcnn.append(elementary_fcnn[ihidden])
-                self.fcnn.append(nn.Tanh())
+            self.fcnn.append(elementary_fcnn[ihidden])
+            self.fcnn.append(nn.Tanh())
         if self.cyc_mode.lower() == "discharge-chargecc":
-            elementary_fcnn_aux = _build_hidden_fcnn_layers(input_shape[0], hidden_list)
+            elementary_fcnn_aux = _build_hidden_fcnn_layers(
+                input_shape[0], hidden_list
+            )
             self.fcnn_aux = []
             for ihidden, hidden in enumerate(elementary_fcnn_aux):
                 self.fcnn_aux.append(elementary_fcnn_aux[ihidden])
                 self.fcnn_aux.append(nn.Tanh())
-            fc_list_end = 2*hidden_list[-1]
+            fc_list_end = 2 * hidden_list[-1]
         else:
             fc_list_end = hidden_list[-1]
-        
 
-        self.model_mu_layers, self.model_gamma_layers = _build_output_heads(fc_list_end, fc_mu_list, fc_gamma_list, self.output_dim, self.dependent_outputs, self.constrain_output)
+        self.model_mu_layers, self.model_gamma_layers = _build_output_heads(
+            fc_list_end,
+            fc_mu_list,
+            fc_gamma_list,
+            self.output_dim,
+            self.dependent_outputs,
+            self.constrain_output,
+        )
 
         self.fcnn_layers = nn.Sequential(*self.fcnn)
         if self.cyc_mode.lower() == "discharge-chargecc":
@@ -416,9 +460,6 @@ class ProbParamFCNN(_ProbParamBase):
             gamma = self.model_gamma_layers(x)
 
         if self.dependent_outputs:
-            gamma=self._cholesky_cov(gamma)
+            gamma = self._cholesky_cov(gamma)
 
         return mu, gamma
-
-
-
