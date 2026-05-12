@@ -67,7 +67,7 @@ if n_bound + n_int == 0:
     sys.exit()
 
 if n_int > 0:
-    int_samples = get_samples(
+    int_samples, _ = get_samples(
         n_int=n_int,
         deg_param_names=deg_param_names,
         sim_params=sim_params,
@@ -75,7 +75,7 @@ if n_int > 0:
         uniform=True,
     )
 if n_bound > 0:
-    bound_samples = get_bounding_samples(
+    bound_samples, _ = get_bounding_samples(
         n_bound=n_bound,
         deg_param_names=deg_param_names,
         sim_params=sim_params,

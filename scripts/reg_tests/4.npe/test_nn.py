@@ -11,9 +11,14 @@ from train_nn import define_model, define_surrogate_model
 
 from batfit import BATFIT_DIR, BATFIT_EXP, logger
 from batfit.basicutilityc import ReadInput as ri
-from batfit.model.paramNN import *
+
+# from batfit.model.paramNN import *
+from batfit.model.param_utils.noise_utils import (
+    apply_noise,
+    apply_noise_unscaled,
+    make_noise_levels,
+)
 from batfit.utils.data_utils import *
-from batfit.utils.data_utils import scale_input_from_scaler
 from batfit.utils.torch_utils import *
 
 

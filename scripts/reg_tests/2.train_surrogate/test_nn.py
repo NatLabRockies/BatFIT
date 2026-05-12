@@ -10,11 +10,8 @@ from train_nn import define_model
 
 from batfit import BATFIT_DIR, BATFIT_EXP, logger
 from batfit.basicutilityc import ReadInput as ri
-from batfit.model.paramNN import *
 from batfit.utils.data_utils import *
-from batfit.utils.data_utils import scale_input_from_scaler
 from batfit.utils.torch_utils import *
-from batfit.utils.torch_utils import get_device_type
 
 
 def get_model_it(model_dirs: str) -> np.ndarray:
@@ -224,4 +221,4 @@ if __name__ == "__main__":
 
     inp = ri.basic_input(sys.argv[1])
     test_perf(inp, mode="normal")
-    plot_perf(inp)
+    plot_perf(inp, mode="normal")

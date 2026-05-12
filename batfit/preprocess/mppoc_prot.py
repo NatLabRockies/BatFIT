@@ -2,7 +2,9 @@ import numpy as np
 from bmlite import Experiment
 
 
-def define_chirp_experiment(sim_params, chirp_params, expr=None, atol=1e-12, max_step=100000):
+def define_chirp_experiment(
+    sim_params, chirp_params, expr=None, atol=1e-12, max_step=100000
+):
     if expr is None:
         expr = Experiment(atol=atol, max_step=max_step, rtol=1e-6)
 
@@ -23,8 +25,8 @@ def define_chirp_experiment(sim_params, chirp_params, expr=None, atol=1e-12, max
     )
     expr.add_step(
         "current_C",
-        -1.0*(1.0+chirp_amp),
-        (chirp_length, chirp_length/25.0),
+        -1.0 * (1.0 + chirp_amp),
+        (chirp_length, chirp_length / 25.0),
         limits=(
             "voltage_V",
             sim_params["vmax"],
@@ -32,8 +34,8 @@ def define_chirp_experiment(sim_params, chirp_params, expr=None, atol=1e-12, max
     )
     expr.add_step(
         "current_C",
-        -1.0*(1.0-chirp_amp),
-        (chirp_length, chirp_length/25.0),
+        -1.0 * (1.0 - chirp_amp),
+        (chirp_length, chirp_length / 25.0),
         limits=(
             "voltage_V",
             sim_params["vmax"],
@@ -50,4 +52,3 @@ def define_chirp_experiment(sim_params, chirp_params, expr=None, atol=1e-12, max
     )
 
     return expr
-

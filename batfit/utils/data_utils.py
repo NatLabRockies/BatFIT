@@ -93,7 +93,13 @@ def from_sol_dict_to_xy(
 
 
 def from_combined_sols_to_data(
-    combined_sols, key, n_points, target_mode, cyc_mode, n_points_min=0, t_max_min=0,
+    combined_sols,
+    key,
+    n_points,
+    target_mode,
+    cyc_mode,
+    n_points_min=0,
+    t_max_min=0,
 ):
     if cyc_mode.lower() in ["discharge", "chargecc"]:
         sol_dict = combined_sols[key]["sol"]
@@ -111,7 +117,15 @@ def from_combined_sols_to_data(
             sol_dict, combined_sols, key, n_points, target_mode
         )
         return x, y
-    elif cyc_mode.lower() in ["rh", "lh", "diffcap", "hppc", "prehppc", "posthppc","chirp"]:
+    elif cyc_mode.lower() in [
+        "rh",
+        "lh",
+        "diffcap",
+        "hppc",
+        "prehppc",
+        "posthppc",
+        "chirp",
+    ]:
         sol_dict = combined_sols[key]["sol"]
         if sol_dict["phis_c"].shape[0] < n_points_min:
             logger.warning(
@@ -301,6 +315,7 @@ def assemble_all_data(
             length=50,
         )
     import gc
+
     del combined_sols
     gc.collect()
 

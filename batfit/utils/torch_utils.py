@@ -315,16 +315,6 @@ def log_training(step, loss, log_folder, filename="loss.csv"):
     return
 
 
-def get_device_type(enable_cuda=True, enable_mps=True):
-    if torch.cuda.is_available() and enable_cuda:
-        device_type = "cuda"
-    elif torch.backends.mps.is_available() and enable_mps:
-        device_type = "mps"
-    else:
-        device_type = "cpu"
-    return device_type
-
-
 def save_model(
     step,
     model,

@@ -9,8 +9,16 @@ from prettyPlot.plotting import *
 
 from batfit import BATFIT_DIR, BATFIT_EXP, logger
 from batfit.basicutilityc import ReadInput as ri
-from batfit.model.paramNN import *
-from batfit.model.surrogateNN import SurrogateFCNN, mae_loss
+from batfit.model.param_utils.losses import (
+    independent_normal_loss as independent_normal_loss_param,
+)
+from batfit.model.param_utils.noise_utils import make_noise_levels
+from batfit.model.param_utils.train_utils import (
+    train_model as train_model_param,
+)
+from batfit.model.paramNN import ProbParamCNN
+from batfit.model.surrogate_utils.losses import mae_loss as mae_loss_surr
+from batfit.model.surrogateNN import SurrogateFCNN
 from batfit.utils.data_utils import *
 from batfit.utils.torch_utils import *
 
@@ -21,7 +29,6 @@ def make_data_loaders(inp):
     target_mode = inp.target_mode
     cyc_mode = inp.cyc_mode
     n_param_pred = inp.n_param_pred
-    enforce_licons = inp.enforce_licons
 
     X_data, Y_data = assemble_all_data(
         data_root_folder,
@@ -34,13 +41,8 @@ def make_data_loaders(inp):
     )
     tmp = np.load(os.path.join(data_root_folder, "assembled_data.npz"))
 
-    if enforce_licons and target_mode == "discharge-chargecc":
-        logger.info("Removing last input")
-        X_data = tmp["X_data"]
-        Y_data = tmp["Y_data"][:, :-1]
-    else:
-        X_data = tmp["X_data"]
-        Y_data = tmp["Y_data"]
+    X_data = tmp["X_data"]
+    Y_data = tmp["Y_data"]
 
     BATCH_SIZE = min(inp.batch_size, int(Y_data.shape[0] * 0.9))
     train_data_loader, test_data_loader = make_dataset_from_np(
@@ -63,7 +65,7 @@ def define_surrogate_model(inp):
 
     model = SurrogateFCNN(
         fc_list=inp.fc_units,
-        loss_fn=mae_loss,
+        loss_fn=mae_loss_surr,
         n_param_pred=n_param_pred,
         sim_config=inp.sim_config,
         cyc_mode=cyc_mode,
@@ -86,7 +88,6 @@ def define_model(inp):
     target_mode = inp.target_mode
     cyc_mode = inp.cyc_mode
     n_param_pred = inp.n_param_pred
-    enforce_licons = inp.enforce_licons
     if target_mode != "encoded":
         input_shape = (2, inp.n_points)
 
@@ -96,12 +97,11 @@ def define_model(inp):
         fc_list=[inp.num_fc_units] * inp.num_fc_hidden,
         fc_mu_list=[inp.num_fc_gamma_mu_units] * inp.num_fc_gamma_mu_hidden,
         fc_gamma_list=[inp.num_fc_gamma_mu_units] * inp.num_fc_gamma_mu_hidden,
-        loss_fn=independent_normal_loss,
+        loss_fn=independent_normal_loss_param,
         cyc_mode=cyc_mode,
         n_param_pred=n_param_pred,
         constrain_output=True,
         dependent_outputs=False,
-        enforce_licons=enforce_licons,
         sim_config=inp.sim_config,
     )
     num_parameters = get_num_parameters(model)
@@ -125,7 +125,7 @@ def do_training(inp, model, train_data_loader, test_data_loader, scaler_X):
         cyc_mode=inp.cyc_mode,
     )
 
-    model, loss_hist = train_model(
+    model, loss_hist = train_model_param(
         model,
         train_data_loader=train_data_loader,
         test_data_loader=test_data_loader,

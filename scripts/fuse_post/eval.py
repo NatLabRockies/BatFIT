@@ -5,8 +5,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from classifier import JointBoundaryClassifier
-from torch.utils.data import DataLoader
 from fuse_utils import load_config, prepare_datasets
+from torch.utils.data import DataLoader
 
 from batfit import BATFIT_EXP, logger
 from batfit.utils.torch_utils import (

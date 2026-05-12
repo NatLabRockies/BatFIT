@@ -30,7 +30,6 @@ def dict_to_yaml(d: dict, yaml_path: str):
                 "cyc_mode": d["cyc_mode"],
                 "data_path": d["data_path"],
                 "data_val_path": d["data_val_path"],
-                "enforce_licons": d["enforce_licons"],
                 "latent_dim": d["latent_dim"],
                 "n_param_pred": d["n_param_pred"],
                 "n_points": d["n_points"],
