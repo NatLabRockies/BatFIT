@@ -7,7 +7,9 @@ from batfit.utils.data_utils import (
     augment_data,
     from_name_to_params,
     from_param_to_surrogate_data,
+    scale_protocol_dataset_from_np,
     split_dataset_from_np,
+    split_protocol_dataset_from_np,
 )
 
 
@@ -71,3 +73,76 @@ def test_split_dataset_from_np():
     assert X_test.shape[0] == int(N * test_split)
     assert X_train.shape[1:] == (n_chan, T)
     assert Y_train.shape[1] == n_params
+
+
+def test_split_protocol_dataset_from_np():
+    N, n_chan, T, n_prot, n_params = 100, 2, 50, 3, 6
+    X = np.random.randn(N, n_chan, T).astype("float32")
+    P = np.random.randn(N, n_prot).astype("float32")
+    Y = np.random.randn(N, n_params).astype("float32")
+    test_split = 0.1
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        X_train, P_train, Y_train, X_test, P_test, Y_test = (
+            split_protocol_dataset_from_np(
+                X, P, Y, test_split=test_split, save_path=tmp_dir
+            )
+        )
+        # cache path: second call returns from data_split.npz
+        X_train2, P_train2, Y_train2, X_test2, P_test2, Y_test2 = (
+            split_protocol_dataset_from_np(
+                X, P, Y, test_split=test_split, save_path=tmp_dir
+            )
+        )
+    n_test = int(N * test_split)
+    assert X_train.shape[0] + X_test.shape[0] == N
+    assert X_test.shape[0] == n_test
+    assert P_train.shape == (N - n_test, n_prot)
+    assert P_test.shape == (n_test, n_prot)
+    assert Y_train.shape == (N - n_test, n_params)
+    # train/test cover all samples without overlap
+    assert X_train.shape[0] == X_train2.shape[0]
+    assert np.allclose(P_train, P_train2)
+
+
+def test_scale_protocol_dataset_from_np():
+    N, n_chan, T, n_prot, n_params = 80, 2, 50, 3, 6
+    X_train = np.random.randn(N, n_chan, T).astype("float32")
+    X_test = np.random.randn(20, n_chan, T).astype("float32")
+    # Protocol params with known range [0, 1] so MinMax scaling is identity
+    P_train = np.random.rand(N, n_prot).astype("float32")
+    P_test = np.random.rand(20, n_prot).astype("float32")
+    Y_train = np.random.randn(N, n_params).astype("float32")
+    Y_test = np.random.randn(20, n_params).astype("float32")
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        X_tr_sc, P_tr_sc, X_te_sc, P_te_sc = scale_protocol_dataset_from_np(
+            X_train,
+            P_train,
+            X_test,
+            P_test,
+            Y_train,
+            Y_test,
+            save_path=tmp_dir,
+        )
+        # cache path: second call loads from data_scaled.npz
+        X_tr_sc2, P_tr_sc2, X_te_sc2, P_te_sc2 = (
+            scale_protocol_dataset_from_np(
+                X_train,
+                P_train,
+                X_test,
+                P_test,
+                Y_train,
+                Y_test,
+                save_path=tmp_dir,
+            )
+        )
+
+    # X is z-scored per channel: train mean should be near 0
+    assert X_tr_sc.shape == X_train.shape
+    assert P_tr_sc.shape == P_train.shape
+    # scaler fit on P_train only: training values must be in [0, 1] (float32 tol)
+    assert P_tr_sc.min() >= -1e-5
+    assert P_tr_sc.max() <= 1.0 + 1e-5
+    # cache returns identical arrays
+    assert np.allclose(X_tr_sc, X_tr_sc2)
+    assert np.allclose(P_tr_sc, P_tr_sc2)

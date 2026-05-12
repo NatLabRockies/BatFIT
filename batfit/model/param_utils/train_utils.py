@@ -9,7 +9,7 @@ from prettyPlot.progressBar import print_progress_bar
 
 from batfit import logger
 from batfit.model.ae import AECNN
-from batfit.model.paramNN import ProbParamCNN, ProbParamFCNN
+from batfit.model.paramNN import ProbParamCNN, ProbParamFCNN, ProbProtParamCNN
 from batfit.model.vae import VAECNN
 from batfit.utils.data_utils import (
     scale_input_from_scaler,
@@ -48,13 +48,62 @@ def create_model_from_log(model_obj_file, model_state_dict_file, verbose=True):
     return model
 
 
-def forward_pass(model, np_data_in, scaler_X_file, scaler_Y_file, scale_y):
+def forward_pass(
+    model,
+    np_data_in,
+    scaler_X_file,
+    scaler_Y_file,
+    scale_y,
+    np_prot_params=None,
+):
+    """Run a forward pass and return unscaled (mu, gamma).
+
+    :param np_prot_params: required when ``model`` is :class:`ProbProtParamCNN`;
+        protocol parameter array of shape ``(N, n_prot)``.
+    """
     model.eval()
     model.to("cpu")
 
     X_scaled = scale_input_from_scaler(np_data_in, scaler_X_file)
     with torch.no_grad():
-        if isinstance(model, ProbParamCNN) or isinstance(model, ProbParamFCNN):
+        if isinstance(model, ProbProtParamCNN):
+            assert (
+                np_prot_params is not None
+            ), "np_prot_params must be provided for ProbProtParamCNN"
+            pred_scaled, gamma_scaled = model(
+                torch.from_numpy(X_scaled),
+                torch.from_numpy(np_prot_params.astype("float32")),
+            )
+            if model.constrain_output and not model.dependent_outputs:
+                pred_unscaled, gamma_unscaled = model.inv_transform_output(
+                    pred_scaled,
+                    gamma_scaled,
+                    model.min_par.to("cpu"),
+                    model.amp_par.to("cpu"),
+                )
+            elif model.constrain_output and model.dependent_outputs:
+                pred_unscaled = model.inv_transform_mu(
+                    pred_scaled,
+                    model.min_par.to("cpu"),
+                    model.amp_par.to("cpu"),
+                )
+                gamma_unscaled = torch.sqrt(
+                    gamma_scaled.diagonal(dim1=1, dim2=2)
+                )
+            elif not scale_y:
+                pred_unscaled = pred_scaled
+                gamma_unscaled = gamma_scaled
+            else:
+                raise NotImplementedError
+            pred_unscaled = pred_unscaled.numpy()
+            gamma_unscaled = gamma_unscaled.numpy()
+            inp_unscaled, _ = unscale_dataset_from_scaler(
+                X_scaled, pred_scaled, scaler_X_file, scaler_Y_file
+            )
+            probabilistic = True
+        elif isinstance(model, ProbParamCNN) or isinstance(
+            model, ProbParamFCNN
+        ):
             pred_scaled, gamma_scaled = model(torch.from_numpy(X_scaled))
             if model.constrain_output and not model.dependent_outputs:
                 pred_unscaled, gamma_unscaled = model.inv_transform_output(
@@ -239,7 +288,25 @@ def train_model(
 
             # Compute loss
             try:
-                if isinstance(model, ProbParamCNN) or isinstance(
+                if isinstance(model, ProbProtParamCNN):
+                    mu, gamma = model(batch_in.to(device), batch[1].to(device))
+                    if model.constrain_output and model.dependent_outputs:
+                        mu = model.inv_transform_mu(
+                            mu,
+                            model.min_par.to(device),
+                            model.amp_par.to(device),
+                        )
+                    elif (
+                        model.constrain_output and not model.dependent_outputs
+                    ):
+                        mu, gamma = model.inv_transform_output(
+                            mu,
+                            gamma,
+                            model.min_par.to(device),
+                            model.amp_par.to(device),
+                        )
+                    loss = model.loss_fn(mu, gamma, batch[2].to(device))
+                elif isinstance(model, ProbParamCNN) or isinstance(
                     model, ProbParamFCNN
                 ):
                     mu, gamma = model(batch_in.to(device))
@@ -432,7 +499,23 @@ def compute_test_loss(
                         batch_in.to(device)
                     )
             # Compute loss
-            if isinstance(model, ProbParamCNN) or isinstance(
+            if isinstance(model, ProbProtParamCNN):
+                mu, gamma = model(batch_in.to(device), batch[1].to(device))
+                if model.constrain_output and model.dependent_outputs:
+                    mu = model.inv_transform_mu(
+                        mu,
+                        model.min_par.to(device),
+                        model.amp_par.to(device),
+                    )
+                elif model.constrain_output and not model.dependent_outputs:
+                    mu, gamma = model.inv_transform_output(
+                        mu,
+                        gamma,
+                        model.min_par.to(device),
+                        model.amp_par.to(device),
+                    )
+                loss = model.loss_fn(mu, gamma, batch[2].to(device))
+            elif isinstance(model, ProbParamCNN) or isinstance(
                 model, ProbParamFCNN
             ):
                 mu, gamma = model(batch_in.to(device))
@@ -449,7 +532,6 @@ def compute_test_loss(
                         model.min_par.to(device),
                         model.amp_par.to(device),
                     )
-
                 loss = model.loss_fn(mu, gamma, batch[1].to(device))
             loss_ave += loss.item() * batch_in.shape[0]
             num_el += batch_in.shape[0]
@@ -536,7 +618,26 @@ def compute_post(
             else:
                 batch_in = batch[0]
             # Compute loss
-            if isinstance(model, ProbParamCNN) or isinstance(
+            if isinstance(model, ProbProtParamCNN):
+                mu, gamma = model(batch_in.to(device), batch[1].to(device))
+                if model.constrain_output and model.dependent_outputs:
+                    mu = model.inv_transform_mu(
+                        mu,
+                        model.min_par.to(device),
+                        model.amp_par.to(device),
+                    )
+                elif model.constrain_output and not model.dependent_outputs:
+                    mu, gamma = model.inv_transform_output(
+                        mu,
+                        gamma,
+                        model.min_par.to(device),
+                        model.amp_par.to(device),
+                    )
+                if post_fn in [accuracy, rel_accuracy]:
+                    post_val = post_fn(mu, batch[2].to(device))
+                elif post_fn in [identifiability]:
+                    post_val = 1.0 / post_fn(gamma)
+            elif isinstance(model, ProbParamCNN) or isinstance(
                 model, ProbParamFCNN
             ):
                 mu, gamma = model(batch_in.to(device))
