@@ -1,0 +1,42 @@
+# Recipe for run_bo.py
+# Bayesian Optimisation of protocol parameters using the NPE as a black-box
+# oracle. Each evaluation runs a BatMODS-lite simulation, so n_bo_steps
+# controls the simulation budget.
+
+# --- Model reference ---
+npe_models_dir: /Users/mhassana/Desktop/GitHub/BatFIT_chirp/scripts/reg_tests_prot/2.npe_prot/models
+
+# --- Data (same paths as the NPE recipe) ---
+cyc_mode: chirp
+data_path: /Users/mhassana/Desktop/GitHub/BatFIT_chirp/scripts/reg_tests_prot/1.gen_data/data_spm_chirp
+scaler_path: /Users/mhassana/Desktop/GitHub/BatFIT_chirp/scripts/reg_tests_prot/1.gen_data/data_spm_chirp/scaler_X.pkl
+scaler_P_path: /Users/mhassana/Desktop/GitHub/BatFIT_chirp/scripts/reg_tests_prot/1.gen_data/data_spm_chirp/scaler_P.pkl
+sim_config: /Users/mhassana/Desktop/GitHub/BatFIT_chirp/batfit/default_exps/spm_chirp.yaml
+target_mode: phi
+noise_factor: 1.0
+n_points: 256
+
+# --- Optimisation settings ---
+# Name of the degradation parameter whose variance is minimised
+param_to_minimize: ds_c
+
+# Number of test batteries to run optimisation on
+n_curves: 10
+
+# Total number of BatMODS-lite simulations per curve.
+# The first n_init_points evaluations are a random DoE; all subsequent
+# evaluations are guided by the EI acquisition function.
+n_bo_steps: 30
+n_init_points: 10
+
+# Noise realisations used to average the NPE sigma at each evaluation
+n_noise: 1
+
+# Sigma value returned when a simulation fails (acts as a penalty)
+sigma_fail: 10.0
+
+# Random seed (also used as base for per-curve GP random states)
+random_seed: 42
+
+# --- Output ---
+save_path: bo_results
