@@ -1,6 +1,10 @@
 import torch
 
-from batfit.model.param_utils.metrics import accuracy, identifiability, rel_accuracy
+from batfit.model.param_utils.metrics import (
+    accuracy,
+    identifiability,
+    rel_accuracy,
+)
 
 
 def test_identifiability():
@@ -22,7 +26,7 @@ def test_accuracy():
     x = torch.ones(8, 4)
     result = accuracy(x, x)
     assert torch.all(result == 0.0)
-    
+
     # shape
     # (batch=8, n_params=4) -> shape (n_params,)
     output_mean = torch.zeros(8, 4)

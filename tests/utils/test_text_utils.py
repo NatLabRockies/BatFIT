@@ -14,18 +14,14 @@ def test_shuffle_substrings():
     assert "phi+dvdq" in result
     assert "dvdq_phi" in result
 
-
     result = shuffle_substrings("phi-dvdq-dqdv")
     for item in result:
         assert "phi" in item
         assert "dvdq" in item
         assert "dqdv" in item
 
-
     result = shuffle_substrings("a_b")
     assert "a-b" in result
     assert "a_b" in result
     assert "a+b" in result
     assert "b-a" in result
-
-
