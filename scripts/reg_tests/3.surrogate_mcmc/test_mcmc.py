@@ -11,8 +11,8 @@ from torch2jax import j2t, t2j
 
 from batfit import BATFIT_DIR, BATFIT_EXP, logger
 from batfit.basicutilityc import ReadInput as ri
-from batfit.model.paramNN import *
-from batfit.model.param_utils.noise_utils import *
+#from batfit.model.paramNN import *
+from batfit.model.param_utils.noise_utils import make_noise_levels, apply_noise_unscaled
 from batfit.preprocess.sim_setup import make_params
 from batfit.utils.data_utils import *
 from batfit.utils.torch_utils import *

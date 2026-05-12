@@ -11,7 +11,9 @@ from torchsummary import summary
 
 from batfit import BATFIT_DIR, BATFIT_EXP, BATFIT_REG, logger
 from batfit.basicutilityc import ReadInput as ri
-from batfit.model.surrogateNN import *
+from batfit.model.surrogateNN import SurrogateFCNN
+from batfit.model.surrogate_utils.losses import mae_loss as mae_loss_surr
+from batfit.model.surrogate_utils.train_utils import train_model as train_model_surr
 from batfit.utils.data_utils import *
 from batfit.utils.torch_utils import *
 
@@ -57,7 +59,7 @@ def define_model(inp):
 
     model = SurrogateFCNN(
         fc_list=inp.fc_units,
-        loss_fn=mae_loss,
+        loss_fn=mae_loss_surr,
         n_param_pred=n_param_pred,
         sim_config=inp.sim_config,
         cyc_mode=cyc_mode,
@@ -77,7 +79,7 @@ def define_model(inp):
 def do_training(inp, model, train_data_loader, test_data_loader):
 
     # summary(model.cpu(), (model.n_param_pred + 1,))
-    model, loss_hist = train_model(
+    model, loss_hist = train_model_surr(
         model,
         train_data_loader=train_data_loader,
         test_data_loader=test_data_loader,

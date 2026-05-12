@@ -10,7 +10,6 @@ from train_nn import define_model
 
 from batfit import BATFIT_DIR, BATFIT_EXP, logger
 from batfit.basicutilityc import ReadInput as ri
-from batfit.model.paramNN import *
 from batfit.utils.data_utils import *
 from batfit.utils.torch_utils import *
 
