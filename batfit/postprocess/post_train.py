@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from prettyPlot.plotting import *
 
-from batfit.model.paramNN import ParamNN, ProbParamNN
+from batfit.model.paramNN import ProbParamCNN, ProbParamFCNN
 from batfit.utils.data_utils import (
     scale_dataset_from_scaler,
     scale_input_from_scaler,
