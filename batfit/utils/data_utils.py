@@ -320,7 +320,6 @@ def assemble_all_data(
             X_data.append(x)
             Y_data.append(y)
             if return_prot_params:
-                breakpoint()
                 P_data.append(
                     np.array(
                         combined_sols[file]["prot_params"], dtype="float32"
@@ -703,6 +702,77 @@ def scale_dataset_from_np(
         X_test_scaled,
         Y_test_scaled,
     )
+
+
+def scale_protocol_dataset_from_np(
+    X_train: np.ndarray[np.float32],
+    P_train: np.ndarray[np.float32],
+    X_test: np.ndarray[np.float32],
+    P_test: np.ndarray[np.float32],
+    Y_train: np.ndarray[np.float32],
+    Y_test: np.ndarray[np.float32],
+    save_path: str = ".",
+    save_scaled: bool = True,
+):
+    """Scale X with :class:`CustomScaler` and P with MinMaxScaler.
+
+    Saves ``scaler_X.pkl``, ``scaler_P.pkl``, and ``data_scaled.npz``
+    (containing ``X_train``, ``P_train``, ``Y_train``, ``X_test``, ``P_test``,
+    ``Y_test``) to ``save_path``.
+
+    :return: ``X_train_scaled, P_train_scaled, X_test_scaled, P_test_scaled``
+        (Y is not scaled).
+    """
+    scaler_x_filename = os.path.join(save_path, "scaler_X.pkl")
+    scaler_p_filename = os.path.join(save_path, "scaler_P.pkl")
+    data_scaled_filename = os.path.join(save_path, "data_scaled.npz")
+
+    if (
+        os.path.isfile(scaler_x_filename)
+        and os.path.isfile(scaler_p_filename)
+        and os.path.isfile(data_scaled_filename)
+    ):
+        logger.warning("Protocol data already scaled, loading scaler and data")
+        tmp = np.load(data_scaled_filename)
+        return (
+            tmp["X_train"],
+            tmp["P_train"],
+            tmp["X_test"],
+            tmp["P_test"],
+        )
+
+    logger.info("Scaling the protocol dataset")
+
+    means_X = np.mean(X_train, axis=(0, 2), keepdims=True)
+    stds_X = np.std(X_train, axis=(0, 2), keepdims=True)
+    scaler_X = CustomScaler(means_X, stds_X)
+    X_train_scaled = scaler_X.transform(X_train).astype("float32")
+    X_test_scaled = scaler_X.transform(X_test).astype("float32")
+    logger.info(f"Dumping scaler X at {scaler_x_filename}")
+    with open(scaler_x_filename, "wb") as f:
+        pickle.dump(scaler_X, f)
+
+    scaler_P = preprocessing.MinMaxScaler()
+    scaler_P.fit(P_train)
+    P_train_scaled = scaler_P.transform(P_train).astype("float32")
+    P_test_scaled = scaler_P.transform(P_test).astype("float32")
+    logger.info(f"Dumping scaler P at {scaler_p_filename}")
+    with open(scaler_p_filename, "wb") as f:
+        pickle.dump(scaler_P, f)
+
+    if save_scaled:
+        logger.info(f"Saving scaled protocol data at {data_scaled_filename}")
+        np.savez(
+            data_scaled_filename,
+            X_train=X_train_scaled,
+            P_train=P_train_scaled,
+            Y_train=Y_train,
+            X_test=X_test_scaled,
+            P_test=P_test_scaled,
+            Y_test=Y_test,
+        )
+
+    return X_train_scaled, P_train_scaled, X_test_scaled, P_test_scaled
 
 
 def scale_surrogate_dataset_from_np(

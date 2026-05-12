@@ -9,6 +9,7 @@ from batfit.utils.torch_utils import (
     get_num_parameters,
     load_model,
     make_dataset_from_np,
+    make_protocol_dataset_from_np,
     save_model,
 )
 
@@ -54,6 +55,35 @@ def test_make_dataset_from_np():
     x_batch, y_batch = next(iter(train_loader))
     assert x_batch.shape == (batch_size, n_channels, n_time)
     assert y_batch.shape == (batch_size, n_labels)
+
+
+def test_make_protocol_dataset_from_np():
+    n_samples, n_chan, T, n_prot, n_labels = 100, 2, 50, 3, 6
+    X = np.random.randn(n_samples, n_chan, T).astype("float32")
+    P = np.random.rand(n_samples, n_prot).astype("float32")
+    Y = np.random.randn(n_samples, n_labels).astype("float32")
+    batch_size = 16
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        train_loader, test_loader = make_protocol_dataset_from_np(
+            batch_size=batch_size,
+            np_data=X,
+            np_prot_params=P,
+            np_data_label=Y,
+            scale=True,
+            save_path=tmp_dir,
+        )
+
+    assert isinstance(train_loader, torch.utils.data.DataLoader)
+    assert isinstance(test_loader, torch.utils.data.DataLoader)
+    # each batch has three tensors: (X_signal, prot_params, Y_labels)
+    x_batch, p_batch, y_batch = next(iter(train_loader))
+    assert x_batch.shape == (batch_size, n_chan, T)
+    assert p_batch.shape == (batch_size, n_prot)
+    assert y_batch.shape == (batch_size, n_labels)
+    # P is MinMax-scaled to [0, 1]
+    assert p_batch.min().item() >= 0.0
+    assert p_batch.max().item() <= 1.0
 
 
 def test_save_load_model():
