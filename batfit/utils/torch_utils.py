@@ -11,6 +11,7 @@ from batfit.utils.data_utils import (
     scale_dataset_from_np,
     scale_surrogate_dataset_from_np,
     split_dataset_from_np,
+    split_protocol_dataset_from_np,
     split_surrogate_dataset_from_np,
 )
 
@@ -132,6 +133,103 @@ def make_dataset_from_np(
         train_data_loader,
         test_data_loader,
     )
+
+
+def make_protocol_dataset_from_np(
+    batch_size: int = 16,
+    shuffle: bool = True,
+    np_data: np.ndarray[np.float32] | None = None,
+    np_prot_params: np.ndarray[np.float32] | None = None,
+    np_data_label: np.ndarray[np.float32] | None = None,
+    test_split: float = 0.1,
+    save_path: str = ".",
+    scale: bool = True,
+    scale_y: bool = False,
+) -> tuple[torch.utils.data.DataLoader, torch.utils.data.DataLoader]:
+    """Create train/test DataLoaders for :class:`ProbProtParamCNN`.
+
+    Each batch contains three tensors: ``(X_signal, prot_params, Y_labels)``.
+    The signal ``X`` is standardized with :func:`scale_dataset_from_np`.
+    Protocol parameters ``P`` are MinMax-scaled to ``[0, 1]`` and the fitted
+    scaler is saved to ``scaler_P.pkl`` alongside the data split.
+
+    :param np_data: electrochemical signal of shape ``(N, channels, time)``
+    :param np_prot_params: protocol parameters of shape ``(N, n_prot)``
+    :param np_data_label: degradation parameters of shape ``(N, n_deg)``
+    """
+    import pickle as _pickle
+
+    from sklearn.preprocessing import MinMaxScaler
+
+    X_train, P_train, Y_train, X_test, P_test, Y_test = (
+        split_protocol_dataset_from_np(
+            np_data=np_data,
+            np_prot_params=np_prot_params,
+            np_data_label=np_data_label,
+            test_split=test_split,
+            save_path=save_path,
+        )
+    )
+
+    if scale:
+        X_train_scaled, _, X_test_scaled, _ = scale_dataset_from_np(
+            X_train=X_train,
+            X_test=X_test,
+            Y_train=Y_train,
+            Y_test=Y_test,
+            save_path=save_path,
+            scale_y=scale_y,
+        )
+
+        scaler_P_filename = os.path.join(save_path, "scaler_P.pkl")
+        if os.path.isfile(scaler_P_filename):
+            logger.warning("Protocol param scaler already exists, loading it")
+            with open(scaler_P_filename, "rb") as f:
+                scaler_P = _pickle.load(f)
+        else:
+            scaler_P = MinMaxScaler()
+            scaler_P.fit(P_train)
+            logger.info(f"Saving protocol param scaler at {scaler_P_filename}")
+            with open(scaler_P_filename, "wb") as f:
+                _pickle.dump(scaler_P, f)
+
+        P_train_scaled = scaler_P.transform(P_train).astype("float32")
+        P_test_scaled = scaler_P.transform(P_test).astype("float32")
+    else:
+        X_train_scaled = X_train
+        X_test_scaled = X_test
+        P_train_scaled = P_train
+        P_test_scaled = P_test
+
+    Y_train_out = Y_train
+    Y_test_out = Y_test
+
+    train_dataset = torch.utils.data.TensorDataset(
+        torch.from_numpy(X_train_scaled),
+        torch.from_numpy(P_train_scaled),
+        torch.from_numpy(Y_train_out),
+    )
+    test_dataset = torch.utils.data.TensorDataset(
+        torch.from_numpy(X_test_scaled),
+        torch.from_numpy(P_test_scaled),
+        torch.from_numpy(Y_test_out),
+    )
+
+    logger.info(f"Train on {X_train_scaled.shape[0]} samples")
+    logger.info(f"Test on {X_test_scaled.shape[0]} samples")
+
+    train_data_loader = torch.utils.data.DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        drop_last=True,
+    )
+    test_data_loader = torch.utils.data.DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+    )
+    return train_data_loader, test_data_loader
 
 
 def make_surrogate_dataset_from_np(
