@@ -1,3 +1,4 @@
+import copy
 import os
 import sys
 from pathlib import Path
@@ -12,7 +13,7 @@ from batfit.preprocess.utils import from_degparamlist_to_degparamdict
 
 
 def round_samples(samples):
-    samples_rounded = samples.copy()
+    samples_rounded = copy.deepcopy(samples)
     for i in range(len(samples_rounded)):
         for j in range(len(samples_rounded[i])):
             samples_rounded[i][j] = round(samples_rounded[i][j], 5)
