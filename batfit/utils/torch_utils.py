@@ -315,7 +315,6 @@ def log_training(step, loss, log_folder, filename="loss.csv"):
     return
 
 
-
 def save_model(
     step,
     model,

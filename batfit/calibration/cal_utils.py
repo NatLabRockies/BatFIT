@@ -14,7 +14,13 @@ from prettyPlot.plotting import *
 from batfit import logger
 from batfit.utils.text_utils import shuffle_substrings
 
-from .data_utils import make_error_data, make_target_data, perturb_val_dict
+from .data_utils import (
+    get_nchan,
+    make_data_in,
+    make_error_data,
+    make_target_data,
+    perturb_val_dict,
+)
 
 
 def bayes_step_discharge(
@@ -2739,77 +2745,3 @@ def postprocess(
             )
         )
         plt.close()
-
-
-def get_nchan(target_mode: str):
-
-    if target_mode.lower() in ["phi", "dvdq", "dqdv"]:
-        return 2
-    elif target_mode.lower() in shuffle_substrings(
-        "phi-dvdq"
-    ) + shuffle_substrings("dvdq-dqdv") + shuffle_substrings("phi-dqdv"):
-        return 3
-    elif target_mode.lower() in shuffle_substrings("phi-dvdq-dqdv"):
-        return 4
-    else:
-        raise NotImplementedError
-
-
-def make_data_in(
-    target_mode: str,
-    cyc_mode: str,
-    n_points: int,
-    data_t_dV_dQ,
-    data_dV_dQ_x,
-    data_t,
-    data_phis_c,
-    data_dV_dQ_y,
-    data_dQ_dV_y,
-):
-    n_chan = get_nchan(target_mode)
-    if cyc_mode.lower() in ["discharge", "chargecc"]:
-        list_cyc = [cyc_mode]
-    else:
-        list_cyc = ["discharge", "chargecc"]
-
-    data_in = np.zeros((1, n_chan * len(list_cyc), n_points)).astype("float32")
-
-    for icyc, cyc in enumerate(list_cyc):
-        if target_mode.lower() == "phi":
-            data_in[0, 0 + n_chan * icyc, :] = data_t[cyc]
-            data_in[0, 1 + n_chan * icyc, :] = data_phis_c[cyc]
-        else:
-            t_int = data_t_dV_dQ[cyc][:]
-            qt_ratio = np.mean(data_dV_dQ_x[cyc] / data_t_dV_dQ[cyc])
-
-        if target_mode.lower() == "dvdq":
-            data_in[0, 0 + n_chan * icyc, :] = t_int
-            data_in[0, 1 + n_chan * icyc, :] = data_dV_dQ_y[cyc] * qt_ratio
-        elif target_mode.lower() == "dqdv":
-            data_in[0, 0 + n_chan * icyc, :] = t_int
-            data_in[0, 1 + n_chan * icyc, :] = data_dQ_dV_y[cyc] * qt_ratio
-        elif target_mode.lower() in shuffle_substrings("phi-dvdq"):
-            data_in[0, 0 + n_chan * icyc, :] = t_int
-            data_in[0, 1 + n_chan * icyc, :] = np.interp(
-                t_int, data_t[cyc], data_phis_c[cyc]
-            )
-            data_in[0, 2 + n_chan * icyc, :] = data_dV_dQ_y[cyc] * qt_ratio
-        elif target_mode.lower() in shuffle_substrings("phi-dvdq"):
-            data_in[0, 0 + n_chan * icyc, :] = t_int
-            data_in[0, 1 + n_chan * icyc, :] = np.interp(
-                t_int, data_t[cyc], data_phis_c[cyc]
-            )
-            data_in[0, 2 + n_chan * icyc, :] = data_dQ_dV_y[cyc] / qt_ratio
-        elif target_mode.lower() in shuffle_substrings("dvdq-dqdv"):
-            data_in[0, 0 + n_chan * icyc, :] = t_int
-            data_in[0, 1 + n_chan * icyc, :] = data_dV_dQ_y[cyc] * qt_ratio
-            data_in[0, 2 + n_chan * icyc, :] = data_dQ_dV_y[cyc] / qt_ratio
-        elif target_mode.lower() in shuffle_substrings("phi-dvdq-dqdv"):
-            data_in[0, 0 + n_chan * icyc, :] = t_int
-            data_in[0, 1 + n_chan * icyc, :] = np.interp(
-                t_int, data_t[cyc], data_phis_c[cyc]
-            )
-            data_in[0, 2 + n_chan * icyc, :] = data_dV_dQ_y[cyc] * qt_ratio
-            data_in[0, 3 + n_chan * icyc, :] = data_dQ_dV_y[cyc] / qt_ratio
-
-    return data_in
