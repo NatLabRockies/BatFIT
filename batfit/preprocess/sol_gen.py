@@ -349,8 +349,8 @@ def robust_LHRH(sim, df, charge, protocol, sim_params, bat_model):
 
 def robust_CC(sim, C_rate, sim_params):
 
-    t_step = (3600 / abs(C_rate), 10000)
-    t_step_init = (10 / abs(C_rate), 150)
+    t_step = (3600.0 / abs(C_rate), 3600.0 / abs(10000.0 * C_rate))
+    t_step_init = (10.0 / abs(C_rate), 10.0 / abs(150.0 * C_rate))
 
     expr = bm.Experiment()
     if C_rate > 0:
