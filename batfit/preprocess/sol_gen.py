@@ -741,29 +741,30 @@ def single_run_save(
                 sol_dict["i"] = rootsol.vars["current_A"]
             else:
                 sol_dict["i"] = np.expand_dims(
-                    rootsol.vars["voltage_V"], axis=1
+                    rootsol.vars["current_A"], axis=1
                 )
 
-        if cyc_mode in ["discharge", "chargecc", "discharge-chargecc"]:
-            if phis_c_min is not -np.inf:
-                try:
-                    ind_t_max = np.argwhere(sol_dict["phis_c"] < phis_c_min)[
-                        0
-                    ][0]
-                except IndexError:
-                    ind_t_max = None
-            elif phis_c_max is not np.inf:
-                try:
-                    ind_t_max = np.argwhere(sol_dict["phis_c"] > phis_c_max)[
-                        0
-                    ][0]
-                except IndexError:
-                    ind_t_max = None
-            else:
-                ind_t_max = None
-        else:
-            ind_t_max = None
+        #if cyc_mode in ["discharge", "chargecc", "discharge-chargecc"]:
+        #    if phis_c_min is not -np.inf:
+        #        try:
+        #            ind_t_max = np.argwhere(sol_dict["phis_c"] < phis_c_min)[
+        #                0
+        #            ][0]
+        #        except IndexError:
+        #            ind_t_max = None
+        #    elif phis_c_max is not np.inf:
+        #        try:
+        #            ind_t_max = np.argwhere(sol_dict["phis_c"] > phis_c_max)[
+        #                0
+        #            ][0]
+        #        except IndexError:
+        #            ind_t_max = None
+        #    else:
+        #        ind_t_max = None
+        #else:
+        #    ind_t_max = None
 
+        ind_t_max = None
         save_dict = {}
 
         if run_spm:
@@ -809,9 +810,11 @@ def single_run_save(
 
         if cyc_mode.lower() in ["discharge", "chargecc", "discharge-chargecc"]:
             if run_p2d:
-                diff_dict = calc_dqdv_dvdq(t, phis_c[:, -1])
+                #diff_dict = calc_dqdv_dvdq(t, phis_c[:, -1])
+                diff_dict = {}
             elif run_spm:
-                diff_dict = calc_dqdv_dvdq(t, phis_c)
+                #diff_dict = calc_dqdv_dvdq(t, phis_c)
+                diff_dict = {}
         elif cyc_mode.lower() in [
             "rh",
             "lh",
@@ -837,8 +840,12 @@ def single_run_save(
                 n_points_reduce,
             )
             phis_c_int = np.interp(t_int, save_dict["t"], save_dict["phis_c"])
+            if "i" in save_dict:
+                i_int = np.interp(t_int, save_dict["t"], save_dict["i"])
             save_dict["t"] = t_int
             save_dict["phis_c"] = phis_c_int
+            if "i" in save_dict:
+                save_dict["i"] = i_int
 
             if len(diff_dict) > 0:
                 t_diff_int = np.linspace(
@@ -1642,9 +1649,10 @@ def multi_run(
                 remove_file(
                     os.path.join(folder_save, f"bad_par_filename_{rank}.txt")
                 )
-                remove_file(
-                    os.path.join(folder_save, f"bad_prot_filename_{rank}.txt")
-                )
+                if cyc_mode.lower() in ["chirp"]:
+                    remove_file(
+                        os.path.join(folder_save, f"bad_prot_filename_{rank}.txt")
+                    )
 
         parallel_env.comm.Barrier()
 
