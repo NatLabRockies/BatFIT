@@ -58,7 +58,7 @@ def from_sol_to_data(data_root_folder, filename, n_points):
 
 
 def from_sol_dict_to_xy(
-    sol_dict, combined_sols, key, n_points, target_mode, diff_cap=True
+    sol_dict, combined_sols, key, n_points, target_mode, diff_cap=False
 ):
     if diff_cap:
         min_t = np.amin(sol_dict["t_diff"])
