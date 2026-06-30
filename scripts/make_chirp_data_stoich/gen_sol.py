@@ -6,6 +6,8 @@ import batfit.utils.parallel as parallel_env
 from batfit import BATFIT_EXP
 from batfit.preprocess.sim_setup import make_params
 from batfit.preprocess.sol_gen import multi_run, multi_run_ser
+from batfit import logger
+logger.setLevel(level="DEBUG")
 
 parser = argparse.ArgumentParser(description="Dataset generator")
 parser.add_argument(
@@ -36,7 +38,7 @@ if sim_params["cyc_mode"].lower() in ["chirp"]:
         sim_params=sim_params,
         parallel_env=parallel_env,
         folder_save=args.folder_save,
-        n_points_reduce=512,
+        n_points_reduce=2048,
         store_current=True,
     )
 elif sim_params["cyc_mode"].lower() in ["rh", "lh"]:

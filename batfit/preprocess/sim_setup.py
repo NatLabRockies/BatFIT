@@ -445,6 +445,9 @@ def read_deg_param(key: str, deg_param_sample: dict):
 def set_interc_disconnected_discharge(
     sim, sim_params: dict, deg_param_sample: dict
 ):
+    '''
+    Set initial intercalation fractions scaled by degradation parameters
+    '''
     sim.ca.x_0 = sim_params["x0_c_dis"] * read_deg_param(
         key="x0_c", deg_param_sample=deg_param_sample
     )
@@ -458,6 +461,9 @@ def set_interc_disconnected_discharge(
 def set_interc_disconnected_charge(
     sim, sim_params: dict, deg_param_sample: dict
 ):
+    '''
+    Set initial intercalation fractions scaled by degradation parameters
+    '''
     sim.ca.x_0 = sim_params["x0_c_chcc"] * read_deg_param(
         key="x0_c_chcc", deg_param_sample=deg_param_sample
     )
@@ -471,6 +477,10 @@ def set_interc_disconnected_charge(
 def set_interc_connected(
     sim, sim_params: dict, deg_param_sample: dict, cyc_mode: str
 ):
+    '''
+    Set initial intercalation fractions scaled by degradation parameters
+    Read C rate only if constant current cycle or chirp
+    '''
     sim.ca.x_0 = sim_params["x0_c"] * read_deg_param(
         key="x0_c", deg_param_sample=deg_param_sample
     )
@@ -478,8 +488,8 @@ def set_interc_connected(
         key="x0_a", deg_param_sample=deg_param_sample
     )
     # C rate if constant current cycle
-    if cyc_mode.lower() in ["discharge", "chargecc"]:
-        C_rate = sim_params["C"]
+    if cyc_mode.lower() in ["discharge", "chargecc", "chirp"]:
+        C_rate = float(sim_params["C"])
     else:
         C_rate = None
 

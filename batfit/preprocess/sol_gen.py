@@ -97,13 +97,13 @@ def mod_sim(
     return sim, C_rate
 
 
-def robust_chirp(sim, sim_params, chirp_params, force_fail=False):
+def robust_chirp(sim, sim_params, chirp_params, background_C_rate, force_fail=False):
     if force_fail:
         return None
 
     sol = None
     try:
-        exp = define_chirp_experiment(sim_params, chirp_params)
+        exp = define_chirp_experiment(sim_params, chirp_params, background_C_rate=background_C_rate)
         sol = sim.run(exp, reset_state=True, bar=False)
         assert all(sol.success)
     except:
@@ -116,7 +116,7 @@ def robust_chirp(sim, sim_params, chirp_params, force_fail=False):
         ):
             try:
                 exp = define_chirp_experiment(
-                    sim_params, chirp_params, atol=atol, max_step=max_step
+                    sim_params, chirp_params, background_C_rate=background_C_rate, atol=atol, max_step=max_step
                 )
                 sol = sim.run(exp, reset_state=False, bar=False)
                 assert all(sol.success)
@@ -125,7 +125,6 @@ def robust_chirp(sim, sim_params, chirp_params, force_fail=False):
                 pass
         pass
     return sol
-
 
 def robust_DiffCap(sim, sim_params, force_fail=False):
     if force_fail:
@@ -528,6 +527,7 @@ def single_run(
             sim=sim,
             sim_params=sim_params,
             chirp_params=prot_param_sample,
+            background_C_rate=C_rate,
             force_fail=force_fail,
         )
 
