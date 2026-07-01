@@ -3,6 +3,8 @@ from abc import ABC, abstractmethod
 import numpy as np
 import torch
 import torch.nn as nn
+from flow_matching.solver import ODESolver
+from flow_matching.utils import ModelWrapper
 
 from batfit import logger
 from batfit.preprocess.sim_setup import make_params
@@ -18,6 +20,7 @@ from batfit.utils.torch_utils import (
 
 from .param_utils.losses import (
     correlated_normal_loss,
+    flow_matching_loss,
     gumbel_loss,
     independent_gumbel_loss,
     independent_normal_loss,
