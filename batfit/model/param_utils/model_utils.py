@@ -344,11 +344,18 @@ class _ProbParamFMBase(nn.Module, ABC, _ParamScalingMixin):
         cyc_mode: str = "discharge",
         n_param_pred: int = 6,
         sim_config: str | None = None,
+        use_prior_matching: bool = False,
     ):
         super().__init__()
         self.cyc_mode = cyc_mode
         self.n_param_pred = n_param_pred
+        self.use_prior_matching = use_prior_matching
         self._init_scaling(sim_config)
+        if use_prior_matching and sim_config is None:
+            raise ValueError(
+                "use_prior_matching=True requires sim_config so that "
+                "min_par and amp_par are available for prior sampling."
+            )
 
     @property
     def vf_layers(self) -> nn.Sequential:
@@ -387,6 +394,20 @@ class _ProbParamFMBase(nn.Module, ABC, _ParamScalingMixin):
         vf_input = torch.cat([z_t, t_exp, context], dim=-1)
         return self.vf_layers(vf_input)
 
+    def sample_prior(self, n: int, device: torch.device) -> torch.Tensor:
+        """Sample n points from the prior U(min_par, max_par).
+
+        Used as the base distribution when use_prior_matching=True, both at
+        inference time (inside _sample_from_context) and in the training loop
+        to obtain x_0 samples.
+
+        :param n: number of samples
+        :param device: target torch device
+        :return: prior samples, shape (n, n_param_pred)
+        """
+        z = torch.rand(n, self.n_param_pred, device=device)
+        return z * self.amp_par.to(device) + self.min_par.to(device)
+
     def _sample_from_context(
         self,
         context: torch.Tensor,
@@ -410,9 +431,11 @@ class _ProbParamFMBase(nn.Module, ABC, _ParamScalingMixin):
         :return: posterior samples of shape (batch, n_samples, n_param_pred)
         """
         context_rep = context.repeat_interleave(n_samples, dim=0)
-        z_0 = torch.randn(
-            batch_size * n_samples, self.n_param_pred, device=device
-        )
+        n_particles = batch_size * n_samples
+        if self.use_prior_matching:
+            z_0 = self.sample_prior(n_particles, device)
+        else:
+            z_0 = torch.randn(n_particles, self.n_param_pred, device=device)
 
         wrapper = _VFWrapper(self._velocity_forward)
         solver = ODESolver(velocity_model=wrapper)

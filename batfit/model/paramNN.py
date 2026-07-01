@@ -336,6 +336,7 @@ class ProbParamFM(_ProbParamFMBase):
         cyc_mode: str = "discharge",
         n_param_pred: int = 6,
         sim_config: str | None = None,
+        use_prior_matching: bool = False,
     ):
         """
         :param vf_hidden_list: hidden dims of the velocity field MLP
@@ -351,6 +352,9 @@ class ProbParamFM(_ProbParamFMBase):
         :param n_param_pred: number of degradation parameters to estimate
         :param sim_config: path to sim config YAML for physical scaling;
                            None skips scaling init
+        :param use_prior_matching: if True, use U(min_par, max_par) as the
+                                   base distribution instead of N(0, I);
+                                   requires sim_config
         """
         _cnn_mode = encoder_model is None
         if _cnn_mode and (
@@ -370,6 +374,7 @@ class ProbParamFM(_ProbParamFMBase):
             cyc_mode=cyc_mode,
             n_param_pred=n_param_pred,
             sim_config=sim_config,
+            use_prior_matching=use_prior_matching,
         )
         self.vf_hidden_list = vf_hidden_list
         self.leaky_relu_slope = leaky_relu_slope
@@ -482,6 +487,184 @@ class ProbParamFM(_ProbParamFMBase):
         :return: posterior samples, shape (batch, n_samples, n_param_pred)
         """
         context = self._encode(x)
+        return self._sample_from_context(
+            context, x.shape[0], n_samples, n_steps, x.device
+        )
+
+
+class ProbProtParamFM(_ProbParamFMBase):
+    """Flow matching model conditioned on both signal and protocol parameters.
+
+    The electrochemical signal is encoded by a jointly trained 1-D CNN.  Its
+    embedding is concatenated with the protocol parameters and optionally
+    passed through fusion FC layers before serving as the context for the
+    velocity field MLP.
+
+    Training
+    --------
+    Call ``forward(x, prot_params, z_t, t)`` to obtain the predicted velocity
+    and regress it against the target velocity from ``AffineProbPath`` using
+    ``flow_matching_loss``.
+
+    Inference
+    ---------
+    Call ``sample(x, prot_params, n_samples)`` to draw posterior samples by
+    integrating the learned ODE from N(0, I) to t=1 with the midpoint method.
+    """
+
+    def __init__(
+        self,
+        input_shape: tuple[int, int],
+        chan_list: list[int],
+        fc_list: list[int],
+        fc_prot_list: list[int],
+        vf_hidden_list: list[int],
+        n_prot_params: int,
+        leaky_relu_slope: float = 0.2,
+        cyc_mode: str = "chirp",
+        n_param_pred: int = 6,
+        sim_config: str | None = None,
+        use_prior_matching: bool = False,
+    ):
+        """
+        :param input_shape: (n_channels, n_time_points) of the input signal
+        :param chan_list: Conv1d output channels per layer
+        :param fc_list: FC hidden dims after the CNN
+        :param fc_prot_list: hidden dims for the protocol fusion FC layers;
+                             empty list skips fusion (prot_params concatenated
+                             directly to the CNN embedding)
+        :param vf_hidden_list: hidden dims of the velocity field MLP
+        :param n_prot_params: number of protocol parameters
+        :param leaky_relu_slope: negative slope for LeakyReLU in the CNN
+        :param cyc_mode: cycling mode; "discharge-chargecc" is not supported
+        :param n_param_pred: number of degradation parameters to estimate
+        :param sim_config: path to sim config YAML for physical scaling;
+                           None skips scaling init
+        :param use_prior_matching: if True, use U(min_par, max_par) as the
+                                   base distribution instead of N(0, I);
+                                   requires sim_config
+        """
+        if cyc_mode.lower() == "discharge-chargecc":
+            raise NotImplementedError(
+                "discharge-chargecc is not supported in ProbProtParamFM."
+            )
+
+        logger.info(
+            "Creating flow matching CNN model with protocol parameters "
+            "(ProbProtParamFM)"
+        )
+        super().__init__(
+            cyc_mode=cyc_mode,
+            n_param_pred=n_param_pred,
+            sim_config=sim_config,
+            use_prior_matching=use_prior_matching,
+        )
+        self.leaky_relu_slope = leaky_relu_slope
+        self.chan_list = chan_list
+        self.fc_list = fc_list
+        self.fc_prot_list = fc_prot_list
+        self.vf_hidden_list = vf_hidden_list
+        self.n_prot_params = n_prot_params
+
+        assert len(chan_list) < int(np.log(input_shape[1]) / np.log(2))
+
+        # CNN encoder for the electrochemical signal
+        self.cnn_layers, _, _ = _build_cnn_encoder(
+            input_shape[0],
+            input_shape[1],
+            chan_list,
+            fc_list,
+            leaky_relu_slope,
+            cyc_mode,
+        )
+
+        # Protocol fusion: [cnn_emb | prot_params] -> optional FC -> context
+        prot_input_size = fc_list[-1] + n_prot_params
+        _prot_layers = []
+        if fc_prot_list:
+            prot_fc = _build_hidden_fcnn_layers(prot_input_size, fc_prot_list)
+            for layer in prot_fc:
+                _prot_layers.append(layer)
+                _prot_layers.append(nn.Tanh())
+            context_dim = fc_prot_list[-1]
+        else:
+            context_dim = prot_input_size
+        self.prot_layers = nn.Sequential(*_prot_layers)
+
+        # Velocity field MLP
+        # Input: [z_t (n_param_pred) | t (1) | context (context_dim)]
+        vf_input_dim = n_param_pred + 1 + context_dim
+        vf_fc = _build_hidden_fcnn_layers(vf_input_dim, vf_hidden_list)
+        _vf = []
+        for layer in vf_fc:
+            _vf.append(layer)
+            _vf.append(nn.Tanh())
+        _vf.append(nn.Linear(vf_hidden_list[-1], n_param_pred))
+        self.vf_layers = nn.Sequential(*_vf)
+
+    def _encode_context(
+        self, x: torch.Tensor, prot_params: torch.Tensor
+    ) -> torch.Tensor:
+        """Encode signal and protocol parameters into a context vector.
+
+        Runs the signal through the CNN encoder, concatenates the protocol
+        parameters, then applies the optional fusion layers.
+
+        :param x: electrochemical signal, shape (batch, channels, time)
+        :param prot_params: protocol parameters, shape (batch, n_prot_params)
+        :return: context embedding, shape (batch, context_dim)
+        """
+        cnn_emb = self.cnn_layers(x)
+        fused = torch.cat((cnn_emb, prot_params), dim=1)
+        return self.prot_layers(fused)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        prot_params: torch.Tensor,
+        z_t: torch.Tensor,
+        t: torch.Tensor,
+    ) -> torch.Tensor:
+        """Predict the velocity u(z_t, t | x, prot_params) of the conditional flow.
+
+        The velocity field is conditioned jointly on the electrochemical signal
+        and the protocol parameters.  At each training step, z_t and t are
+        sampled from the probability path (via AffineProbPath) between a noise
+        sample x_0 ~ N(0, I) and the ground-truth parameter sample x_1, and
+        the predicted velocity is regressed against the straight-line target
+        (x_1 - x_0) using ``flow_matching_loss``.
+
+        :param x: electrochemical signal, shape (batch, channels, time)
+        :param prot_params: protocol parameters, shape (batch, n_prot_params)
+        :param z_t: particle positions in parameter space at time t,
+                    shape (batch, n_param_pred)
+        :param t: flow time in [0, 1], shape (batch,)
+        :return: predicted velocity, shape (batch, n_param_pred)
+        """
+        context = self._encode_context(x, prot_params)
+        return self._velocity_forward(z_t, t, context)
+
+    def sample(
+        self,
+        x: torch.Tensor,
+        prot_params: torch.Tensor,
+        n_samples: int,
+        n_steps: int = 100,
+    ) -> torch.Tensor:
+        """Sample from the approximate posterior p(params | x, prot_params).
+
+        Encodes x and prot_params once, then integrates the learned ODE from
+        z_0 ~ N(0, I) at t=0 to t=1 using the midpoint method.  Each
+        observation in the batch independently produces n_samples posterior
+        draws.
+
+        :param x: electrochemical signal, shape (batch, channels, time)
+        :param prot_params: protocol parameters, shape (batch, n_prot_params)
+        :param n_samples: number of posterior samples per observation
+        :param n_steps: number of ODE integration steps
+        :return: posterior samples, shape (batch, n_samples, n_param_pred)
+        """
+        context = self._encode_context(x, prot_params)
         return self._sample_from_context(
             context, x.shape[0], n_samples, n_steps, x.device
         )
