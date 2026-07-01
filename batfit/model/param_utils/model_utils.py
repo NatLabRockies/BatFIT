@@ -379,7 +379,11 @@ class _ProbParamFMBase(nn.Module, ABC, _ParamScalingMixin):
         :param context: conditioning embedding, shape (batch, context_dim)
         :return: velocity vectors, shape (batch, n_param_pred)
         """
-        t_exp = t.unsqueeze(-1) if t.dim() == 1 else t
+        # torchdiffeq passes t as a 0-dim scalar; training code passes (batch,)
+        if t.dim() == 0:
+            t_exp = t.expand(z_t.shape[0], 1)
+        else:
+            t_exp = t.unsqueeze(-1)
         vf_input = torch.cat([z_t, t_exp, context], dim=-1)
         return self.vf_layers(vf_input)
 

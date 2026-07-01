@@ -5,7 +5,12 @@ from batfit.model.param_utils.losses import (
     correlated_normal_loss,
     independent_normal_loss,
 )
-from batfit.model.paramNN import ProbParamCNN, ProbParamFCNN, ProbProtParamCNN
+from batfit.model.paramNN import (
+    ProbParamCNN,
+    ProbParamFCNN,
+    ProbParamFM,
+    ProbProtParamCNN,
+)
 
 
 def test_ProbParamCNN():
@@ -199,3 +204,51 @@ def test_ProbProtParamCNN():
             cyc_mode="discharge-chargecc",
             n_param_pred=n_param_pred,
         )
+
+
+def test_ProbParamFM():
+    batch = 4
+    n_points = 64
+    n_channels = 2
+    n_param_pred = 3
+    n_samples = 5
+
+    model = ProbParamFM(
+        input_shape=(n_channels, n_points),
+        chan_list=[8],
+        fc_list=[16],
+        vf_hidden_list=[32],
+        cyc_mode="discharge",
+        n_param_pred=n_param_pred,
+    )
+
+    x = torch.rand(batch, n_channels, n_points)
+    z_t = torch.rand(batch, n_param_pred)
+    t = torch.rand(batch)
+
+    # forward returns velocity of shape (batch, n_param_pred)
+    velocity = model(x, z_t, t)
+    assert velocity.shape == (batch, n_param_pred)
+
+    # sample returns (batch, n_samples, n_param_pred)
+    samples = model.sample(x, n_samples=n_samples, n_steps=10)
+    assert samples.shape == (batch, n_samples, n_param_pred)
+
+    # discharge-chargecc: dual encoder, input has 2*n_channels channels
+    model_dc = ProbParamFM(
+        input_shape=(2 * n_channels, n_points),
+        chan_list=[8],
+        fc_list=[16],
+        vf_hidden_list=[32],
+        cyc_mode="discharge-chargecc",
+        n_param_pred=n_param_pred,
+    )
+    x_dc = torch.rand(batch, 2 * n_channels, n_points)
+    z_t_dc = torch.rand(batch, n_param_pred)
+    t_dc = torch.rand(batch)
+
+    velocity_dc = model_dc(x_dc, z_t_dc, t_dc)
+    assert velocity_dc.shape == (batch, n_param_pred)
+
+    samples_dc = model_dc.sample(x_dc, n_samples=n_samples, n_steps=10)
+    assert samples_dc.shape == (batch, n_samples, n_param_pred)
