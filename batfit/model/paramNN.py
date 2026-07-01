@@ -187,38 +187,22 @@ def _build_output_heads(
     return model_mu_layers, model_gamma_layers
 
 
-class _ProbParamBase(nn.Module, ABC):
-    def __init__(
-        self,
-        loss_fn,
-        cyc_mode="discharge",
-        n_param_pred=6,
-        dependent_outputs=False,
-        constrain_output=False,
-        encoder_model=None,
-        sim_config=None,
-    ):
-        super(_ProbParamBase, self).__init__()
-        self.loss_fn = loss_fn
-        self.cyc_mode = cyc_mode
-        self.n_param_pred = n_param_pred
-        self.constrain_output = constrain_output
+class _ParamScalingMixin:
+    """Mixin providing physical parameter space scaling/unscaling utilities.
+
+    Both Gaussian and flow matching base classes inherit from this mixin to
+    share the sim_config initialisation logic and transform methods.
+    """
+
+    def _init_scaling(self, sim_config: str | None) -> None:
+        """Initialise physical parameter bounds from a sim_config YAML path.
+
+        Sets self.sim_config, self.sim_params, self.max_par, self.min_par,
+        and self.amp_par when sim_config is provided.
+
+        :param sim_config: path to a YAML experiment configuration file, or None
+        """
         self.sim_config = sim_config
-        self.dependent_outputs = dependent_outputs
-        self.encoder_model = encoder_model
-        self.output_dim = self.n_param_pred
-
-        if self.dependent_outputs:
-            assert self.loss_fn == correlated_normal_loss
-        else:
-            assert self.loss_fn in [
-                mse_loss,
-                gumbel_loss,
-                nll_loss,
-                independent_normal_loss,
-                independent_gumbel_loss,
-            ]
-
         if self.sim_config is not None:
             self.sim_params = make_params(self.sim_config)
             self.max_par = torch.from_numpy(
@@ -239,33 +223,86 @@ class _ProbParamBase(nn.Module, ABC):
             )
             self.amp_par = self.max_par - self.min_par
 
-    def inv_transform_mu(self, mu_unscaled, min_par, amp_par):
-        mu = mu_unscaled * amp_par + min_par
-        return mu
+    def inv_transform_mu(
+        self,
+        mu_unscaled: torch.Tensor,
+        min_par: torch.Tensor,
+        amp_par: torch.Tensor,
+    ) -> torch.Tensor:
+        return mu_unscaled * amp_par + min_par
 
-    def inv_transform_gamma(self, gamma_unscaled, amp_par):
-        gamma = gamma_unscaled * amp_par
-        return gamma
+    def inv_transform_gamma(
+        self, gamma_unscaled: torch.Tensor, amp_par: torch.Tensor
+    ) -> torch.Tensor:
+        return gamma_unscaled * amp_par
 
-    def transform_mu(self, mu_scaled, min_par, amp_par):
-        mu = (mu_scaled - min_par) / amp_par
-        return mu
+    def transform_mu(
+        self,
+        mu_scaled: torch.Tensor,
+        min_par: torch.Tensor,
+        amp_par: torch.Tensor,
+    ) -> torch.Tensor:
+        return (mu_scaled - min_par) / amp_par
 
-    def transform_gamma(self, gamma_scaled, amp_par):
-        gamma = gamma_scaled / amp_par
-        return gamma
+    def transform_gamma(
+        self, gamma_scaled: torch.Tensor, amp_par: torch.Tensor
+    ) -> torch.Tensor:
+        return gamma_scaled / amp_par
 
-    def transform_output(self, mu_scaled, gamma_scaled, min_par, amp_par):
+    def transform_output(
+        self,
+        mu_scaled: torch.Tensor,
+        gamma_scaled: torch.Tensor,
+        min_par: torch.Tensor,
+        amp_par: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         return self.transform_mu(
             mu_scaled, min_par, amp_par
         ), self.transform_gamma(gamma_scaled, amp_par)
 
     def inv_transform_output(
-        self, mu_unscaled, gamma_unscaled, min_par, amp_par
-    ):
+        self,
+        mu_unscaled: torch.Tensor,
+        gamma_unscaled: torch.Tensor,
+        min_par: torch.Tensor,
+        amp_par: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         return self.inv_transform_mu(
             mu_unscaled, min_par, amp_par
         ), self.inv_transform_gamma(gamma_unscaled, amp_par)
+
+
+class _ProbParamBase(nn.Module, ABC, _ParamScalingMixin):
+    def __init__(
+        self,
+        loss_fn,
+        cyc_mode="discharge",
+        n_param_pred=6,
+        dependent_outputs=False,
+        constrain_output=False,
+        encoder_model=None,
+        sim_config=None,
+    ):
+        super(_ProbParamBase, self).__init__()
+        self.loss_fn = loss_fn
+        self.cyc_mode = cyc_mode
+        self.n_param_pred = n_param_pred
+        self.constrain_output = constrain_output
+        self.dependent_outputs = dependent_outputs
+        self.encoder_model = encoder_model
+        self.output_dim = self.n_param_pred
+        self._init_scaling(sim_config)
+
+        if self.dependent_outputs:
+            assert self.loss_fn == correlated_normal_loss
+        else:
+            assert self.loss_fn in [
+                mse_loss,
+                gumbel_loss,
+                nll_loss,
+                independent_normal_loss,
+                independent_gumbel_loss,
+            ]
 
     def _cholesky_cov(self, gamma):
         # Create covariance matrix
