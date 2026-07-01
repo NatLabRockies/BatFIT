@@ -295,11 +295,23 @@ class ProbProtParamCNN(_ProbParamBase):
 
 
 class ProbParamFM(_ProbParamFMBase):
-    """CNN-conditioned flow matching model for battery parameter estimation.
+    """Flow matching model for battery parameter estimation.
 
-    Encodes the electrochemical signal through a 1-D CNN, then uses a velocity
-    field MLP conditioned on that embedding to learn the posterior over
-    degradation parameters via conditional flow matching.
+    Two encoder modes are supported:
+
+    **CNN mode** (default): a 1-D CNN is trained jointly with the velocity
+    field MLP end-to-end.  Requires ``input_shape``, ``chan_list``,
+    ``fc_list``.  ``cyc_mode="discharge-chargecc"`` is supported and uses
+    two independent CNN encoders whose embeddings are concatenated.
+
+    **External encoder mode**: a pre-trained encoder (e.g. the
+    ``ConvEncoder1D`` sub-module of a ``VAECNN``) is passed via
+    ``encoder_model``.  Its parameters are **frozen** and only the velocity
+    field MLP is trained.  The encoder must expose a ``latent_dim: int``
+    attribute and its ``forward(x)`` must return ``(mu, ...)`` where the
+    first element is the deterministic embedding (e.g. the VAE posterior
+    mean).  Pass ``vae_model.encoder``, not the full ``VAECNN``.
+    ``cyc_mode="discharge-chargecc"`` is not supported in this mode.
 
     Training
     --------
@@ -315,56 +327,85 @@ class ProbParamFM(_ProbParamFMBase):
 
     def __init__(
         self,
-        input_shape: tuple[int, int],
-        chan_list: list[int],
-        fc_list: list[int],
         vf_hidden_list: list[int],
+        input_shape: tuple[int, int] | None = None,
+        chan_list: list[int] | None = None,
+        fc_list: list[int] | None = None,
+        encoder_model: nn.Module | None = None,
         leaky_relu_slope: float = 0.2,
         cyc_mode: str = "discharge",
         n_param_pred: int = 6,
         sim_config: str | None = None,
     ):
         """
-        :param input_shape: (n_channels, n_time_points) of the input signal
-        :param chan_list: output channels for each Conv1d layer
-        :param fc_list: hidden dims of the FC layers that follow the CNN
         :param vf_hidden_list: hidden dims of the velocity field MLP
-        :param leaky_relu_slope: negative slope for LeakyReLU in the CNN
-        :param cyc_mode: cycling mode; "discharge-chargecc" uses dual encoders
+        :param input_shape: (n_channels, n_time_points); required in CNN mode
+        :param chan_list: Conv1d output channels per layer; required in CNN mode
+        :param fc_list: FC hidden dims after the CNN; required in CNN mode
+        :param encoder_model: pre-trained encoder (e.g. ``vae.encoder``);
+                              when given, CNN params are ignored and the
+                              encoder weights are frozen
+        :param leaky_relu_slope: negative slope for LeakyReLU in CNN mode
+        :param cyc_mode: cycling mode; "discharge-chargecc" uses dual CNN
+                         encoders (CNN mode only)
         :param n_param_pred: number of degradation parameters to estimate
         :param sim_config: path to sim config YAML for physical scaling;
                            None skips scaling init
         """
+        _cnn_mode = encoder_model is None
+        if _cnn_mode and (
+            input_shape is None or chan_list is None or fc_list is None
+        ):
+            raise ValueError(
+                "CNN mode requires input_shape, chan_list, and fc_list. "
+                "To use a pre-trained encoder pass encoder_model instead."
+            )
+        if not _cnn_mode and cyc_mode.lower() == "discharge-chargecc":
+            raise NotImplementedError(
+                "discharge-chargecc is not supported with an external encoder_model."
+            )
+
         logger.info("Creating flow matching CNN model (ProbParamFM)")
         super().__init__(
             cyc_mode=cyc_mode,
             n_param_pred=n_param_pred,
             sim_config=sim_config,
         )
-        self.leaky_relu_slope = leaky_relu_slope
-        self.chan_list = chan_list
-        self.fc_list = fc_list
         self.vf_hidden_list = vf_hidden_list
+        self.leaky_relu_slope = leaky_relu_slope
 
-        assert len(chan_list) < int(np.log(input_shape[1]) / np.log(2))
-
-        input_shape_0 = (
-            input_shape[0] // 2
-            if cyc_mode.lower() == "discharge-chargecc"
-            else input_shape[0]
-        )
-
-        self.cnn_layers, self.cnn_layers_aux, emb_dim = _build_cnn_encoder(
-            input_shape_0,
-            input_shape[1],
-            chan_list,
-            fc_list,
-            leaky_relu_slope,
-            cyc_mode,
-        )
+        if _cnn_mode:
+            self.chan_list = chan_list
+            self.fc_list = fc_list
+            assert len(chan_list) < int(np.log(input_shape[1]) / np.log(2))
+            input_shape_0 = (
+                input_shape[0] // 2
+                if cyc_mode.lower() == "discharge-chargecc"
+                else input_shape[0]
+            )
+            self.cnn_layers, self.cnn_layers_aux, emb_dim = _build_cnn_encoder(
+                input_shape_0,
+                input_shape[1],
+                chan_list,
+                fc_list,
+                leaky_relu_slope,
+                cyc_mode,
+            )
+            self.encoder_model = None
+        else:
+            if not hasattr(encoder_model, "latent_dim"):
+                raise ValueError(
+                    "encoder_model must expose a latent_dim: int attribute. "
+                    "Pass vae_model.encoder (a ConvEncoder1D), not the full VAECNN."
+                )
+            # Freeze pre-trained encoder weights; only the velocity field MLP trains
+            for param in encoder_model.parameters():
+                param.requires_grad_(False)
+            self.encoder_model = encoder_model
+            emb_dim = encoder_model.latent_dim
 
         # Velocity field MLP
-        # Input: [z_t (n_param_pred) | t (1) | cnn_emb (emb_dim)]
+        # Input: [z_t (n_param_pred) | t (1) | embedding (emb_dim)]
         vf_input_dim = n_param_pred + 1 + emb_dim
         vf_fc = _build_hidden_fcnn_layers(vf_input_dim, vf_hidden_list)
         _vf = []
@@ -375,18 +416,28 @@ class ProbParamFM(_ProbParamFMBase):
         self.vf_layers = nn.Sequential(*_vf)
 
     def _encode(self, x: torch.Tensor) -> torch.Tensor:
-        """Encode the signal into a CNN embedding.
+        """Encode the signal into an embedding vector.
+
+        In CNN mode uses the jointly trained convolutional encoder. In external
+        encoder mode calls ``encoder_model.forward(x)`` and takes the first
+        returned tensor as the deterministic embedding (the VAE posterior mean
+        when using a ``ConvEncoder1D``).
 
         :param x: input signal, shape (batch, channels, time)
-        :return: CNN embedding, shape (batch, emb_dim)
+        :return: embedding, shape (batch, emb_dim)
         """
-        if self.cyc_mode.lower() == "discharge-chargecc":
-            nchans = x.shape[1]
-            x_dis, x_chcc = torch.split(x, nchans // 2, dim=1)
-            return torch.cat(
-                (self.cnn_layers(x_dis), self.cnn_layers_aux(x_chcc)), dim=1
-            )
-        return self.cnn_layers(x)
+        if self.encoder_model is not None:
+            out = self.encoder_model(x)
+            return out[0] if isinstance(out, (tuple, list)) else out
+        else:
+            if self.cyc_mode.lower() == "discharge-chargecc":
+                nchans = x.shape[1]
+                x_dis, x_chcc = torch.split(x, nchans // 2, dim=1)
+                return torch.cat(
+                    (self.cnn_layers(x_dis), self.cnn_layers_aux(x_chcc)), dim=1
+                )
+            else:
+                return self.cnn_layers(x)
 
     def forward(
         self,
