@@ -43,6 +43,7 @@ dependencies = [
     "ruamel.yaml",
     "torch2jax",
     "scikit-optimize",
+    "flow_matching",
     "batmods-lite @ git+https://github.com/NatLabRockies/batmods-lite.git@main",
 ]
 
