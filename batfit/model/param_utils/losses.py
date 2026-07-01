@@ -73,3 +73,19 @@ def correlated_normal_loss(mu, sigma, target):
     nll = -mvn.log_prob(target)
 
     return nll.mean()  # Average over the batch
+
+
+def flow_matching_loss(
+    predicted_velocity: torch.Tensor, target_velocity: torch.Tensor
+) -> torch.Tensor:
+    """L2 loss between the predicted and target velocity vectors.
+
+    Used to train a conditional flow matching model. The target velocity is
+    provided by sampling a probability path (e.g. via AffineProbPath) between
+    a noise sample x_0 and the ground-truth parameters x_1.
+
+    :param predicted_velocity: velocity predicted by the model, shape (batch, n_params)
+    :param target_velocity: target velocity from the path sample, shape (batch, n_params)
+    :return: scalar mean squared error
+    """
+    return torch.pow(predicted_velocity - target_velocity, 2).mean()
