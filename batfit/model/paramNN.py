@@ -294,3 +294,144 @@ class ProbProtParamCNN(_ProbParamBase):
         return mu, gamma
 
 
+class ProbParamFM(_ProbParamFMBase):
+    """CNN-conditioned flow matching model for battery parameter estimation.
+
+    Encodes the electrochemical signal through a 1-D CNN, then uses a velocity
+    field MLP conditioned on that embedding to learn the posterior over
+    degradation parameters via conditional flow matching.
+
+    Training
+    --------
+    Call ``forward(x, z_t, t)`` to obtain the predicted velocity and regress
+    it against the target velocity from ``AffineProbPath`` using
+    ``flow_matching_loss``.
+
+    Inference
+    ---------
+    Call ``sample(x, n_samples)`` to draw posterior samples by integrating the
+    learned ODE from N(0, I) to t=1 with the midpoint method.
+    """
+
+    def __init__(
+        self,
+        input_shape: tuple[int, int],
+        chan_list: list[int],
+        fc_list: list[int],
+        vf_hidden_list: list[int],
+        leaky_relu_slope: float = 0.2,
+        cyc_mode: str = "discharge",
+        n_param_pred: int = 6,
+        sim_config: str | None = None,
+    ):
+        """
+        :param input_shape: (n_channels, n_time_points) of the input signal
+        :param chan_list: output channels for each Conv1d layer
+        :param fc_list: hidden dims of the FC layers that follow the CNN
+        :param vf_hidden_list: hidden dims of the velocity field MLP
+        :param leaky_relu_slope: negative slope for LeakyReLU in the CNN
+        :param cyc_mode: cycling mode; "discharge-chargecc" uses dual encoders
+        :param n_param_pred: number of degradation parameters to estimate
+        :param sim_config: path to sim config YAML for physical scaling;
+                           None skips scaling init
+        """
+        logger.info("Creating flow matching CNN model (ProbParamFM)")
+        super().__init__(
+            cyc_mode=cyc_mode,
+            n_param_pred=n_param_pred,
+            sim_config=sim_config,
+        )
+        self.leaky_relu_slope = leaky_relu_slope
+        self.chan_list = chan_list
+        self.fc_list = fc_list
+        self.vf_hidden_list = vf_hidden_list
+
+        assert len(chan_list) < int(np.log(input_shape[1]) / np.log(2))
+
+        input_shape_0 = (
+            input_shape[0] // 2
+            if cyc_mode.lower() == "discharge-chargecc"
+            else input_shape[0]
+        )
+
+        self.cnn_layers, self.cnn_layers_aux, emb_dim = _build_cnn_encoder(
+            input_shape_0,
+            input_shape[1],
+            chan_list,
+            fc_list,
+            leaky_relu_slope,
+            cyc_mode,
+        )
+
+        # Velocity field MLP
+        # Input: [z_t (n_param_pred) | t (1) | cnn_emb (emb_dim)]
+        vf_input_dim = n_param_pred + 1 + emb_dim
+        vf_fc = _build_hidden_fcnn_layers(vf_input_dim, vf_hidden_list)
+        _vf = []
+        for layer in vf_fc:
+            _vf.append(layer)
+            _vf.append(nn.Tanh())
+        _vf.append(nn.Linear(vf_hidden_list[-1], n_param_pred))
+        self.vf_layers = nn.Sequential(*_vf)
+
+    def _encode(self, x: torch.Tensor) -> torch.Tensor:
+        """Encode the signal into a CNN embedding.
+
+        :param x: input signal, shape (batch, channels, time)
+        :return: CNN embedding, shape (batch, emb_dim)
+        """
+        if self.cyc_mode.lower() == "discharge-chargecc":
+            nchans = x.shape[1]
+            x_dis, x_chcc = torch.split(x, nchans // 2, dim=1)
+            return torch.cat(
+                (self.cnn_layers(x_dis), self.cnn_layers_aux(x_chcc)), dim=1
+            )
+        return self.cnn_layers(x)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        z_t: torch.Tensor,
+        t: torch.Tensor,
+    ) -> torch.Tensor:
+        """Predict the velocity u(z_t, t | x) of the conditional flow.
+
+        The velocity field u(z_t, t | x) is the quantity learned by flow
+        matching: it is the time-derivative of the probability path that
+        interpolates between a base sample x_0 ~ N(0, I) and a parameter
+        sample x_1 ~ p(params | x). At each training step, z_t and t are
+        sampled from the path (via AffineProbPath from flow_matching), and u
+        is regressed against the straight-line target velocity (x_1 - x_0)
+        using flow_matching_loss.
+
+        :param x: electrochemical signal, shape (batch, channels, time)
+        :param z_t: particle positions in parameter space at time t,
+                    shape (batch, n_param_pred)
+        :param t: flow time in [0, 1], shape (batch,)
+        :return: predicted velocity, shape (batch, n_param_pred)
+        """
+        context = self._encode(x)
+        return self._velocity_forward(z_t, t, context)
+
+    def sample(
+        self,
+        x: torch.Tensor,
+        n_samples: int,
+        n_steps: int = 100,
+    ) -> torch.Tensor:
+        """Sample from the approximate posterior p(params | x).
+
+        Encodes x once, then integrates the learned ODE from z_0 ~ N(0, I)
+        at t=0 to t=1 using the midpoint method. Each observation in the
+        batch independently produces n_samples posterior draws.
+
+        :param x: electrochemical signal, shape (batch, channels, time)
+        :param n_samples: number of posterior samples per observation
+        :param n_steps: number of ODE integration steps
+        :return: posterior samples, shape (batch, n_samples, n_param_pred)
+        """
+        context = self._encode(x)
+        return self._sample_from_context(
+            context, x.shape[0], n_samples, n_steps, x.device
+        )
+
