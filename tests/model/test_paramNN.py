@@ -6,6 +6,7 @@ from batfit.model.param_utils.losses import (
     correlated_normal_loss,
     independent_normal_loss,
 )
+from batfit.model.param_utils.model_utils import _SelfAttentionBlock
 from batfit.model.paramNN import (
     ProbParamCNN,
     ProbParamFCNN,
@@ -427,3 +428,98 @@ def test_ProbProtParamFM():
     prot_pm = torch.rand(batch, n_prot_params)
     samples_pm = model_pm.sample(x_pm, prot_pm, n_samples=n_samples, n_steps=10)
     assert samples_pm.shape == (batch, n_samples, n_param_pred_pm)
+
+
+def test__SelfAttentionBlock():
+    """Shape preservation, gradient flow, and invalid num_heads validation."""
+    batch, channels, time = 3, 8, 16
+    block = _SelfAttentionBlock(embed_dim=channels, num_heads=4)
+
+    x = torch.rand(batch, channels, time)
+    out = block(x)
+
+    # Output shape must exactly match the input
+    assert out.shape == (batch, channels, time)
+
+    # Gradients must flow through the residual path
+    x_grad = torch.rand(batch, channels, time, requires_grad=True)
+    block(x_grad).sum().backward()
+    assert x_grad.grad is not None
+    assert x_grad.grad.shape == x_grad.shape
+
+    # embed_dim not divisible by num_heads must raise
+    with pytest.raises(ValueError):
+        _SelfAttentionBlock(embed_dim=8, num_heads=3)
+
+    # Single head must also work (trivial case)
+    block_single = _SelfAttentionBlock(embed_dim=channels, num_heads=1)
+    assert block_single(x).shape == (batch, channels, time)
+
+
+def test_ProbParamCNN_attention():
+    """CNN NPE with a self-attention block produces correct output shapes."""
+    batch = 4
+    n_points = 64
+    n_param_pred = 3
+
+    model = ProbParamCNN(
+        input_shape=(2, n_points),
+        chan_list=[8],
+        fc_list=[16],
+        fc_mu_list=[8],
+        fc_gamma_list=[8],
+        loss_fn=independent_normal_loss,
+        cyc_mode="discharge",
+        n_param_pred=n_param_pred,
+        constrain_output=False,
+        num_attn_heads=4,
+        attn_dropout=0.0,
+    )
+    x = torch.rand(batch, 2, n_points)
+    mu, gamma = model(x)
+    assert mu.shape == (batch, n_param_pred)
+    assert gamma.shape == (batch, n_param_pred)
+    # Softplus output head must produce positive sigmas
+    assert gamma.min().item() > 0.0
+
+    # num_attn_heads not dividing chan_list[-1] must raise during construction
+    with pytest.raises(ValueError):
+        ProbParamCNN(
+            input_shape=(2, n_points),
+            chan_list=[8],
+            fc_list=[16],
+            fc_mu_list=[8],
+            fc_gamma_list=[8],
+            loss_fn=independent_normal_loss,
+            n_param_pred=n_param_pred,
+            num_attn_heads=3,
+        )
+
+
+def test_ProbParamFM_attention():
+    """FM model with a self-attention block produces correct output shapes."""
+    batch = 4
+    n_points = 64
+    n_channels = 2
+    n_param_pred = 3
+    n_samples = 5
+
+    model = ProbParamFM(
+        input_shape=(n_channels, n_points),
+        chan_list=[8],
+        fc_list=[16],
+        vf_hidden_list=[32],
+        cyc_mode="discharge",
+        n_param_pred=n_param_pred,
+        num_attn_heads=4,
+        attn_dropout=0.0,
+    )
+    x = torch.rand(batch, n_channels, n_points)
+    z_t = torch.rand(batch, n_param_pred)
+    t = torch.rand(batch)
+
+    velocity = model(x, z_t, t)
+    assert velocity.shape == (batch, n_param_pred)
+
+    samples = model.sample(x, n_samples=n_samples, n_steps=10)
+    assert samples.shape == (batch, n_samples, n_param_pred)

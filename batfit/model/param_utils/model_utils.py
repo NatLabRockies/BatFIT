@@ -79,6 +79,51 @@ def _build_conv_fc_layers(
     )
 
 
+class _SelfAttentionBlock(nn.Module):
+    """Multi-head self-attention block inserted after the CNN conv stack.
+
+    Applies pre-norm self-attention along the time dimension of a
+    ``(batch, channels, time)`` feature map, treating each time step as a
+    token of dimension ``channels``.  The residual connection preserves the
+    input statistics so the block can be toggled off (``num_attn_heads=0``)
+    to recover the plain-CNN behaviour without any weight surgery.
+
+    :param embed_dim: token dimension (= output channels of the last Conv1d);
+                      must be divisible by ``num_heads``
+    :param num_heads: number of attention heads
+    :param dropout: attention weight dropout probability
+    :raises ValueError: if ``embed_dim`` is not divisible by ``num_heads``
+    """
+
+    def __init__(
+        self, embed_dim: int, num_heads: int, dropout: float = 0.0
+    ) -> None:
+        super().__init__()
+        if embed_dim % num_heads != 0:
+            raise ValueError(
+                f"embed_dim ({embed_dim}) must be divisible by "
+                f"num_heads ({num_heads})"
+            )
+        self.norm = nn.LayerNorm(embed_dim)
+        self.attn = nn.MultiheadAttention(
+            embed_dim=embed_dim,
+            num_heads=num_heads,
+            dropout=dropout,
+            batch_first=True,
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply pre-norm self-attention with residual connection.
+
+        :param x: CNN feature map, shape ``(batch, channels, time)``
+        :return: attended feature map, shape ``(batch, channels, time)``
+        """
+        x_t = x.transpose(1, 2)          # (batch, time, channels)
+        normed = self.norm(x_t)
+        attn_out, _ = self.attn(normed, normed, normed)
+        return (x_t + attn_out).transpose(1, 2)   # (batch, channels, time)
+
+
 def _build_cnn_encoder(
     input_shape_0: int,
     input_shape_1: int,
@@ -86,14 +131,25 @@ def _build_cnn_encoder(
     fc_list: list[int],
     leaky_relu_slope: float,
     cyc_mode: str,
+    num_attn_heads: int = 0,
+    attn_dropout: float = 0.0,
 ) -> tuple[nn.Sequential, nn.Sequential | None, int]:
-    """Build a 1-D CNN encoder (Conv + Pool + LeakyReLU + FC + Tanh).
+    """Build a 1-D CNN encoder (Conv + Pool + LeakyReLU + optional attention + FC + Tanh).
 
-    For cyc_mode="discharge-chargecc" a second independent encoder is built
-    for the charge-CC half and their embeddings are later concatenated.
+    For ``cyc_mode="discharge-chargecc"`` a second independent encoder is
+    built for the charge-CC half and their embeddings are concatenated.
 
-    :return: (cnn_layers, cnn_layers_aux, embedding_dim)
-             cnn_layers_aux is None unless cyc_mode is "discharge-chargecc".
+    When ``num_attn_heads > 0``, a :class:`_SelfAttentionBlock` is inserted
+    between the last convolutional block and the Flatten layer of each encoder.
+    The block operates on the ``(batch, chan_list[-1], time_reduced)`` feature
+    map, so ``chan_list[-1]`` must be divisible by ``num_attn_heads``.
+
+    :param num_attn_heads: number of attention heads; 0 disables attention
+    :param attn_dropout: dropout inside MultiheadAttention (only used when
+                         ``num_attn_heads > 0``)
+    :return: ``(cnn_layers, cnn_layers_aux, embedding_dim)``
+             ``cnn_layers_aux`` is ``None`` unless ``cyc_mode`` is
+             ``"discharge-chargecc"``.
     """
     conv, pool = _build_conv_layers(input_shape_0, chan_list)
     fc = _build_conv_fc_layers(input_shape_1, chan_list, fc_list)
@@ -103,6 +159,10 @@ def _build_cnn_encoder(
         _cnn_layers.append(conv[ichan])
         _cnn_layers.append(pool[ichan])
         _cnn_layers.append(nn.LeakyReLU(leaky_relu_slope))
+    if num_attn_heads > 0:
+        _cnn_layers.append(
+            _SelfAttentionBlock(chan_list[-1], num_attn_heads, attn_dropout)
+        )
     _cnn_layers.append(nn.Flatten())
     for ifc in range(len(fc)):
         _cnn_layers.append(fc[ifc])
@@ -117,6 +177,10 @@ def _build_cnn_encoder(
             _cnn_layers_aux.append(conv_aux[ichan])
             _cnn_layers_aux.append(pool_aux[ichan])
             _cnn_layers_aux.append(nn.LeakyReLU(leaky_relu_slope))
+        if num_attn_heads > 0:
+            _cnn_layers_aux.append(
+                _SelfAttentionBlock(chan_list[-1], num_attn_heads, attn_dropout)
+            )
         _cnn_layers_aux.append(nn.Flatten())
         for ifc in range(len(fc_aux)):
             _cnn_layers_aux.append(fc_aux[ifc])

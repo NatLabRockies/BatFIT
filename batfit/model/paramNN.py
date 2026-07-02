@@ -40,6 +40,8 @@ class ProbParamCNN(_ProbParamBase):
         constrain_output=False,
         encoder_model=None,
         sim_config=None,
+        num_attn_heads: int = 0,
+        attn_dropout: float = 0.0,
     ):
         logger.info("Creating probabilistic CNN model")
         super(ProbParamCNN, self).__init__(
@@ -71,6 +73,8 @@ class ProbParamCNN(_ProbParamBase):
             fc_list,
             leaky_relu_slope,
             cyc_mode,
+            num_attn_heads=num_attn_heads,
+            attn_dropout=attn_dropout,
         )
 
         self.model_mu_layers, self.model_gamma_layers = _build_output_heads(
@@ -337,6 +341,8 @@ class ProbParamFM(_ProbParamFMBase):
         n_param_pred: int = 6,
         sim_config: str | None = None,
         use_prior_matching: bool = False,
+        num_attn_heads: int = 0,
+        attn_dropout: float = 0.0,
     ):
         """
         :param vf_hidden_list: hidden dims of the velocity field MLP
@@ -355,6 +361,11 @@ class ProbParamFM(_ProbParamFMBase):
         :param use_prior_matching: if True, use U(min_par, max_par) as the
                                    base distribution instead of N(0, I);
                                    requires sim_config
+        :param num_attn_heads: if > 0, insert a :class:`_SelfAttentionBlock`
+                               after the last CNN conv layer; must divide
+                               ``chan_list[-1]``; ignored when
+                               ``encoder_model`` is provided
+        :param attn_dropout: dropout inside MultiheadAttention
         """
         _cnn_mode = encoder_model is None
         if _cnn_mode and (
@@ -395,6 +406,8 @@ class ProbParamFM(_ProbParamFMBase):
                 fc_list,
                 leaky_relu_slope,
                 cyc_mode,
+                num_attn_heads=num_attn_heads,
+                attn_dropout=attn_dropout,
             )
             self.encoder_model = None
         else:
