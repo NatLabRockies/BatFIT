@@ -1,12 +1,20 @@
-"""Compare CNN NPE, FM with prior matching, and FM without prior matching.
+"""Compare four models on the shared SPM discharge test split.
+
+Models compared
+---------------
+- CNN NPE (constrain_output=True, physical Y)            — blue
+- CNN NPE z-scored (constrain_output=False, scale_y=True) — purple
+- FM with prior matching (empirical prior, scale_y=True)  — red
+- FM without prior matching (N(0,I) base, scale_y=True)   — green
 
 Metrics computed on the shared test split:
 - Relative accuracy (1 - mean_rel_error) per parameter
 - Coverage at 1σ, 2σ, 3σ using the sample distribution
 
-Outputs:
-- comparison_results.npz: arrays with posterior samples and metric values
-- figures/corner_obs<N>.{png,pdf}: overlaid corner plots for selected observations
+Outputs
+-------
+- comparison_results.npz
+- figures/corner_obs<N>.{png,pdf}
 """
 
 import os
@@ -65,8 +73,6 @@ def _find_best_model_file(models_dir: str) -> str:
 def _load_model(models_dir: str) -> torch.nn.Module:
     """Load the best checkpoint from a training directory.
 
-    Uses ``model.pkl`` (architecture) + the lowest-loss ``.pt`` (weights).
-
     :param models_dir: training output directory
     :return: model in eval mode on CPU
     """
@@ -87,6 +93,9 @@ def _make_test_loader(
     data_path: str, batch_size: int = 256
 ) -> "torch.utils.data.DataLoader":
     """Build a DataLoader from the saved test split (pre-scaled signals).
+
+    Y labels are always physical (from data_split.npz); individual result
+    collectors apply their own inverse transforms as needed.
 
     :param data_path: folder containing ``data_split.npz`` and ``scaler_X.pkl``
     :param batch_size: DataLoader batch size
@@ -120,20 +129,12 @@ def _collect_cnn_results(
     n_samples: int,
     device: torch.device,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Run CNN forward pass and draw Gaussian posterior samples.
+    """Run CNN (constrain_output=True) forward pass and draw Gaussian samples.
 
-    :param model: trained ProbParamCNN (constrain_output=True)
-    :param test_loader: DataLoader yielding (X_scaled, Y)
-    :param scaler_X: signal scaler for noise injection
-    :param noise_levels: from make_noise_levels, shape (1, n_ch, 1)
-    :param a_min: clip lower bound, shape (1, n_ch, 1)
-    :param a_max: clip upper bound, shape (1, n_ch, 1)
-    :param n_samples: number of Gaussian samples to draw per observation
-    :param device: computation device
-    :return: (mu_all, sigma_all, samples_all, truth_all)
-        - mu_all / sigma_all: (n_test, n_params)
-        - samples_all: (n_test, n_samples, n_params) — drawn from N(mu, sigma)
-        - truth_all: (n_test, n_params)
+    Applies inv_transform_output to map the Sigmoid output to physical space
+    before sampling and returning.
+
+    :return: (mu_all, sigma_all, samples_all, truth_all) — all in physical space
     """
     model = model.to(device)
     model.eval()
@@ -149,13 +150,12 @@ def _collect_cnn_results(
                 a_max=a_max,
             )
             mu, gamma = model(batch_in.to(device))
-            if model.constrain_output and not model.dependent_outputs:
-                mu, gamma = model.inv_transform_output(
-                    mu,
-                    gamma,
-                    model.min_par.to(device),
-                    model.amp_par.to(device),
-                )
+            mu, gamma = model.inv_transform_output(
+                mu,
+                gamma,
+                model.min_par.to(device),
+                model.amp_par.to(device),
+            )
             mu_list.append(mu.cpu().numpy())
             sigma_list.append(gamma.cpu().numpy())
             truth_list.append(batch[1].numpy())
@@ -174,10 +174,73 @@ def _collect_cnn_results(
     return mu_all, sigma_all, samples_all, truth_all
 
 
+def _collect_cnn_scaled_results(
+    model: torch.nn.Module,
+    test_loader: "torch.utils.data.DataLoader",
+    scaler_X,
+    scaler_Y,
+    noise_levels: torch.Tensor,
+    a_min: torch.Tensor,
+    a_max: torch.Tensor,
+    n_samples: int,
+    device: torch.device,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Run CNN (constrain_output=False, scale_y=True) and inv-transform samples.
+
+    The model outputs (mu_z, sigma_z) in z-scored parameter space.  Gaussian
+    samples are drawn in that space and then inverse-transformed to physical
+    space via scaler_Y before returning.
+
+    :param scaler_Y: StandardScaler fitted on Y_train; used to invert z-scoring
+    :return: (mu_all, sigma_all, samples_all, truth_all) — all in physical space
+    """
+    model = model.to(device)
+    model.eval()
+    mu_list, sigma_list, truth_list = [], [], []
+
+    with torch.no_grad():
+        for batch in test_loader:
+            batch_in = apply_noise(
+                batch_in=batch[0],
+                scaler_X=scaler_X,
+                noise_levels=noise_levels,
+                a_min=a_min,
+                a_max=a_max,
+            )
+            mu, gamma = model(batch_in.to(device))
+            mu_list.append(mu.cpu().numpy())
+            sigma_list.append(gamma.cpu().numpy())
+            truth_list.append(batch[1].numpy())
+
+    mu_z = np.vstack(mu_list)       # z-scored
+    sigma_z = np.vstack(sigma_list) # z-scored
+    truth_all = np.vstack(truth_list)
+
+    rng = np.random.default_rng(42)
+    samples_z = rng.normal(
+        loc=mu_z[:, np.newaxis, :],
+        scale=np.clip(sigma_z[:, np.newaxis, :], a_min=1e-8, a_max=None),
+        size=(mu_z.shape[0], n_samples, mu_z.shape[1]),
+    ).astype(np.float32)
+
+    # Inverse-transform from z-scored → physical space
+    n_test, n_samp, n_params = samples_z.shape
+    samples_all = scaler_Y.inverse_transform(
+        samples_z.reshape(-1, n_params)
+    ).reshape(n_test, n_samp, n_params).astype(np.float32)
+
+    mu_all = scaler_Y.inverse_transform(mu_z).astype(np.float32)
+    # Approximate physical sigma: sigma_z * per-parameter training std
+    sigma_all = (sigma_z * scaler_Y.scale_).astype(np.float32)
+
+    return mu_all, sigma_all, samples_all, truth_all
+
+
 def _collect_fm_results(
     model: torch.nn.Module,
     test_loader: "torch.utils.data.DataLoader",
     scaler_X,
+    scaler_Y,
     noise_levels: torch.Tensor,
     a_min: torch.Tensor,
     a_max: torch.Tensor,
@@ -187,18 +250,11 @@ def _collect_fm_results(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Draw posterior samples from a ProbParamFM model.
 
-    :param model: trained ProbParamFM
-    :param test_loader: DataLoader yielding (X_scaled, Y)
-    :param scaler_X: signal scaler for noise injection
-    :param noise_levels: from make_noise_levels, shape (1, n_ch, 1)
-    :param a_min: clip lower bound, shape (1, n_ch, 1)
-    :param a_max: clip upper bound, shape (1, n_ch, 1)
-    :param n_samples: posterior samples per observation
-    :param n_ode_steps: ODE integration steps
-    :param device: computation device
-    :return: (samples_all, truth_all)
-        - samples_all: (n_test, n_samples, n_params) in physical parameter space
-        - truth_all: (n_test, n_params)
+    The FM model was trained with z-scored Y (scale_y=True), so model.sample()
+    returns samples in z-scored space.  scaler_Y is used to inverse-transform
+    them to physical space before returning.
+
+    :return: (samples_all, truth_all) — both in physical space
     """
     model = model.to(device)
     model.eval()
@@ -214,11 +270,21 @@ def _collect_fm_results(
                 a_max=a_max,
             )
             x_signal = batch_in.to(device)
-            samps = model.sample(x_signal, n_samples=n_samples, n_steps=n_ode_steps)
+            samps = model.sample(
+                x_signal, n_samples=n_samples, n_steps=n_ode_steps
+            )
             samples_list.append(samps.cpu().numpy())
             truth_list.append(batch[1].numpy())
 
-    return np.vstack(samples_list), np.vstack(truth_list)
+    samples_z = np.vstack(samples_list)  # (n_test, n_samples, n_params) z-scored
+    truth_all = np.vstack(truth_list)    # (n_test, n_params) physical
+
+    n_test, n_samp, n_params = samples_z.shape
+    samples_all = scaler_Y.inverse_transform(
+        samples_z.reshape(-1, n_params)
+    ).reshape(n_test, n_samp, n_params).astype(np.float32)
+
+    return samples_all, truth_all
 
 
 # ---------------------------------------------------------------------------
@@ -244,16 +310,12 @@ def _compute_coverage(
 ) -> tuple[float, float, float]:
     """Coverage at 1σ, 2σ, 3σ using sample mean and std.
 
-    Equivalent to the Gaussian ±nσ coverage test applied to the empirical
-    distribution: a (test, param) pair is "covered" when
-    |truth - mu_sample| <= n * std_sample.
-
     :param samples: (n_test, n_samples, n_params)
     :param truth: (n_test, n_params)
-    :return: (cov1, cov2, cov3) — fraction of (test, param) pairs covered
+    :return: (cov1, cov2, cov3)
     """
-    mu = samples.mean(axis=1)  # (n_test, n_params)
-    std = samples.std(axis=1)  # (n_test, n_params)
+    mu = samples.mean(axis=1)
+    std = samples.std(axis=1)
     diff = np.abs(truth - mu)
     cov1 = float(np.mean(diff <= 1.0 * std))
     cov2 = float(np.mean(diff <= 2.0 * std))
@@ -266,8 +328,9 @@ def _compute_coverage(
 # ---------------------------------------------------------------------------
 
 
-def _plot_three_corner(
+def _plot_four_corner(
     samples_cnn: np.ndarray,
+    samples_cnn_scaled: np.ndarray,
     samples_fm_pm: np.ndarray,
     samples_fm_no_pm: np.ndarray,
     truth: np.ndarray | None = None,
@@ -277,20 +340,20 @@ def _plot_three_corner(
     obs_idx: int | None = None,
     fontsize: int = 14,
 ) -> plt.Figure:
-    """Overlay posterior contours from three models in a single corner plot.
+    """Overlay posterior contours from four models in a single corner plot.
 
-    CNN is shown in blue, FM with prior matching in red,
-    FM without prior matching in green.  Ground truth is shown as black lines
-    when provided.
+    Colors: CNN=blue, CNN z-scored=purple, FM prior-match=red, FM N(0,I)=green.
+    Ground truth shown as black lines when provided.
 
-    :param samples_cnn: (n_samples, n_params) — CNN Gaussian samples
-    :param samples_fm_pm: (n_samples, n_params) — FM prior-match ODE samples
-    :param samples_fm_no_pm: (n_samples, n_params) — FM no-prior-match ODE samples
-    :param truth: (n_params,) — true parameter values
-    :param labels: axis labels of length n_params
+    :param samples_cnn: (n_samples, n_params) — CNN physical
+    :param samples_cnn_scaled: (n_samples, n_params) — CNN z-scored
+    :param samples_fm_pm: (n_samples, n_params) — FM prior-match
+    :param samples_fm_no_pm: (n_samples, n_params) — FM N(0,I)
+    :param truth: (n_params,) — ground-truth values
+    :param labels: parameter axis labels
     :param extent: list of (min, max) per parameter for axis limits
-    :param out_path: directory to save figures; figures are not saved if None
-    :param obs_idx: observation index appended to the filename
+    :param out_path: directory for saved figures; skipped if None
+    :param obs_idx: index appended to the filename
     :param fontsize: label font size
     :return: matplotlib Figure
     """
@@ -298,14 +361,14 @@ def _plot_three_corner(
     def _clean(s: np.ndarray) -> np.ndarray:
         return s[np.all(np.isfinite(s), axis=1)]
 
-    s1 = _clean(samples_cnn)
-    s2 = _clean(samples_fm_pm)
-    s3 = _clean(samples_fm_no_pm)
+    s_cnn = _clean(samples_cnn)
+    s_cnn_sc = _clean(samples_cnn_scaled)
+    s_pm = _clean(samples_fm_pm)
+    s_no_pm = _clean(samples_fm_no_pm)
 
-    corner_range = extent if extent is not None else None
     common_kw = dict(
         labels=labels,
-        range=corner_range,
+        range=extent,
         label_kwargs={"fontsize": fontsize},
         show_titles=False,
         plot_datapoints=False,
@@ -317,14 +380,16 @@ def _plot_three_corner(
     )
 
     common_kw["hist_kwargs"]["color"] = "blue"
-    fig = corner.corner(s1, color="blue", **common_kw)
+    fig = corner.corner(s_cnn, color="blue", **common_kw)
+    common_kw["hist_kwargs"]["color"] = "purple"
+    corner.corner(s_cnn_sc, color="purple", fig=fig, **common_kw)
     common_kw["hist_kwargs"]["color"] = "red"
-    corner.corner(s2, color="red", fig=fig, **common_kw)
+    corner.corner(s_pm, color="red", fig=fig, **common_kw)
     common_kw["hist_kwargs"]["color"] = "green"
-    corner.corner(s3, color="green", fig=fig, **common_kw)
+    corner.corner(s_no_pm, color="green", fig=fig, **common_kw)
 
     if truth is not None:
-        ndim = s1.shape[1]
+        ndim = s_cnn.shape[1]
         axes = np.array(fig.axes).reshape((ndim, ndim))
         for i in range(ndim):
             axes[i, i].axvline(truth[i], color="black", lw=2)
@@ -334,12 +399,15 @@ def _plot_three_corner(
                 axes[i, j].plot(truth[j], truth[i], "ko", markersize=3)
 
     legend_handles = [
-        plt.Line2D([0], [0], color="blue", lw=2, label="CNN NPE"),
+        plt.Line2D([0], [0], color="blue", lw=2, label="CNN (physical)"),
+        plt.Line2D([0], [0], color="purple", lw=2, label="CNN (z-scored)"),
         plt.Line2D([0], [0], color="red", lw=2, label="FM — prior match"),
         plt.Line2D([0], [0], color="green", lw=2, label="FM — N(0,I)"),
         plt.Line2D([0], [0], color="black", lw=2, label="Truth"),
     ]
-    fig.legend(handles=legend_handles, loc="upper right", fontsize=fontsize - 2)
+    fig.legend(
+        handles=legend_handles, loc="upper right", fontsize=fontsize - 2
+    )
     plt.tight_layout()
 
     if out_path is not None:
@@ -361,6 +429,8 @@ if __name__ == "__main__":
 
     with open(os.path.join(inp.data_path, "scaler_X.pkl"), "rb") as f:
         scaler_X = pickle.load(f)
+    with open(os.path.join(inp.data_path, "scaler_Y.pkl"), "rb") as f:
+        scaler_Y = pickle.load(f)
 
     noise_levels, a_min, a_max = make_noise_levels(
         target_mode=inp.target_mode,
@@ -377,6 +447,9 @@ if __name__ == "__main__":
 
     logger.info("Loading CNN model ...")
     cnn_model = _load_model(inp.cnn_models_dir)
+
+    logger.info("Loading CNN z-scored model ...")
+    cnn_scaled_model = _load_model(inp.cnn_scaled_models_dir)
 
     logger.info("Loading FM (prior match) model ...")
     fm_pm_model = _load_model(inp.fm_pm_models_dir)
@@ -396,11 +469,25 @@ if __name__ == "__main__":
         device=device,
     )
 
+    logger.info("Running CNN z-scored inference ...")
+    mu_cnn_sc, sigma_cnn_sc, samples_cnn_sc, _ = _collect_cnn_scaled_results(
+        cnn_scaled_model,
+        test_loader,
+        scaler_X,
+        scaler_Y,
+        noise_levels,
+        a_min,
+        a_max,
+        n_samples=inp.n_samples,
+        device=device,
+    )
+
     logger.info("Running FM (prior match) inference ...")
     samples_fm_pm, _ = _collect_fm_results(
         fm_pm_model,
         test_loader,
         scaler_X,
+        scaler_Y,
         noise_levels,
         a_min,
         a_max,
@@ -414,6 +501,7 @@ if __name__ == "__main__":
         fm_no_pm_model,
         test_loader,
         scaler_X,
+        scaler_Y,
         noise_levels,
         a_min,
         a_max,
@@ -427,55 +515,58 @@ if __name__ == "__main__":
     mu_fm_no_pm = samples_fm_no_pm.mean(axis=1)
 
     acc_cnn = _compute_rel_accuracy(mu_cnn, truth)
+    acc_cnn_sc = _compute_rel_accuracy(mu_cnn_sc, truth)
     acc_fm_pm = _compute_rel_accuracy(mu_fm_pm, truth)
     acc_fm_no_pm = _compute_rel_accuracy(mu_fm_no_pm, truth)
 
     # Coverage
     cov_cnn = _compute_coverage(samples_cnn, truth)
+    cov_cnn_sc = _compute_coverage(samples_cnn_sc, truth)
     cov_fm_pm = _compute_coverage(samples_fm_pm, truth)
     cov_fm_no_pm = _compute_coverage(samples_fm_no_pm, truth)
 
-    # Parameter names from the CNN model (loaded from sim_config)
     param_names = list(cnn_model.sim_params["deg_param_names"])
 
-    # Print summary table
-    sep = "=" * 80
+    sep = "=" * 92
     logger.info(f"\n{sep}")
     logger.info("Relative accuracy  (higher is better)")
     logger.info(sep)
     logger.info(
-        f"{'Parameter':<12} {'CNN':<18} {'FM prior match':<18} {'FM N(0,I)':<18}"
+        f"{'Parameter':<12} {'CNN':<18} {'CNN z-scored':<18} "
+        f"{'FM prior match':<18} {'FM N(0,I)':<18}"
     )
-    logger.info("-" * 68)
+    logger.info("-" * 84)
     for i, name in enumerate(param_names):
         logger.info(
-            f"{name:<12} {acc_cnn[i]:<18.4f} {acc_fm_pm[i]:<18.4f} {acc_fm_no_pm[i]:<18.4f}"
+            f"{name:<12} {acc_cnn[i]:<18.4f} {acc_cnn_sc[i]:<18.4f} "
+            f"{acc_fm_pm[i]:<18.4f} {acc_fm_no_pm[i]:<18.4f}"
         )
-    logger.info("-" * 68)
+    logger.info("-" * 84)
     logger.info(
-        f"{'Mean':<12} {acc_cnn.mean():<18.4f} {acc_fm_pm.mean():<18.4f} {acc_fm_no_pm.mean():<18.4f}"
+        f"{'Mean':<12} {acc_cnn.mean():<18.4f} {acc_cnn_sc.mean():<18.4f} "
+        f"{acc_fm_pm.mean():<18.4f} {acc_fm_no_pm.mean():<18.4f}"
     )
     logger.info(sep)
 
-    # Expected Gaussian coverage for reference
     from scipy.stats import norm as _norm
     true_cov = [_norm.cdf(n) - _norm.cdf(-n) for n in [1, 2, 3]]
 
     logger.info(f"\n{'Coverage (fraction of (test × param) pairs within ±nσ)'}")
     logger.info(sep)
     logger.info(
-        f"{'nσ':<6} {'Expected':<12} {'CNN':<18} {'FM prior match':<18} {'FM N(0,I)':<18}"
+        f"{'nσ':<6} {'Expected':<12} {'CNN':<18} {'CNN z-scored':<18} "
+        f"{'FM prior match':<18} {'FM N(0,I)':<18}"
     )
-    logger.info("-" * 72)
-    for n_idx, (tc, c_cnn, c_pm, c_no_pm) in enumerate(
-        zip(true_cov, cov_cnn, cov_fm_pm, cov_fm_no_pm), start=1
+    logger.info("-" * 88)
+    for n_idx, (tc, c_cnn, c_sc, c_pm, c_no_pm) in enumerate(
+        zip(true_cov, cov_cnn, cov_cnn_sc, cov_fm_pm, cov_fm_no_pm), start=1
     ):
         logger.info(
-            f"{n_idx}σ     {tc:<12.4f} {c_cnn:<18.4f} {c_pm:<18.4f} {c_no_pm:<18.4f}"
+            f"{n_idx}σ     {tc:<12.4f} {c_cnn:<18.4f} {c_sc:<18.4f} "
+            f"{c_pm:<18.4f} {c_no_pm:<18.4f}"
         )
     logger.info(sep)
 
-    # Save all results
     np.savez(
         "comparison_results.npz",
         param_names=np.array(param_names),
@@ -483,33 +574,37 @@ if __name__ == "__main__":
         mu_cnn=mu_cnn,
         sigma_cnn=sigma_cnn,
         samples_cnn=samples_cnn,
+        mu_cnn_scaled=mu_cnn_sc,
+        sigma_cnn_scaled=sigma_cnn_sc,
+        samples_cnn_scaled=samples_cnn_sc,
         samples_fm_pm=samples_fm_pm,
         samples_fm_no_pm=samples_fm_no_pm,
         acc_cnn=acc_cnn,
+        acc_cnn_scaled=acc_cnn_sc,
         acc_fm_pm=acc_fm_pm,
         acc_fm_no_pm=acc_fm_no_pm,
         coverage_cnn=np.array(cov_cnn),
+        coverage_cnn_scaled=np.array(cov_cnn_sc),
         coverage_fm_pm=np.array(cov_fm_pm),
         coverage_fm_no_pm=np.array(cov_fm_no_pm),
     )
     logger.info("Saved comparison_results.npz")
 
-    # Corner plots for a few test observations
     figure_dir = "figures"
     os.makedirs(figure_dir, exist_ok=True)
 
     n_corner = min(inp.n_corner_obs, truth.shape[0])
     obs_indices = np.linspace(0, truth.shape[0] - 1, n_corner, dtype=int)
 
-    # Use model parameter bounds as axis limits
     min_par = cnn_model.min_par.numpy()
     max_par = (cnn_model.min_par + cnn_model.amp_par).numpy()
     extent = [(float(mn), float(mx)) for mn, mx in zip(min_par, max_par)]
 
     for obs_idx in obs_indices:
         logger.info(f"Corner plot for test observation {obs_idx} ...")
-        _plot_three_corner(
+        _plot_four_corner(
             samples_cnn=samples_cnn[obs_idx],
+            samples_cnn_scaled=samples_cnn_sc[obs_idx],
             samples_fm_pm=samples_fm_pm[obs_idx],
             samples_fm_no_pm=samples_fm_no_pm[obs_idx],
             truth=truth[obs_idx],

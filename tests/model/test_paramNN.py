@@ -312,11 +312,17 @@ def test_ProbParamFM():
         sim_config=sim_config,
         use_prior_matching=True,
     )
+    # sample_prior requires set_prior_data to have been called
+    with pytest.raises(RuntimeError):
+        model_pm.sample_prior(8, device=torch.device("cpu"))
+
+    Y_prior = torch.rand(50, n_param_pred_pm)  # simulates scaled Y_train
+    model_pm.set_prior_data(Y_prior)
     prior_samples = model_pm.sample_prior(8, device=torch.device("cpu"))
     assert prior_samples.shape == (8, n_param_pred_pm)
-    # all samples must lie within [min_par, max_par]
-    assert (prior_samples >= model_pm.min_par).all()
-    assert (prior_samples <= model_pm.max_par).all()
+    # every row must be one of the registered training samples
+    for row in prior_samples:
+        assert any(torch.allclose(row, Y_prior[i]) for i in range(len(Y_prior)))
 
     x_pm = torch.rand(batch, n_channels, n_points)
     samples_pm = model_pm.sample(x_pm, n_samples=n_samples, n_steps=10)
@@ -409,10 +415,13 @@ def test_ProbProtParamFM():
         sim_config=sim_config,
         use_prior_matching=True,
     )
+    with pytest.raises(RuntimeError):
+        model_pm.sample_prior(8, device=torch.device("cpu"))
+
+    Y_prior_prot = torch.rand(50, n_param_pred_pm)
+    model_pm.set_prior_data(Y_prior_prot)
     prior_samples = model_pm.sample_prior(8, device=torch.device("cpu"))
     assert prior_samples.shape == (8, n_param_pred_pm)
-    assert (prior_samples >= model_pm.min_par).all()
-    assert (prior_samples <= model_pm.max_par).all()
 
     x_pm = torch.rand(batch, n_channels, n_points)
     prot_pm = torch.rand(batch, n_prot_params)

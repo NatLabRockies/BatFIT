@@ -48,7 +48,7 @@ def make_data_loaders(
         np_data=X_data,
         np_data_label=Y_data,
         scale=True,
-        scale_y=False,
+        scale_y=True,
         save_path=inp.data_path,
     )
 

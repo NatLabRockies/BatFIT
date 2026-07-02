@@ -646,34 +646,67 @@ def scale_dataset_from_np(
     save_scaled=True,
     scale_y=False,
 ):
+    """Scale the signal X and, optionally, the degradation parameter labels Y.
 
+    When ``scale_y=False`` the result is written to ``data_scaled.npz``.
+    When ``scale_y=True`` (StandardScaler on Y) the result is written to the
+    separate ``data_scaled_y.npz`` so that the two variants can coexist in the
+    same directory without overwriting each other.  ``scaler_X.pkl`` is shared:
+    if it already exists (e.g. from a prior ``scale_y=False`` run) it is
+    reused rather than re-fitted.
+
+    Only the degradation parameter array (Y) is affected by ``scale_y``; protocol
+    parameters live in a separate tensor and are scaled by their own pipeline.
+    """
     scaler_x_filename = os.path.join(save_path, "scaler_X.pkl")
-    data_scaled_filename = os.path.join(save_path, "data_scaled.npz")
     scaler_y_filename = os.path.join(save_path, "scaler_Y.pkl")
+    # Separate cache files so scale_y=True never overwrites the scale_y=False npz
+    data_scaled_filename = os.path.join(save_path, "data_scaled.npz")
+    data_scaled_y_filename = os.path.join(save_path, "data_scaled_y.npz")
 
-    if os.path.isfile(scaler_x_filename) and os.path.isfile(
-        data_scaled_filename
-    ):
-        if (not scale_y) or (scale_y and os.path.isfile(scaler_y_filename)):
-            logger.warning("Data already scaled, loading scaler and data")
-            tmp = np.load(data_scaled_filename)
-            return (
-                tmp["X_train"],
-                tmp["Y_train"],
-                tmp["X_test"],
-                tmp["Y_test"],
-            )
+    target_npz = data_scaled_y_filename if scale_y else data_scaled_filename
+
+    # Cache hit: all required files are already present
+    if scale_y:
+        cache_hit = (
+            os.path.isfile(scaler_x_filename)
+            and os.path.isfile(target_npz)
+            and os.path.isfile(scaler_y_filename)
+        )
+    else:
+        cache_hit = os.path.isfile(scaler_x_filename) and os.path.isfile(
+            target_npz
+        )
+
+    if cache_hit:
+        logger.warning("Data already scaled, loading scaler and data")
+        tmp = np.load(target_npz)
+        return (
+            tmp["X_train"],
+            tmp["Y_train"],
+            tmp["X_test"],
+            tmp["Y_test"],
+        )
 
     logger.info("Scaling the data")
-    # Scale data
-    means_X = np.mean(X_train, axis=(0, 2), keepdims=True)
-    stds_X = np.std(X_train, axis=(0, 2), keepdims=True)
-    scaler_X = CustomScaler(means_X, stds_X)
+
+    # Reuse existing signal scaler if available (avoids re-fitting on same data)
+    if os.path.isfile(scaler_x_filename):
+        logger.warning(
+            f"Reusing existing signal scaler from {scaler_x_filename}"
+        )
+        with open(scaler_x_filename, "rb") as f:
+            scaler_X = pickle.load(f)
+    else:
+        means_X = np.mean(X_train, axis=(0, 2), keepdims=True)
+        stds_X = np.std(X_train, axis=(0, 2), keepdims=True)
+        scaler_X = CustomScaler(means_X, stds_X)
+        logger.info(f"Dumping scaler X at {scaler_x_filename}")
+        with open(scaler_x_filename, "wb") as f:
+            pickle.dump(scaler_X, f)
+
     X_train_scaled = scaler_X.transform(X_train).astype("float32")
     X_test_scaled = scaler_X.transform(X_test).astype("float32")
-    logger.info(f"Dumping scaler X at {scaler_x_filename}")
-    with open(scaler_x_filename, "wb") as f:
-        pickle.dump(scaler_X, f)
 
     if scale_y:
         scaler_Y = preprocessing.StandardScaler().fit(Y_train)
@@ -687,9 +720,9 @@ def scale_dataset_from_np(
         Y_test_scaled = Y_test
 
     if save_scaled:
-        logger.info(f"Saving scaled data at {data_scaled_filename}")
+        logger.info(f"Saving scaled data at {target_npz}")
         np.savez(
-            data_scaled_filename,
+            target_npz,
             X_train=X_train_scaled,
             Y_train=Y_train_scaled,
             X_test=X_test_scaled,

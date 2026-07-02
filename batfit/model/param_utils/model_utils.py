@@ -394,19 +394,46 @@ class _ProbParamFMBase(nn.Module, ABC, _ParamScalingMixin):
         vf_input = torch.cat([z_t, t_exp, context], dim=-1)
         return self.vf_layers(vf_input)
 
-    def sample_prior(self, n: int, device: torch.device) -> torch.Tensor:
-        """Sample n points from the prior U(min_par, max_par).
+    def set_prior_data(self, Y_train: torch.Tensor) -> None:
+        """Register scaled training labels as the empirical base distribution.
 
-        Used as the base distribution when use_prior_matching=True, both at
-        inference time (inside _sample_from_context) and in the training loop
-        to obtain x_0 samples.
+        Once set, :meth:`sample_prior` draws random rows from this buffer
+        instead of the parametric U(min_par, max_par) prior.  The buffer is
+        persisted in both ``model.pkl`` (full pickle) and every ``.pt``
+        checkpoint (state dict), so it is automatically available at inference
+        time without any extra files.
+
+        Call this after constructing the model but before training, passing the
+        **scaled** Y_train that matches the DataLoader label space (e.g.
+        z-scored when ``scale_y=True``).
+
+        :param Y_train: scaled training labels, shape (n_train, n_param_pred)
+        """
+        self.register_buffer("Y_prior", Y_train.float())
+
+    def sample_prior(self, n: int, device: torch.device) -> torch.Tensor:
+        """Sample n points from the empirical base distribution.
+
+        Draws n rows uniformly at random from the training labels registered
+        via :meth:`set_prior_data`.  Raises :exc:`RuntimeError` if
+        :meth:`set_prior_data` has not been called — the physical-space
+        parametric fallback was removed because it is inconsistent with
+        z-scored training labels.
 
         :param n: number of samples
         :param device: target torch device
         :return: prior samples, shape (n, n_param_pred)
+        :raises RuntimeError: if :meth:`set_prior_data` was not called first
         """
-        z = torch.rand(n, self.n_param_pred, device=device)
-        return z * self.amp_par.to(device) + self.min_par.to(device)
+        if not (hasattr(self, "Y_prior") and self.Y_prior is not None):
+            raise RuntimeError(
+                "sample_prior() requires set_prior_data() to be called first "
+                "with the scaled Y_train tensor."
+            )
+        idx = torch.randint(
+            0, self.Y_prior.shape[0], (n,), device=self.Y_prior.device
+        )
+        return self.Y_prior[idx].to(device)
 
     def _sample_from_context(
         self,
