@@ -218,6 +218,8 @@ class ProbProtParamCNN(_ProbParamBase):
         constrain_output: bool = False,
         encoder_model=None,
         sim_config=None,
+        num_attn_heads: int = 0,
+        attn_dropout: float = 0.0,
     ):
         logger.info(
             "Creating probabilistic CNN model with protocol parameters"
@@ -252,6 +254,8 @@ class ProbProtParamCNN(_ProbParamBase):
             fc_list,
             leaky_relu_slope,
             cyc_mode,
+            num_attn_heads=num_attn_heads,
+            attn_dropout=attn_dropout,
         )
 
         # After CNN output + prot_params concatenation
@@ -358,9 +362,10 @@ class ProbParamFM(_ProbParamFMBase):
         :param n_param_pred: number of degradation parameters to estimate
         :param sim_config: path to sim config YAML for physical scaling;
                            None skips scaling init
-        :param use_prior_matching: if True, use U(min_par, max_par) as the
-                                   base distribution instead of N(0, I);
-                                   requires sim_config
+        :param use_prior_matching: if True, use the empirical training-data
+                                   distribution as the base (requires calling
+                                   :meth:`set_prior_data` before training);
+                                   when False, N(0, I) is used
         :param num_attn_heads: if > 0, insert a :class:`_SelfAttentionBlock`
                                after the last CNN conv layer; must divide
                                ``chan_list[-1]``; ignored when
@@ -538,6 +543,8 @@ class ProbProtParamFM(_ProbParamFMBase):
         n_param_pred: int = 6,
         sim_config: str | None = None,
         use_prior_matching: bool = False,
+        num_attn_heads: int = 0,
+        attn_dropout: float = 0.0,
     ):
         """
         :param input_shape: (n_channels, n_time_points) of the input signal
@@ -553,9 +560,14 @@ class ProbProtParamFM(_ProbParamFMBase):
         :param n_param_pred: number of degradation parameters to estimate
         :param sim_config: path to sim config YAML for physical scaling;
                            None skips scaling init
-        :param use_prior_matching: if True, use U(min_par, max_par) as the
-                                   base distribution instead of N(0, I);
-                                   requires sim_config
+        :param use_prior_matching: if True, use the empirical training-data
+                                   distribution as the base (requires calling
+                                   :meth:`set_prior_data` before training);
+                                   when False, N(0, I) is used
+        :param num_attn_heads: if > 0, insert a :class:`_SelfAttentionBlock`
+                               after the last CNN conv layer; must divide
+                               ``chan_list[-1]``
+        :param attn_dropout: dropout inside MultiheadAttention
         """
         if cyc_mode.lower() == "discharge-chargecc":
             raise NotImplementedError(
@@ -589,6 +601,8 @@ class ProbProtParamFM(_ProbParamFMBase):
             fc_list,
             leaky_relu_slope,
             cyc_mode,
+            num_attn_heads=num_attn_heads,
+            attn_dropout=attn_dropout,
         )
 
         # Protocol fusion: [cnn_emb | prot_params] -> optional FC -> context

@@ -496,6 +496,51 @@ def test_ProbParamCNN_attention():
         )
 
 
+def test_ProbProtParamCNN_attention():
+    """Protocol CNN NPE with attention layer produces correct output shapes."""
+    batch = 4
+    n_points = 64
+    n_param_pred = 3
+    n_prot_params = 3
+
+    model = ProbProtParamCNN(
+        input_shape=(2, n_points),
+        chan_list=[8],
+        fc_list=[16],
+        fc_prot_list=[32],
+        fc_mu_list=[8],
+        fc_gamma_list=[8],
+        loss_fn=independent_normal_loss,
+        n_prot_params=n_prot_params,
+        cyc_mode="chirp",
+        n_param_pred=n_param_pred,
+        constrain_output=False,
+        num_attn_heads=4,
+        attn_dropout=0.0,
+    )
+    x = torch.rand(batch, 2, n_points)
+    prot_params = torch.rand(batch, n_prot_params)
+    mu, gamma = model(x, prot_params)
+    assert mu.shape == (batch, n_param_pred)
+    assert gamma.shape == (batch, n_param_pred)
+    assert gamma.min().item() > 0.0
+
+    # num_attn_heads not dividing chan_list[-1] must raise
+    with pytest.raises(ValueError):
+        ProbProtParamCNN(
+            input_shape=(2, n_points),
+            chan_list=[8],
+            fc_list=[16],
+            fc_prot_list=[],
+            fc_mu_list=[8],
+            fc_gamma_list=[8],
+            loss_fn=independent_normal_loss,
+            n_prot_params=n_prot_params,
+            n_param_pred=n_param_pred,
+            num_attn_heads=3,
+        )
+
+
 def test_ProbParamFM_attention():
     """FM model with a self-attention block produces correct output shapes."""
     batch = 4
@@ -523,3 +568,55 @@ def test_ProbParamFM_attention():
 
     samples = model.sample(x, n_samples=n_samples, n_steps=10)
     assert samples.shape == (batch, n_samples, n_param_pred)
+
+
+def test_ProbProtParamFM_attention():
+    """Protocol FM model with attention and prior matching produces correct shapes."""
+    batch = 4
+    n_points = 64
+    n_channels = 2
+    n_param_pred = 3
+    n_prot_params = 3
+    n_samples = 5
+
+    model = ProbProtParamFM(
+        input_shape=(n_channels, n_points),
+        chan_list=[8],
+        fc_list=[16],
+        fc_prot_list=[32],
+        vf_hidden_list=[32],
+        n_prot_params=n_prot_params,
+        cyc_mode="chirp",
+        n_param_pred=n_param_pred,
+        num_attn_heads=4,
+        attn_dropout=0.0,
+    )
+    x = torch.rand(batch, n_channels, n_points)
+    prot_params = torch.rand(batch, n_prot_params)
+    z_t = torch.rand(batch, n_param_pred)
+    t = torch.rand(batch)
+
+    velocity = model(x, prot_params, z_t, t)
+    assert velocity.shape == (batch, n_param_pred)
+
+    samples = model.sample(x, prot_params, n_samples=n_samples, n_steps=10)
+    assert samples.shape == (batch, n_samples, n_param_pred)
+
+    # Prior matching via set_prior_data/sample_prior (inherited from base)
+    Y_prior = torch.rand(50, n_param_pred)
+    model.set_prior_data(Y_prior)
+    prior_samples = model.sample_prior(8, device=torch.device("cpu"))
+    assert prior_samples.shape == (8, n_param_pred)
+
+    # num_attn_heads not dividing chan_list[-1] must raise
+    with pytest.raises(ValueError):
+        ProbProtParamFM(
+            input_shape=(n_channels, n_points),
+            chan_list=[8],
+            fc_list=[16],
+            fc_prot_list=[],
+            vf_hidden_list=[32],
+            n_prot_params=n_prot_params,
+            n_param_pred=n_param_pred,
+            num_attn_heads=3,
+        )
