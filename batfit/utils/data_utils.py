@@ -9,7 +9,7 @@ from sklearn.model_selection import train_test_split
 from batfit import BATFIT_DIR, logger
 
 
-def get_sol_list(data_root_folder):
+def get_sol_list(data_root_folder:str) -> list[str]:
     list_files = os.listdir(data_root_folder)
     ind_remove = []
     for ifile, file in enumerate(list_files):
@@ -746,32 +746,57 @@ def scale_protocol_dataset_from_np(
     Y_test: np.ndarray[np.float32],
     save_path: str = ".",
     save_scaled: bool = True,
+    scale_y: bool = False,
 ):
-    """Scale X with :class:`CustomScaler` and P with MinMaxScaler.
+    """Scale X with :class:`CustomScaler`, P with MinMaxScaler, and
+    optionally Y with StandardScaler.
 
-    Saves ``scaler_X.pkl``, ``scaler_P.pkl``, and ``data_scaled.npz``
+    When ``scale_y=False`` (default) results are cached in ``data_scaled.npz``.
+    When ``scale_y=True`` a ``StandardScaler`` is fitted on ``Y_train``,
+    saved to ``scaler_Y.pkl``, and results are cached in ``data_scaled_y.npz``
+    so the two variants can coexist in the same directory.
+
+    Saves ``scaler_X.pkl``, ``scaler_P.pkl``, and the target ``.npz``
     (containing ``X_train``, ``P_train``, ``Y_train``, ``X_test``, ``P_test``,
     ``Y_test``) to ``save_path``.
 
-    :return: ``X_train_scaled, P_train_scaled, X_test_scaled, P_test_scaled``
-        (Y is not scaled).
+    :return: ``X_train_scaled, P_train_scaled, Y_train_scaled,
+        X_test_scaled, P_test_scaled, Y_test_scaled``.
+        Y is unscaled when ``scale_y=False``.
     """
     scaler_x_filename = os.path.join(save_path, "scaler_X.pkl")
     scaler_p_filename = os.path.join(save_path, "scaler_P.pkl")
+    scaler_y_filename = os.path.join(save_path, "scaler_Y.pkl")
     data_scaled_filename = os.path.join(save_path, "data_scaled.npz")
+    data_scaled_y_filename = os.path.join(save_path, "data_scaled_y.npz")
 
-    if (
-        os.path.isfile(scaler_x_filename)
-        and os.path.isfile(scaler_p_filename)
-        and os.path.isfile(data_scaled_filename)
-    ):
+    target_npz = data_scaled_y_filename if scale_y else data_scaled_filename
+
+    # Cache check: all required files must be present
+    if scale_y:
+        cache_hit = (
+            os.path.isfile(scaler_x_filename)
+            and os.path.isfile(scaler_p_filename)
+            and os.path.isfile(target_npz)
+            and os.path.isfile(scaler_y_filename)
+        )
+    else:
+        cache_hit = (
+            os.path.isfile(scaler_x_filename)
+            and os.path.isfile(scaler_p_filename)
+            and os.path.isfile(target_npz)
+        )
+
+    if cache_hit:
         logger.warning("Protocol data already scaled, loading scaler and data")
-        tmp = np.load(data_scaled_filename)
+        tmp = np.load(target_npz)
         return (
             tmp["X_train"],
             tmp["P_train"],
+            tmp["Y_train"],
             tmp["X_test"],
             tmp["P_test"],
+            tmp["Y_test"],
         )
 
     logger.info("Scaling the protocol dataset")
@@ -793,19 +818,37 @@ def scale_protocol_dataset_from_np(
     with open(scaler_p_filename, "wb") as f:
         pickle.dump(scaler_P, f)
 
+    if scale_y:
+        scaler_Y = preprocessing.StandardScaler().fit(Y_train)
+        Y_train_scaled = scaler_Y.transform(Y_train).astype("float32")
+        Y_test_scaled = scaler_Y.transform(Y_test).astype("float32")
+        logger.info(f"Dumping scaler Y at {scaler_y_filename}")
+        with open(scaler_y_filename, "wb") as f:
+            pickle.dump(scaler_Y, f)
+    else:
+        Y_train_scaled = Y_train
+        Y_test_scaled = Y_test
+
     if save_scaled:
-        logger.info(f"Saving scaled protocol data at {data_scaled_filename}")
+        logger.info(f"Saving scaled protocol data at {target_npz}")
         np.savez(
-            data_scaled_filename,
+            target_npz,
             X_train=X_train_scaled,
             P_train=P_train_scaled,
-            Y_train=Y_train,
+            Y_train=Y_train_scaled,
             X_test=X_test_scaled,
             P_test=P_test_scaled,
-            Y_test=Y_test,
+            Y_test=Y_test_scaled,
         )
 
-    return X_train_scaled, P_train_scaled, X_test_scaled, P_test_scaled
+    return (
+        X_train_scaled,
+        P_train_scaled,
+        Y_train_scaled,
+        X_test_scaled,
+        P_test_scaled,
+        Y_test_scaled,
+    )
 
 
 def scale_surrogate_dataset_from_np(

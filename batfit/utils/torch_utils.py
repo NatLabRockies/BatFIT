@@ -169,35 +169,40 @@ def make_protocol_dataset_from_np(
     )
 
     if scale:
-        X_train_scaled, P_train_scaled, X_test_scaled, P_test_scaled = (
-            scale_protocol_dataset_from_np(
-                X_train=X_train,
-                P_train=P_train,
-                X_test=X_test,
-                P_test=P_test,
-                Y_train=Y_train,
-                Y_test=Y_test,
-                save_path=save_path,
-            )
+        (
+            X_train_scaled,
+            P_train_scaled,
+            Y_train_scaled,
+            X_test_scaled,
+            P_test_scaled,
+            Y_test_scaled,
+        ) = scale_protocol_dataset_from_np(
+            X_train=X_train,
+            P_train=P_train,
+            X_test=X_test,
+            P_test=P_test,
+            Y_train=Y_train,
+            Y_test=Y_test,
+            save_path=save_path,
+            scale_y=scale_y,
         )
     else:
         X_train_scaled = X_train
         X_test_scaled = X_test
         P_train_scaled = P_train
         P_test_scaled = P_test
-
-    Y_train_out = Y_train
-    Y_test_out = Y_test
+        Y_train_scaled = Y_train
+        Y_test_scaled = Y_test
 
     train_dataset = torch.utils.data.TensorDataset(
         torch.from_numpy(X_train_scaled),
         torch.from_numpy(P_train_scaled),
-        torch.from_numpy(Y_train_out),
+        torch.from_numpy(Y_train_scaled),
     )
     test_dataset = torch.utils.data.TensorDataset(
         torch.from_numpy(X_test_scaled),
         torch.from_numpy(P_test_scaled),
-        torch.from_numpy(Y_test_out),
+        torch.from_numpy(Y_test_scaled),
     )
 
     logger.info(f"Train on {X_train_scaled.shape[0]} samples")

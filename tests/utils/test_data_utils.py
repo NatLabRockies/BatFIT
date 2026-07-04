@@ -115,17 +115,19 @@ def test_scale_protocol_dataset_from_np():
     Y_test = np.random.randn(20, n_params).astype("float32")
 
     with tempfile.TemporaryDirectory() as tmp_dir:
-        X_tr_sc, P_tr_sc, X_te_sc, P_te_sc = scale_protocol_dataset_from_np(
-            X_train,
-            P_train,
-            X_test,
-            P_test,
-            Y_train,
-            Y_test,
-            save_path=tmp_dir,
+        X_tr_sc, P_tr_sc, Y_tr_sc, X_te_sc, P_te_sc, Y_te_sc = (
+            scale_protocol_dataset_from_np(
+                X_train,
+                P_train,
+                X_test,
+                P_test,
+                Y_train,
+                Y_test,
+                save_path=tmp_dir,
+            )
         )
         # cache path: second call loads from data_scaled.npz
-        X_tr_sc2, P_tr_sc2, X_te_sc2, P_te_sc2 = (
+        X_tr_sc2, P_tr_sc2, Y_tr_sc2, X_te_sc2, P_te_sc2, Y_te_sc2 = (
             scale_protocol_dataset_from_np(
                 X_train,
                 P_train,
@@ -137,12 +139,54 @@ def test_scale_protocol_dataset_from_np():
             )
         )
 
-    # X is z-scored per channel: train mean should be near 0
+    # X is z-scored per channel
     assert X_tr_sc.shape == X_train.shape
     assert P_tr_sc.shape == P_train.shape
+    # Y is unscaled when scale_y=False
+    assert np.allclose(Y_tr_sc, Y_train)
+    assert np.allclose(Y_te_sc, Y_test)
     # scaler fit on P_train only: training values must be in [0, 1] (float32 tol)
     assert P_tr_sc.min() >= -1e-5
     assert P_tr_sc.max() <= 1.0 + 1e-5
     # cache returns identical arrays
     assert np.allclose(X_tr_sc, X_tr_sc2)
     assert np.allclose(P_tr_sc, P_tr_sc2)
+
+    # scale_y=True: Y should be z-scored and scaler_Y.pkl should be saved
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        import os
+
+        X_tr_sc, P_tr_sc, Y_tr_sc, X_te_sc, P_te_sc, Y_te_sc = (
+            scale_protocol_dataset_from_np(
+                X_train,
+                P_train,
+                X_test,
+                P_test,
+                Y_train,
+                Y_test,
+                save_path=tmp_dir,
+                scale_y=True,
+            )
+        )
+        assert Y_tr_sc.shape == Y_train.shape
+        # StandardScaler on train: mean near 0, std near 1 per feature
+        assert np.allclose(Y_tr_sc.mean(axis=0), 0.0, atol=1e-5)
+        assert np.allclose(Y_tr_sc.std(axis=0), 1.0, atol=1e-5)
+        assert os.path.isfile(os.path.join(tmp_dir, "scaler_Y.pkl"))
+        assert os.path.isfile(os.path.join(tmp_dir, "data_scaled_y.npz"))
+        # scale_y=False cache is separate: data_scaled.npz should not exist
+        assert not os.path.isfile(os.path.join(tmp_dir, "data_scaled.npz"))
+        # cache hit for scale_y=True
+        X_tr_sc2, P_tr_sc2, Y_tr_sc2, X_te_sc2, P_te_sc2, Y_te_sc2 = (
+            scale_protocol_dataset_from_np(
+                X_train,
+                P_train,
+                X_test,
+                P_test,
+                Y_train,
+                Y_test,
+                save_path=tmp_dir,
+                scale_y=True,
+            )
+        )
+        assert np.allclose(Y_tr_sc, Y_tr_sc2)

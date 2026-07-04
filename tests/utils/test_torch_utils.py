@@ -64,6 +64,7 @@ def test_make_protocol_dataset_from_np():
     Y = np.random.randn(n_samples, n_labels).astype("float32")
     batch_size = 16
 
+    # scale_y=False: Y labels are unscaled
     with tempfile.TemporaryDirectory() as tmp_dir:
         train_loader, test_loader = make_protocol_dataset_from_np(
             batch_size=batch_size,
@@ -84,6 +85,23 @@ def test_make_protocol_dataset_from_np():
     # P is MinMax-scaled to [0, 1]
     assert p_batch.min().item() >= 0.0
     assert p_batch.max().item() <= 1.0
+
+    # scale_y=True: Y labels are z-scored; verify by concatenating all train batches
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        train_loader_sy, _ = make_protocol_dataset_from_np(
+            batch_size=16,
+            np_data=X,
+            np_prot_params=P,
+            np_data_label=Y,
+            scale=True,
+            scale_y=True,
+            save_path=tmp_dir,
+        )
+    all_y = torch.cat([yb for _, _, yb in train_loader_sy], dim=0)
+    assert all_y.shape[-1] == n_labels
+    # train Y should be approximately z-scored across the training set
+    assert all_y.mean(dim=0).abs().max().item() < 0.2
+    assert (all_y.std(dim=0) - 1.0).abs().max().item() < 0.2
 
 
 def test_save_load_model():
