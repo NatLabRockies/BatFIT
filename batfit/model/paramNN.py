@@ -14,13 +14,13 @@ from batfit.utils.torch_utils import (
 )
 
 from .param_utils.model_utils import (
+    _build_cnn_encoder,
+    _build_hidden_fcnn_layers,
+    _build_output_heads,
     _ParamScalingMixin,
     _ProbParamBase,
     _ProbParamFMBase,
     _VFWrapper,
-    _build_cnn_encoder,
-    _build_hidden_fcnn_layers,
-    _build_output_heads,
 )
 
 
@@ -457,7 +457,8 @@ class ProbParamFM(_ProbParamFMBase):
                 nchans = x.shape[1]
                 x_dis, x_chcc = torch.split(x, nchans // 2, dim=1)
                 return torch.cat(
-                    (self.cnn_layers(x_dis), self.cnn_layers_aux(x_chcc)), dim=1
+                    (self.cnn_layers(x_dis), self.cnn_layers_aux(x_chcc)),
+                    dim=1,
                 )
             else:
                 return self.cnn_layers(x)
@@ -695,4 +696,3 @@ class ProbProtParamFM(_ProbParamFMBase):
         return self._sample_from_context(
             context, x.shape[0], n_samples, n_steps, x.device
         )
-

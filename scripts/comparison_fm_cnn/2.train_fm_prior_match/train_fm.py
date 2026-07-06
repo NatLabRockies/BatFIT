@@ -22,9 +22,7 @@ from batfit.utils.torch_utils import get_num_parameters, make_dataset_from_np
 
 def make_data_loaders(
     inp,
-) -> tuple[
-    "torch.utils.data.DataLoader", "torch.utils.data.DataLoader"
-]:
+) -> tuple["torch.utils.data.DataLoader", "torch.utils.data.DataLoader"]:
     """Assemble signals and build train/test DataLoaders.
 
     :param inp: parsed recipe (DotMap)
@@ -38,6 +36,7 @@ def make_data_loaders(
         save_data=True,
         cyc_mode=inp.cyc_mode,
         save_path=inp.data_path,
+        n_sol_max=1000000,
     )
     tmp = np.load(os.path.join(inp.data_path, "assembled_data.npz"))
     X_data = tmp["X_data"]
@@ -109,6 +108,7 @@ def do_training(inp, model, train_data_loader, test_data_loader, scaler_X):
         enable_cuda=True,
         enable_mps=True,
         log_folder=inp.models_dir,
+        save_freq=10000,
     )
 
 
