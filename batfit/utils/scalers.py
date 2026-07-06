@@ -90,7 +90,9 @@ def _apply_scaler(
             return data
     else:
         scaler = _load_scaler(scaler_file)
-    return scaler.inverse_transform(data) if inverse else scaler.transform(data)
+    return (
+        scaler.inverse_transform(data) if inverse else scaler.transform(data)
+    )
 
 
 def scale_input_from_scaler(

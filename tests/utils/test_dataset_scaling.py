@@ -157,9 +157,7 @@ def test_scale_surrogate_dataset_from_np():
         X_tr_sc, Y_tr_sc, X_te_sc, Y_te_sc = scale_surrogate_dataset_from_np(
             X_train, X_test, Y_train, Y_test, save_path=tmp_dir
         )
-        assert os.path.isfile(
-            os.path.join(tmp_dir, "scaler_surrogate_X.pkl")
-        )
+        assert os.path.isfile(os.path.join(tmp_dir, "scaler_surrogate_X.pkl"))
         assert os.path.isfile(
             os.path.join(tmp_dir, "data_surrogate_scaled.npz")
         )
@@ -179,9 +177,7 @@ def test_scale_surrogate_dataset_from_np():
         X_tr_sc_y, Y_tr_sc_y, _, _ = scale_surrogate_dataset_from_np(
             X_train, X_test, Y_train, Y_test, save_path=tmp_dir, scale_y=True
         )
-        assert os.path.isfile(
-            os.path.join(tmp_dir, "scaler_surrogate_Y.pkl")
-        )
+        assert os.path.isfile(os.path.join(tmp_dir, "scaler_surrogate_Y.pkl"))
 
     assert np.allclose(Y_tr_sc_y.mean(axis=0), 0.0, atol=1e-5)
     assert np.allclose(Y_tr_sc_y.std(axis=0), 1.0, atol=1e-5)

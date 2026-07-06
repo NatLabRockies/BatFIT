@@ -17,7 +17,6 @@ from .losses import (
     nll_loss,
 )
 
-
 # ---------------------------------------------------------------------------
 # Layer builder helpers
 # ---------------------------------------------------------------------------
@@ -118,10 +117,10 @@ class _SelfAttentionBlock(nn.Module):
         :param x: CNN feature map, shape ``(batch, channels, time)``
         :return: attended feature map, shape ``(batch, channels, time)``
         """
-        x_t = x.transpose(1, 2)          # (batch, time, channels)
+        x_t = x.transpose(1, 2)  # (batch, time, channels)
         normed = self.norm(x_t)
         attn_out, _ = self.attn(normed, normed, normed)
-        return (x_t + attn_out).transpose(1, 2)   # (batch, channels, time)
+        return (x_t + attn_out).transpose(1, 2)  # (batch, channels, time)
 
 
 def _build_cnn_encoder(
@@ -179,7 +178,9 @@ def _build_cnn_encoder(
             _cnn_layers_aux.append(nn.LeakyReLU(leaky_relu_slope))
         if num_attn_heads > 0:
             _cnn_layers_aux.append(
-                _SelfAttentionBlock(chan_list[-1], num_attn_heads, attn_dropout)
+                _SelfAttentionBlock(
+                    chan_list[-1], num_attn_heads, attn_dropout
+                )
             )
         _cnn_layers_aux.append(nn.Flatten())
         for ifc in range(len(fc_aux)):

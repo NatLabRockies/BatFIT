@@ -246,7 +246,9 @@ def test_ProbParamFM():
         n_param_pred=n_param_pred,
     )
     x_dc = torch.rand(batch, 2 * n_channels, n_points)
-    velocity_dc = model_dc(x_dc, torch.rand(batch, n_param_pred), torch.rand(batch))
+    velocity_dc = model_dc(
+        x_dc, torch.rand(batch, n_param_pred), torch.rand(batch)
+    )
     assert velocity_dc.shape == (batch, n_param_pred)
     samples_dc = model_dc.sample(x_dc, n_samples=n_samples, n_steps=10)
     assert samples_dc.shape == (batch, n_samples, n_param_pred)
@@ -278,7 +280,9 @@ def test_ProbParamFM():
     # encoder weights must be frozen
     assert all(not p.requires_grad for p in enc.parameters())
 
-    velocity_vae = model_vae(x, torch.rand(batch, n_param_pred), torch.rand(batch))
+    velocity_vae = model_vae(
+        x, torch.rand(batch, n_param_pred), torch.rand(batch)
+    )
     assert velocity_vae.shape == (batch, n_param_pred)
 
     samples_vae = model_vae.sample(x, n_samples=n_samples, n_steps=10)
@@ -323,7 +327,9 @@ def test_ProbParamFM():
     assert prior_samples.shape == (8, n_param_pred_pm)
     # every row must be one of the registered training samples
     for row in prior_samples:
-        assert any(torch.allclose(row, Y_prior[i]) for i in range(len(Y_prior)))
+        assert any(
+            torch.allclose(row, Y_prior[i]) for i in range(len(Y_prior))
+        )
 
     x_pm = torch.rand(batch, n_channels, n_points)
     samples_pm = model_pm.sample(x_pm, n_samples=n_samples, n_steps=10)
@@ -385,7 +391,9 @@ def test_ProbProtParamFM():
     velocity2 = model_noprot(x, prot_params, z_t, t)
     assert velocity2.shape == (batch, n_param_pred)
 
-    samples2 = model_noprot.sample(x, prot_params, n_samples=n_samples, n_steps=10)
+    samples2 = model_noprot.sample(
+        x, prot_params, n_samples=n_samples, n_steps=10
+    )
     assert samples2.shape == (batch, n_samples, n_param_pred)
 
     # discharge-chargecc must raise
@@ -426,7 +434,9 @@ def test_ProbProtParamFM():
 
     x_pm = torch.rand(batch, n_channels, n_points)
     prot_pm = torch.rand(batch, n_prot_params)
-    samples_pm = model_pm.sample(x_pm, prot_pm, n_samples=n_samples, n_steps=10)
+    samples_pm = model_pm.sample(
+        x_pm, prot_pm, n_samples=n_samples, n_steps=10
+    )
     assert samples_pm.shape == (batch, n_samples, n_param_pred_pm)
 
 

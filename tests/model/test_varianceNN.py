@@ -29,9 +29,7 @@ def test_VariancePredFCNN():
     assert sigma_sigmoid.max().item() < 1.0
 
     # inv_transform_gamma recovers physical sigma (positive)
-    sigma_physical = model.inv_transform_gamma(
-        sigma_sigmoid, model.amp_par
-    )
+    sigma_physical = model.inv_transform_gamma(sigma_sigmoid, model.amp_par)
     assert sigma_physical.shape == (batch, n_deg)
     assert sigma_physical.min().item() > 0.0
 

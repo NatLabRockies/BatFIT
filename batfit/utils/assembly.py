@@ -231,9 +231,7 @@ def assemble_all_data(
     assert (
         combined_pickle_file is not None
     ), "assemble_all_data requires a combined sols.pkl file"
-    with open(
-        os.path.join(data_root_folder, combined_pickle_file), "rb"
-    ) as f:
+    with open(os.path.join(data_root_folder, combined_pickle_file), "rb") as f:
         combined_sols = pickle.load(f)
     list_files = list(combined_sols.keys())
     n_sol_files = len(list_files)
@@ -411,7 +409,10 @@ def from_param_to_surrogate_data(
 
 
 def augment_data(
-    X_data: np.ndarray, Y_data: np.ndarray, new_ds: int = 4, noise_level: float = 0.003
+    X_data: np.ndarray,
+    Y_data: np.ndarray,
+    new_ds: int = 4,
+    noise_level: float = 0.003,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Augment an assembled ``(X, Y)`` dataset with noisy copies of every sample.
 

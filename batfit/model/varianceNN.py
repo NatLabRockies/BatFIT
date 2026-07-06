@@ -110,6 +110,7 @@ class VariancePredFCNN(nn.Module):
         """
         return gamma_physical / amp_par
 
+
 class VariancePredNoProtFCNN(nn.Module):
     """Deterministic MLP predicting NPE sigma given scaled (deg_mean).
 

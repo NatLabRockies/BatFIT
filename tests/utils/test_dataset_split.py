@@ -97,10 +97,8 @@ def test_split_surrogate_dataset_from_np():
             os.path.join(tmp_dir, "data_surrogate_split.npz")
         )
         # cache-hit: second call returns from data_surrogate_split.npz
-        X_train2, Y_train2, X_test2, Y_test2 = (
-            split_surrogate_dataset_from_np(
-                None, None, test_split=test_split, save_path=tmp_dir
-            )
+        X_train2, Y_train2, X_test2, Y_test2 = split_surrogate_dataset_from_np(
+            None, None, test_split=test_split, save_path=tmp_dir
         )
     assert X_train.shape[0] + X_test.shape[0] == N
     assert X_test.shape[0] == int(N * test_split)

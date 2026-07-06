@@ -43,7 +43,9 @@ def _fit_or_reuse_zscore_scaler(
     return scaler
 
 
-def _fit_and_dump(scaler, train_array: np.ndarray, scaler_file: str, label: str):
+def _fit_and_dump(
+    scaler, train_array: np.ndarray, scaler_file: str, label: str
+):
     """Fit a scikit-learn ``scaler`` on ``train_array`` and persist it."""
     scaler.fit(train_array)
     logger.info(f"Dumping scaler {label} at {scaler_file}")
@@ -276,7 +278,9 @@ def scale_surrogate_dataset_from_np(
         cache_hit = cache_hit and os.path.isfile(scaler_y_filename)
 
     if cache_hit:
-        logger.warning("Data surrogate already scaled, loading scaler and data")
+        logger.warning(
+            "Data surrogate already scaled, loading scaler and data"
+        )
         tmp = np.load(data_scaled_filename)
         return (
             tmp["X_train"],

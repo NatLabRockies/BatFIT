@@ -117,9 +117,7 @@ def test_unscale_input_from_scaler():
     assert np.allclose(X_unscaled, scaler.inverse_transform(X_scaled))
     assert np.allclose(X_passthrough, X_scaled)
     # None scaler file: passthrough
-    assert np.allclose(
-        unscale_input_from_scaler(X_scaled, None), X_scaled
-    )
+    assert np.allclose(unscale_input_from_scaler(X_scaled, None), X_scaled)
 
 
 def test_unscale_output_from_scaler():

@@ -97,13 +97,17 @@ def mod_sim(
     return sim, C_rate
 
 
-def robust_chirp(sim, sim_params, chirp_params, background_C_rate, force_fail=False):
+def robust_chirp(
+    sim, sim_params, chirp_params, background_C_rate, force_fail=False
+):
     if force_fail:
         return None
 
     sol = None
     try:
-        exp = define_chirp_experiment(sim_params, chirp_params, background_C_rate=background_C_rate)
+        exp = define_chirp_experiment(
+            sim_params, chirp_params, background_C_rate=background_C_rate
+        )
         sol = sim.run(exp, reset_state=True, bar=False)
         assert all(sol.success)
     except:
@@ -116,7 +120,11 @@ def robust_chirp(sim, sim_params, chirp_params, background_C_rate, force_fail=Fa
         ):
             try:
                 exp = define_chirp_experiment(
-                    sim_params, chirp_params, background_C_rate=background_C_rate, atol=atol, max_step=max_step
+                    sim_params,
+                    chirp_params,
+                    background_C_rate=background_C_rate,
+                    atol=atol,
+                    max_step=max_step,
                 )
                 sol = sim.run(exp, reset_state=False, bar=False)
                 assert all(sol.success)
@@ -125,6 +133,7 @@ def robust_chirp(sim, sim_params, chirp_params, background_C_rate, force_fail=Fa
                 pass
         pass
     return sol
+
 
 def robust_DiffCap(sim, sim_params, force_fail=False):
     if force_fail:
@@ -744,7 +753,7 @@ def single_run_save(
                     rootsol.vars["current_A"], axis=1
                 )
 
-        #if cyc_mode in ["discharge", "chargecc", "discharge-chargecc"]:
+        # if cyc_mode in ["discharge", "chargecc", "discharge-chargecc"]:
         #    if phis_c_min is not -np.inf:
         #        try:
         #            ind_t_max = np.argwhere(sol_dict["phis_c"] < phis_c_min)[
@@ -761,7 +770,7 @@ def single_run_save(
         #            ind_t_max = None
         #    else:
         #        ind_t_max = None
-        #else:
+        # else:
         #    ind_t_max = None
 
         ind_t_max = None
@@ -810,10 +819,10 @@ def single_run_save(
 
         if cyc_mode.lower() in ["discharge", "chargecc", "discharge-chargecc"]:
             if run_p2d:
-                #diff_dict = calc_dqdv_dvdq(t, phis_c[:, -1])
+                # diff_dict = calc_dqdv_dvdq(t, phis_c[:, -1])
                 diff_dict = {}
             elif run_spm:
-                #diff_dict = calc_dqdv_dvdq(t, phis_c)
+                # diff_dict = calc_dqdv_dvdq(t, phis_c)
                 diff_dict = {}
         elif cyc_mode.lower() in [
             "rh",
@@ -1651,7 +1660,9 @@ def multi_run(
                 )
                 if cyc_mode.lower() in ["chirp"]:
                     remove_file(
-                        os.path.join(folder_save, f"bad_prot_filename_{rank}.txt")
+                        os.path.join(
+                            folder_save, f"bad_prot_filename_{rank}.txt"
+                        )
                     )
 
         parallel_env.comm.Barrier()
