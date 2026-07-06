@@ -64,9 +64,9 @@ def parity_plot(inp) -> None:
         "run gen_var_dataset.py first"
     )
     A = np.load(dataset_file)
-    assert "P_test" in A and "Mu_test" in A and "Sigma_test" in A, (
-        "Test keys missing from var_pred_dataset.npz"
-    )
+    assert (
+        "P_test" in A and "Mu_test" in A and "Sigma_test" in A
+    ), "Test keys missing from var_pred_dataset.npz"
 
     # Load model
     model_pkl = os.path.join(inp.models_dir, "model.pkl")
@@ -82,13 +82,18 @@ def parity_plot(inp) -> None:
     amp_par = model.amp_par.to(device)
 
     # Detect whether sigma was MinMax-scaled during dataset generation
-    scaler_sigma_path = os.path.join(inp.var_pred_save_path, "scaler_sigma.pkl")
+    scaler_sigma_path = os.path.join(
+        inp.var_pred_save_path, "scaler_sigma.pkl"
+    )
     scale_sigma = os.path.isfile(scaler_sigma_path)
     if scale_sigma:
         import pickle
+
         with open(scaler_sigma_path, "rb") as f:
             scaler_sigma = pickle.load(f)
-        logger.info("scaler_sigma.pkl found — will inverse-transform to physical sigma")
+        logger.info(
+            "scaler_sigma.pkl found — will inverse-transform to physical sigma"
+        )
 
     p_test = torch.from_numpy(A["P_test"])
     mu_test = torch.from_numpy(A["Mu_test"])

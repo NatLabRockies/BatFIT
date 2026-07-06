@@ -3,9 +3,9 @@
 # that minimise the NPE sigma for a chosen degradation parameter.
 
 # --- Model references ---
-npe_models_dir: /Users/mhassana/Desktop/GitHub/BatFIT_chirp/scripts/reg_tests_prot/2.npe_prot/models
-var_pred_models_dir: /Users/mhassana/Desktop/GitHub/BatFIT_chirp/scripts/reg_tests_prot/3.variance_pred/models
-var_pred_save_path: /Users/mhassana/Desktop/GitHub/BatFIT_chirp/scripts/reg_tests_prot/3.variance_pred/var_pred_data
+npe_models_dir: /Users/mhassana/Desktop/GitHub/BatFIT_chirp/scripts/reg_tests_prot/2.npe_cnn_prot/models
+var_pred_models_dir: /Users/mhassana/Desktop/GitHub/BatFIT_chirp/scripts/reg_tests_prot/4.variance_pred/models
+var_pred_save_path: /Users/mhassana/Desktop/GitHub/BatFIT_chirp/scripts/reg_tests_prot/4.variance_pred/var_pred_data
 
 # --- Data (same paths as the NPE recipe) ---
 cyc_mode: chirp

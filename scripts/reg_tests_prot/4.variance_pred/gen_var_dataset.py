@@ -150,11 +150,11 @@ def _process_split(
                     model.min_par.to(device),
                     model.amp_par.to(device),
                 )
-            mu_np = mu_s.cpu().numpy()     # (B*n_noise, n_deg)
+            mu_np = mu_s.cpu().numpy()  # (B*n_noise, n_deg)
             sigma_np = sigma_s.cpu().numpy()  # (B*n_noise, n_deg)
 
         # Average over noise realisations
-        mu_np = mu_np.reshape(B, n_noise, n_deg).mean(axis=1)     # (B, n_deg)
+        mu_np = mu_np.reshape(B, n_noise, n_deg).mean(axis=1)  # (B, n_deg)
         sigma_np = sigma_np.reshape(B, n_noise, n_deg).mean(axis=1)
 
         if use_true_y:
@@ -163,7 +163,7 @@ def _process_split(
             mu_list.append(mu_np.astype("float32"))
         sigma_list.append(sigma_np.astype("float32"))
 
-    mu_out = np.vstack(mu_list)     # (N, n_deg)
+    mu_out = np.vstack(mu_list)  # (N, n_deg)
     sigma_out = np.vstack(sigma_list)  # (N, n_deg)
     return P_np.astype("float32"), mu_out, sigma_out
 
@@ -181,7 +181,9 @@ def gen_var_dataset(inp) -> None:
 
     # Load data split (unscaled physical values)
     split_file = os.path.join(inp.data_path, "data_split.npz")
-    assert os.path.isfile(split_file), f"data_split.npz not found at {split_file}"
+    assert os.path.isfile(
+        split_file
+    ), f"data_split.npz not found at {split_file}"
     A = np.load(split_file)
     X_train, P_train, Y_train = A["X_train"], A["P_train"], A["Y_train"]
     X_test, P_test, Y_test = A["X_test"], A["P_test"], A["Y_test"]

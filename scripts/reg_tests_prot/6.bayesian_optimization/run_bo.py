@@ -44,7 +44,6 @@ from batfit.preprocess.utils import (
 )
 from batfit.utils.torch_utils import get_device_type
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -88,7 +87,9 @@ def _load_npe(inp, device: torch.device):
     return model
 
 
-def _sol_to_signal(rootsol, n_points: int, target_mode: str) -> np.ndarray | None:
+def _sol_to_signal(
+    rootsol, n_points: int, target_mode: str
+) -> np.ndarray | None:
     """Extract a (channels, n_points) signal array from a BatMODS-lite solution.
 
     Mirrors the ``diff_cap=False`` branch of ``from_sol_dict_to_xy`` used
@@ -140,7 +141,9 @@ def predict_sigma_npe(
     :return: physical sigma for all degradation parameters, shape (n_deg,).
     """
     x_t = torch.from_numpy(x_npe_scaled).unsqueeze(0)  # (1, C, T)
-    p_t = torch.from_numpy(p_npe_scaled.astype("float32")).unsqueeze(0)  # (1, n_prot)
+    p_t = torch.from_numpy(p_npe_scaled.astype("float32")).unsqueeze(
+        0
+    )  # (1, n_prot)
 
     x_tiled = (
         x_t.unsqueeze(1)
@@ -148,9 +151,7 @@ def predict_sigma_npe(
         .reshape(n_noise, x_t.shape[1], x_t.shape[2])
     )
     p_tiled = (
-        p_t.unsqueeze(1)
-        .expand(-1, n_noise, -1)
-        .reshape(n_noise, p_t.shape[1])
+        p_t.unsqueeze(1).expand(-1, n_noise, -1).reshape(n_noise, p_t.shape[1])
     )
     x_noisy = apply_noise(x_tiled, scaler_x, noise_levels, a_min, a_max)
 
@@ -201,7 +202,9 @@ def evaluate_sigma_at_P(
     :param sigma_fail: value returned when the simulation fails.
     :return: physical sigma for ``param_idx``, or ``sigma_fail`` on failure.
     """
-    prot_param_sample = from_protparamlist_to_protparamdict(p_physical, sim_params)
+    prot_param_sample = from_protparamlist_to_protparamdict(
+        p_physical, sim_params
+    )
     _, _, rootsol = single_run(
         deg_param_sample=deg_param_sample,
         sim_params=sim_params,
@@ -209,7 +212,9 @@ def evaluate_sigma_at_P(
     )
 
     if rootsol is None:
-        logger.warning(f"Simulation failed for P={p_physical} — returning sigma_fail")
+        logger.warning(
+            f"Simulation failed for P={p_physical} — returning sigma_fail"
+        )
         return sigma_fail
 
     x_phys = _sol_to_signal(rootsol, n_points, target_mode)
@@ -223,8 +228,15 @@ def evaluate_sigma_at_P(
     )[0]
 
     sigma_phys = predict_sigma_npe(
-        p_npe_scaled, x_scaled, npe_model, scaler_x,
-        noise_levels, a_min, a_max, n_noise, device,
+        p_npe_scaled,
+        x_scaled,
+        npe_model,
+        scaler_x,
+        noise_levels,
+        a_min,
+        a_max,
+        n_noise,
+        device,
     )
     return float(sigma_phys[param_idx])
 
@@ -304,13 +316,22 @@ def run_bo_single_curve(
         target_mode,
     )
     if x_init_phys is not None:
-        x_init_scaled = scaler_x.transform(x_init_phys[np.newaxis])[0].astype("float32")
+        x_init_scaled = scaler_x.transform(x_init_phys[np.newaxis])[0].astype(
+            "float32"
+        )
         p_npe_scaled_init = scaler_p_npe.transform(
             p_test_physical.reshape(1, -1).astype("float32")
         )[0]
         sigma_init = predict_sigma_npe(
-            p_npe_scaled_init, x_init_scaled, npe_model, scaler_x,
-            noise_levels, a_min, a_max, n_noise, device,
+            p_npe_scaled_init,
+            x_init_scaled,
+            npe_model,
+            scaler_x,
+            noise_levels,
+            a_min,
+            a_max,
+            n_noise,
+            device,
         )
 
     # BO loop
@@ -381,10 +402,12 @@ def run_bo(inp) -> None:
         scaler_p_npe = pickle.load(f)
 
     split_file = os.path.join(inp.data_path, "data_split.npz")
-    assert os.path.isfile(split_file), f"data_split.npz not found at {split_file}"
+    assert os.path.isfile(
+        split_file
+    ), f"data_split.npz not found at {split_file}"
     split_data = np.load(split_file)
-    P_test = split_data["P_test"]   # (N_test, n_prot) — physical
-    Y_test = split_data["Y_test"]   # (N_test, n_deg)  — physical (ground truth)
+    P_test = split_data["P_test"]  # (N_test, n_prot) — physical
+    Y_test = split_data["Y_test"]  # (N_test, n_deg)  — physical (ground truth)
 
     n_test = P_test.shape[0]
     n_curves = min(inp.n_curves, n_test)
@@ -394,9 +417,9 @@ def run_bo(inp) -> None:
     sim_params = make_params(inp.sim_config)
     param_names = sim_params["deg_param_names"]
     prot_names = sim_params["prot_param_names"]
-    assert inp.param_to_minimize in param_names, (
-        f"param_to_minimize='{inp.param_to_minimize}' not in {param_names}"
-    )
+    assert (
+        inp.param_to_minimize in param_names
+    ), f"param_to_minimize='{inp.param_to_minimize}' not in {param_names}"
     param_idx = param_names.index(inp.param_to_minimize)
     logger.info(
         f"Minimising sigma of '{inp.param_to_minimize}' (index {param_idx})"
@@ -414,15 +437,19 @@ def run_bo(inp) -> None:
     )
 
     n_prot = P_test.shape[1]
-    sigma_init_all = np.full((n_curves, len(param_names)), np.nan, dtype="float32")
+    sigma_init_all = np.full(
+        (n_curves, len(param_names)), np.nan, dtype="float32"
+    )
     sigma_best_all = np.zeros(n_curves, dtype="float32")
     P_opt_all = np.zeros((n_curves, n_prot), dtype="float32")
     sigma_history_all = np.zeros((n_curves, inp.n_bo_steps), dtype="float32")
-    P_history_all = np.zeros((n_curves, inp.n_bo_steps, n_prot), dtype="float32")
+    P_history_all = np.zeros(
+        (n_curves, inp.n_bo_steps, n_prot), dtype="float32"
+    )
 
     for curve_i, idx in enumerate(indices):
-        p_phys = P_test[idx]   # (n_prot,)
-        y_phys = Y_test[idx]   # (n_deg,)
+        p_phys = P_test[idx]  # (n_prot,)
+        y_phys = Y_test[idx]  # (n_deg,)
 
         deg_param_sample = from_degparamlist_to_degparamdict(
             y_phys.tolist(), sim_params
@@ -467,7 +494,11 @@ def run_bo(inp) -> None:
 
         sigma_init_target = float(res["sigma_init"][param_idx])
         if np.isfinite(sigma_init_target) and sigma_init_target > 0:
-            reduction = (sigma_init_target - res["sigma_best"]) / sigma_init_target * 100
+            reduction = (
+                (sigma_init_target - res["sigma_best"])
+                / sigma_init_target
+                * 100
+            )
             logger.info(
                 f"  sigma_init={sigma_init_target:.4e}  "
                 f"sigma_best={res['sigma_best']:.4e}  "
@@ -501,7 +532,9 @@ def run_bo(inp) -> None:
     logger.info(f"Results saved to {out_file}")
 
     # Summary (only over curves where init simulation succeeded)
-    valid = np.isfinite(sigma_init_all[:, param_idx]) & (sigma_init_all[:, param_idx] > 0)
+    valid = np.isfinite(sigma_init_all[:, param_idx]) & (
+        sigma_init_all[:, param_idx] > 0
+    )
     if valid.any():
         mean_reduction = (
             (sigma_init_all[valid, param_idx] - sigma_best_all[valid])

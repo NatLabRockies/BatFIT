@@ -2,7 +2,7 @@
 # References the frozen NPE and controls how the variance dataset is built.
 
 # NPE reference
-npe_models_dir: /Users/mhassana/Desktop/GitHub/BatFIT_chirp/scripts/reg_tests_prot/2.npe_prot/models
+npe_models_dir: /Users/mhassana/Desktop/GitHub/BatFIT_chirp/scripts/reg_tests_prot/2.npe_cnn_prot/models
 
 # DATA (same paths as the NPE recipe)
 cyc_mode: chirp

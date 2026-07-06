@@ -32,10 +32,10 @@ from batfit.preprocess.sim_setup import make_params
 from batfit.utils.data_utils import scale_input_from_scaler
 from batfit.utils.torch_utils import get_device_type
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _find_best_model_file(model_dir: str) -> str:
     """Return the checkpoint path with the lowest recorded test loss."""
@@ -67,8 +67,9 @@ def _load_npe(inp, device):
     model_pkl = os.path.join(inp.npe_models_dir, "model.pkl")
     best_pt = _find_best_model_file(inp.npe_models_dir)
     logger.info(f"Loading NPE from {best_pt}")
-    model = create_model_from_log(model_obj_file=model_pkl,
-                                  model_state_dict_file=best_pt)
+    model = create_model_from_log(
+        model_obj_file=model_pkl, model_state_dict_file=best_pt
+    )
     model.to(device)
     model.eval()
     return model
@@ -79,8 +80,9 @@ def _load_var_pred(inp, device):
     model_pkl = os.path.join(inp.var_pred_models_dir, "model.pkl")
     best_pt = _find_best_model_file(inp.var_pred_models_dir)
     logger.info(f"Loading variance predictor from {best_pt}")
-    model = create_model_from_log(model_obj_file=model_pkl,
-                                  model_state_dict_file=best_pt)
+    model = create_model_from_log(
+        model_obj_file=model_pkl, model_state_dict_file=best_pt
+    )
     model.to(device)
     model.eval()
     return model
@@ -89,6 +91,7 @@ def _load_var_pred(inp, device):
 # ---------------------------------------------------------------------------
 # NPE inference
 # ---------------------------------------------------------------------------
+
 
 def predict_mu_batch(
     X_scaled: np.ndarray,
@@ -112,16 +115,18 @@ def predict_mu_batch(
     """
     n_curves = X_scaled.shape[0]
     n_deg = npe_model.n_param_pred
-    x_t = torch.from_numpy(X_scaled)        # (n_curves, C, T)
-    p_t = torch.from_numpy(P_npe_scaled)    # (n_curves, n_prot)
+    x_t = torch.from_numpy(X_scaled)  # (n_curves, C, T)
+    p_t = torch.from_numpy(P_npe_scaled)  # (n_curves, n_prot)
 
     # Tile: (n_curves * n_noise_npe, …)
     x_tiled = (
-        x_t.unsqueeze(1).expand(-1, n_noise_npe, -1, -1)
+        x_t.unsqueeze(1)
+        .expand(-1, n_noise_npe, -1, -1)
         .reshape(n_curves * n_noise_npe, x_t.shape[1], x_t.shape[2])
     )
     p_tiled = (
-        p_t.unsqueeze(1).expand(-1, n_noise_npe, -1)
+        p_t.unsqueeze(1)
+        .expand(-1, n_noise_npe, -1)
         .reshape(n_curves * n_noise_npe, p_t.shape[1])
     )
     x_noisy = apply_noise(x_tiled, scaler_x, noise_levels, a_min, a_max)
@@ -135,12 +140,13 @@ def predict_mu_batch(
                 npe_model.amp_par.to(device),
             )
     mu_np = mu_s.cpu().numpy().reshape(n_curves, n_noise_npe, n_deg)
-    return mu_np.mean(axis=1).astype("float32")   # (n_curves, n_deg)
+    return mu_np.mean(axis=1).astype("float32")  # (n_curves, n_deg)
 
 
 # ---------------------------------------------------------------------------
 # Optimization
 # ---------------------------------------------------------------------------
+
 
 def _sigma_physical(
     sigma_out: torch.Tensor,
@@ -163,7 +169,9 @@ def _sigma_physical(
         # inverse: x_physical = x_scaled / scale + min_val
         return sigma_out / scale + min_val
     else:
-        return var_model.inv_transform_gamma(sigma_out, var_model.amp_par.to(device))
+        return var_model.inv_transform_gamma(
+            sigma_out, var_model.amp_par.to(device)
+        )
 
 
 def optimize_single_curve(
@@ -193,8 +201,9 @@ def optimize_single_curve(
             requires_grad=True,
         )
         sigma_out = var_model(p_t, mu_t)
-        sigma_phys = _sigma_physical(sigma_out, var_model, scale_sigma,
-                                     scaler_sigma, device)
+        sigma_phys = _sigma_physical(
+            sigma_out, var_model, scale_sigma, scaler_sigma, device
+        )
         obj = sigma_phys[0, param_idx]
         obj.backward()
         grad = p_t.grad.detach().cpu().numpy().flatten()
@@ -232,14 +241,16 @@ def evaluate_sigma(
     mu_t = torch.from_numpy(mu_scaled.reshape(1, -1)).to(device)
     with torch.no_grad():
         sigma_out = var_model(p_t, mu_t)
-        sigma_phys = _sigma_physical(sigma_out, var_model, scale_sigma,
-                                     scaler_sigma, device)
+        sigma_phys = _sigma_physical(
+            sigma_out, var_model, scale_sigma, scaler_sigma, device
+        )
     return sigma_phys.cpu().numpy().flatten()
 
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
 
 def run_optimization(inp) -> None:
     """Run protocol optimization for n_curves test voltage curves.
@@ -256,46 +267,56 @@ def run_optimization(inp) -> None:
     var_model = _load_var_pred(inp, device)
 
     # --- Detect sigma scaling ---
-    scaler_sigma_path = os.path.join(inp.var_pred_save_path, "scaler_sigma.pkl")
+    scaler_sigma_path = os.path.join(
+        inp.var_pred_save_path, "scaler_sigma.pkl"
+    )
     scale_sigma = os.path.isfile(scaler_sigma_path)
     scaler_sigma = None
     if scale_sigma:
         with open(scaler_sigma_path, "rb") as f:
             scaler_sigma = pickle.load(f)
-        logger.info("scaler_sigma.pkl found — optimising in scaled sigma space")
+        logger.info(
+            "scaler_sigma.pkl found — optimising in scaled sigma space"
+        )
 
     # --- Load scalers ---
     with open(inp.scaler_path, "rb") as f:
         scaler_x = pickle.load(f)
     with open(inp.scaler_P_path, "rb") as f:
         scaler_p_npe = pickle.load(f)
-    with open(os.path.join(inp.var_pred_save_path, "scaler_P_varpred.pkl"), "rb") as f:
+    with open(
+        os.path.join(inp.var_pred_save_path, "scaler_P_varpred.pkl"), "rb"
+    ) as f:
         scaler_p_vp = pickle.load(f)
-    with open(os.path.join(inp.var_pred_save_path, "scaler_mu.pkl"), "rb") as f:
+    with open(
+        os.path.join(inp.var_pred_save_path, "scaler_mu.pkl"), "rb"
+    ) as f:
         scaler_mu = pickle.load(f)
 
     # --- Load test data ---
     split_file = os.path.join(inp.data_path, "data_split.npz")
-    assert os.path.isfile(split_file), f"data_split.npz not found at {split_file}"
+    assert os.path.isfile(
+        split_file
+    ), f"data_split.npz not found at {split_file}"
     split_data = np.load(split_file)
-    X_test = split_data["X_test"]   # (N_test, channels, time) — physical
-    P_test = split_data["P_test"]   # (N_test, n_prot) — physical
-    Y_test = split_data["Y_test"]   # (N_test, n_deg)  — physical (ground truth)
+    X_test = split_data["X_test"]  # (N_test, channels, time) — physical
+    P_test = split_data["P_test"]  # (N_test, n_prot) — physical
+    Y_test = split_data["Y_test"]  # (N_test, n_deg)  — physical (ground truth)
 
     n_test = X_test.shape[0]
     n_curves = min(inp.n_curves, n_test)
     indices = np.random.choice(n_test, size=n_curves, replace=False)
     logger.info(f"Selected {n_curves} test curves: {indices}")
 
-    X_sel = X_test[indices]          # (n_curves, C, T)
-    P_sel = P_test[indices]          # (n_curves, n_prot)
+    X_sel = X_test[indices]  # (n_curves, C, T)
+    P_sel = P_test[indices]  # (n_curves, n_prot)
 
     # --- Resolve parameter index ---
     sim_params = make_params(inp.sim_config)
     param_names = sim_params["deg_param_names"]
-    assert inp.param_to_minimize in param_names, (
-        f"param_to_minimize='{inp.param_to_minimize}' not in {param_names}"
-    )
+    assert (
+        inp.param_to_minimize in param_names
+    ), f"param_to_minimize='{inp.param_to_minimize}' not in {param_names}"
     param_idx = param_names.index(inp.param_to_minimize)
     logger.info(
         f"Minimising sigma of '{inp.param_to_minimize}' (index {param_idx})"
@@ -317,7 +338,9 @@ def run_optimization(inp) -> None:
     X_scaled = scaler_x.transform(X_sel).astype("float32")
     P_npe_scaled = scaler_p_npe.transform(P_sel).astype("float32")
 
-    logger.info(f"Running NPE on {n_curves} curves (n_noise_npe={inp.n_noise_npe}) …")
+    logger.info(
+        f"Running NPE on {n_curves} curves (n_noise_npe={inp.n_noise_npe}) …"
+    )
     mu_physical = predict_mu_batch(
         X_scaled=X_scaled,
         P_npe_scaled=P_npe_scaled,
@@ -345,7 +368,12 @@ def run_optimization(inp) -> None:
 
         # Sigma at the actual protocol used to generate this curve
         sigma_init_all[i] = evaluate_sigma(
-            P_sel_vp_scaled[i], mu_i, var_model, scale_sigma, scaler_sigma, device
+            P_sel_vp_scaled[i],
+            mu_i,
+            var_model,
+            scale_sigma,
+            scaler_sigma,
+            device,
         )
 
         # Optimise
@@ -377,7 +405,9 @@ def run_optimization(inp) -> None:
         )
 
     # Unscale optimised P to physical units
-    P_opt_physical = scaler_p_vp.inverse_transform(P_opt_scaled).astype("float32")
+    P_opt_physical = scaler_p_vp.inverse_transform(P_opt_scaled).astype(
+        "float32"
+    )
 
     # --- Save results ---
     results_file = os.path.join(inp.save_path, "optimization_results.npz")
@@ -406,8 +436,10 @@ def run_optimization(inp) -> None:
     logger.info(f"Optimised P (physical) — mean over curves:")
     prot_names = sim_params["prot_param_names"]
     for j, name in enumerate(prot_names):
-        logger.info(f"  {name}: {P_opt_physical[:, j].mean():.4f} "
-                    f"± {P_opt_physical[:, j].std():.4f}")
+        logger.info(
+            f"  {name}: {P_opt_physical[:, j].mean():.4f} "
+            f"± {P_opt_physical[:, j].std():.4f}"
+        )
 
 
 if __name__ == "__main__":

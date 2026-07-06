@@ -84,8 +84,12 @@ def make_data_loaders(
             drop_last=shuffle,
         )
 
-    train_loader = _loader(A["P_train"], A["Mu_train"], A["Sigma_train"], shuffle=True)
-    test_loader = _loader(A["P_test"], A["Mu_test"], A["Sigma_test"], shuffle=False)
+    train_loader = _loader(
+        A["P_train"], A["Mu_train"], A["Sigma_train"], shuffle=True
+    )
+    test_loader = _loader(
+        A["P_test"], A["Mu_test"], A["Sigma_test"], shuffle=False
+    )
     logger.info(
         f"Train: {A['P_train'].shape[0]} samples  |  "
         f"Test: {A['P_test'].shape[0]} samples"
@@ -160,7 +164,8 @@ def train_model(
     save_freq = max(total_steps // 70, 1)  # ~70 checkpoints like the NPE
 
     print_progress_bar(
-        0, total_steps,
+        0,
+        total_steps,
         prefix=f"Loss = ? Step 0 / {total_steps} ",
         suffix="Complete",
         length=50,
@@ -193,7 +198,10 @@ def train_model(
             if current_step % save_freq == 0:
                 logged = True
                 log_training(
-                    current_step, loss, inp.models_dir, filename="train_loss.csv"
+                    current_step,
+                    loss,
+                    inp.models_dir,
+                    filename="train_loss.csv",
                 )
                 save_model(
                     step=current_step,
@@ -204,11 +212,15 @@ def train_model(
                 )
             elif current_step % log_freq == 0 and not logged:
                 log_training(
-                    current_step, loss, inp.models_dir, filename="train_loss.csv"
+                    current_step,
+                    loss,
+                    inp.models_dir,
+                    filename="train_loss.csv",
                 )
 
             print_progress_bar(
-                current_step, total_steps,
+                current_step,
+                total_steps,
                 prefix=f"Loss = {loss.item():.4g} Step {current_step} / {total_steps} ",
                 suffix="Complete",
                 length=50,
@@ -225,7 +237,9 @@ def train_model(
                 else:
                     sigma_pred = model.inv_transform_gamma(sigma_out, amp_par)
                 b = p_batch.shape[0]
-                test_loss_acc += mse(sigma_pred, sigma_batch.to(device)).item() * b
+                test_loss_acc += (
+                    mse(sigma_pred, sigma_batch.to(device)).item() * b
+                )
                 n_test += b
         log_training(
             current_step,

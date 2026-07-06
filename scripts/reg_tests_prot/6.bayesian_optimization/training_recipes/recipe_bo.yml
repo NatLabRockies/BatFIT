@@ -4,7 +4,7 @@
 # controls the simulation budget.
 
 # --- Model reference ---
-npe_models_dir: /Users/mhassana/Desktop/GitHub/BatFIT_chirp/scripts/reg_tests_prot/2.npe_prot/models
+npe_models_dir: /Users/mhassana/Desktop/GitHub/BatFIT_chirp/scripts/reg_tests_prot/2.npe_cnn_prot/models
 
 # --- Data (same paths as the NPE recipe) ---
 cyc_mode: chirp

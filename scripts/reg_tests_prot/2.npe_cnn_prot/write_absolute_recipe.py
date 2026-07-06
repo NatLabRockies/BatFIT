@@ -83,7 +83,7 @@ if __name__ == "__main__":
         abs_sim_config_path, input_data["sim_config"]
     )
     input_data["models_dir"] = os.path.join(
-        abs_reg_path, "2.npe_prot", input_data["models_dir"]
+        abs_reg_path, "2.npe_cnn_prot", input_data["models_dir"]
     )
 
     dict_to_yaml(d=input_data, yaml_path=output_yaml_file)

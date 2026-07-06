@@ -94,7 +94,7 @@ if __name__ == "__main__":
         abs_sim_config_path, input_data["sim_config"]
     )
     input_data["models_dir"] = os.path.join(
-        abs_reg_path, "4.npe", input_data["models_dir"]
+        abs_reg_path, "4.npe_cnn", input_data["models_dir"]
     )
     input_data["surrogate_model_recipe"] = os.path.join(
         abs_reg_path, "2.train_surrogate", input_data["surrogate_model_recipe"]

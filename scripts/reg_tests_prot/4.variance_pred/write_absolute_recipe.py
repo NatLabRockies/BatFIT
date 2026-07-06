@@ -44,15 +44,17 @@ def write_gen_dataset_recipe(
         d = yaml.safe_load(f)
 
     d["npe_models_dir"] = os.path.join(
-        abs_reg_path, "2.npe_prot", d["npe_models_dir"]
+        abs_reg_path, "2.npe_cnn_prot", d["npe_models_dir"]
     )
     d["data_path"] = os.path.join(abs_reg_path, "1.gen_data", d["data_path"])
-    d["scaler_path"] = os.path.join(abs_reg_path, "1.gen_data", d["scaler_path"])
+    d["scaler_path"] = os.path.join(
+        abs_reg_path, "1.gen_data", d["scaler_path"]
+    )
     d["scaler_P_path"] = os.path.join(
         abs_reg_path, "1.gen_data", d["scaler_P_path"]
     )
     d["var_pred_save_path"] = os.path.join(
-        abs_reg_path, "3.variance_pred", d["var_pred_save_path"]
+        abs_reg_path, "4.variance_pred", d["var_pred_save_path"]
     )
 
     _dump_yaml(
@@ -84,17 +86,22 @@ def write_var_pred_recipe(
 
     d["sim_config"] = os.path.join(abs_exp_path, d["sim_config"])
     d["var_pred_save_path"] = os.path.join(
-        abs_reg_path, "3.variance_pred", d["var_pred_save_path"]
+        abs_reg_path, "4.variance_pred", d["var_pred_save_path"]
     )
     d["models_dir"] = os.path.join(
-        abs_reg_path, "3.variance_pred", d["models_dir"]
+        abs_reg_path, "4.variance_pred", d["models_dir"]
     )
 
     _dump_yaml(
         d,
         output_yaml,
         sections=[
-            ["n_param_pred", "n_prot_params", "sim_config", "var_pred_save_path"],
+            [
+                "n_param_pred",
+                "n_prot_params",
+                "sim_config",
+                "var_pred_save_path",
+            ],
             ["hidden_list"],
             ["batch_size", "epochs", "lr", "models_dir"],
         ],
