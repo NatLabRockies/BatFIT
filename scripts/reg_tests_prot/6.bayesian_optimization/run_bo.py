@@ -36,6 +36,7 @@ from batfit import logger
 from batfit.basicutilityc import ReadInput as ri
 from batfit.model.param_utils.noise_utils import apply_noise, make_noise_levels
 from batfit.model.param_utils.train_utils import create_model_from_log
+from batfit.model.paramNN import ProbProtParamFM
 from batfit.preprocess.sim_setup import make_params
 from batfit.preprocess.sol_gen import single_run
 from batfit.preprocess.utils import (
@@ -130,16 +131,30 @@ def predict_sigma_npe(
     a_max: torch.Tensor,
     n_noise: int,
     device: torch.device,
+    scaler_Y=None,
+    n_samples: int = 1000,
+    n_ode_steps: int = 100,
 ) -> np.ndarray:
     """Evaluate the NPE sigma on a single voltage curve.
 
     Tiles the signal n_noise times, applies independent noise to each copy,
-    and averages sigma over realisations for a stable estimate.
+    and averages sigma over realisations for a stable estimate. Works with
+    either NPE architecture:
+
+    - ProbProtParamCNN: one forward pass gives sigma directly per noisy copy.
+    - ProbProtParamFM: no closed-form sigma; model.sample() draws n_samples
+      posterior samples per noisy copy (in z-scored space) and their std
+      (after scaler_Y.inverse_transform) is used as that copy's sigma.
 
     :param p_npe_scaled: MinMax-scaled protocol params, shape (n_prot,).
     :param x_npe_scaled: z-scored signal, shape (channels, n_points).
+    :param scaler_Y: FM only — inverse-transforms samples from z-scored to
+        physical space; required when npe_model is a ProbProtParamFM.
+    :param n_samples: FM only — posterior samples drawn per noisy copy.
+    :param n_ode_steps: FM only — ODE integration steps for model.sample().
     :return: physical sigma for all degradation parameters, shape (n_deg,).
     """
+    n_deg = npe_model.n_param_pred
     x_t = torch.from_numpy(x_npe_scaled).unsqueeze(0)  # (1, C, T)
     p_t = torch.from_numpy(p_npe_scaled.astype("float32")).unsqueeze(
         0
@@ -156,15 +171,28 @@ def predict_sigma_npe(
     x_noisy = apply_noise(x_tiled, scaler_x, noise_levels, a_min, a_max)
 
     with torch.no_grad():
-        mu_s, sigma_s = npe_model(x_noisy.to(device), p_tiled.to(device))
-        if npe_model.constrain_output:
-            mu_s, sigma_s = npe_model.inv_transform_output(
-                mu_s,
-                sigma_s,
-                npe_model.min_par.to(device),
-                npe_model.amp_par.to(device),
-            )
-    return sigma_s.cpu().numpy().mean(axis=0).astype("float32")  # (n_deg,)
+        if isinstance(npe_model, ProbProtParamFM):
+            samples_z = npe_model.sample(
+                x_noisy.to(device),
+                p_tiled.to(device),
+                n_samples=n_samples,
+                n_steps=n_ode_steps,
+            )  # (n_noise, n_samples, n_deg), z-scored
+            samples_phys = scaler_Y.inverse_transform(
+                samples_z.cpu().numpy().reshape(-1, n_deg)
+            ).reshape(n_noise, n_samples, n_deg)
+            sigma_np = samples_phys.std(axis=1)  # (n_noise, n_deg)
+        else:
+            mu_s, sigma_s = npe_model(x_noisy.to(device), p_tiled.to(device))
+            if npe_model.constrain_output:
+                mu_s, sigma_s = npe_model.inv_transform_output(
+                    mu_s,
+                    sigma_s,
+                    npe_model.min_par.to(device),
+                    npe_model.amp_par.to(device),
+                )
+            sigma_np = sigma_s.cpu().numpy()
+    return sigma_np.mean(axis=0).astype("float32")  # (n_deg,)
 
 
 # ---------------------------------------------------------------------------
@@ -188,6 +216,9 @@ def evaluate_sigma_at_P(
     param_idx: int,
     device: torch.device,
     sigma_fail: float,
+    scaler_Y=None,
+    n_samples: int = 1000,
+    n_ode_steps: int = 100,
 ) -> float:
     """Simulate a new voltage curve at the proposed protocol, then return NPE sigma.
 
@@ -237,6 +268,9 @@ def evaluate_sigma_at_P(
         a_max,
         n_noise,
         device,
+        scaler_Y=scaler_Y,
+        n_samples=n_samples,
+        n_ode_steps=n_ode_steps,
     )
     return float(sigma_phys[param_idx])
 
@@ -265,6 +299,9 @@ def run_bo_single_curve(
     sigma_fail: float,
     random_state: int,
     device: torch.device,
+    scaler_Y=None,
+    n_samples: int = 1000,
+    n_ode_steps: int = 100,
 ) -> dict:
     """Run Bayesian Optimisation for a single test battery.
 
@@ -332,6 +369,9 @@ def run_bo_single_curve(
             a_max,
             n_noise,
             device,
+            scaler_Y=scaler_Y,
+            n_samples=n_samples,
+            n_ode_steps=n_ode_steps,
         )
 
     # BO loop
@@ -353,6 +393,9 @@ def run_bo_single_curve(
         param_idx=param_idx,
         device=device,
         sigma_fail=sigma_fail,
+        scaler_Y=scaler_Y,
+        n_samples=n_samples,
+        n_ode_steps=n_ode_steps,
     )
 
     for step in range(n_bo_steps):
@@ -400,6 +443,15 @@ def run_bo(inp) -> None:
         scaler_x = pickle.load(f)
     with open(inp.scaler_P_path, "rb") as f:
         scaler_p_npe = pickle.load(f)
+
+    # scaler_Y only applies to a ProbProtParamFM NPE (trained with
+    # scale_y=True); it's fit on the NPE's own training data.
+    scaler_y = None
+    if isinstance(npe_model, ProbProtParamFM):
+        with open(os.path.join(inp.data_path, "scaler_Y.pkl"), "rb") as f:
+            scaler_y = pickle.load(f)
+    n_samples = getattr(inp, "n_samples", 1000)
+    n_ode_steps = getattr(inp, "n_ode_steps", 100)
 
     split_file = os.path.join(inp.data_path, "data_split.npz")
     assert os.path.isfile(
@@ -484,6 +536,9 @@ def run_bo(inp) -> None:
             sigma_fail=inp.sigma_fail,
             random_state=inp.random_seed + curve_i,
             device=device,
+            scaler_Y=scaler_y,
+            n_samples=n_samples,
+            n_ode_steps=n_ode_steps,
         )
 
         sigma_init_all[curve_i] = res["sigma_init"]

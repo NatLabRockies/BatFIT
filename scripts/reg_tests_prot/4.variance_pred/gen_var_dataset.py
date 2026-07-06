@@ -1,9 +1,16 @@
 """
 Generate the variance predictor training and test datasets from a frozen NPE.
 
+Works with either NPE architecture:
+  - ProbProtParamCNN: one forward pass gives (mu, gamma) directly.
+  - ProbProtParamFM: no closed-form (mu, gamma); model.sample() draws
+    posterior samples (in z-scored space) and their mean/std (after
+    scaler_Y.inverse_transform) is used as (mu, sigma) instead.
+
 For every data point (X_i, P_i, Y_i) in the NPE data split:
   - Apply inp.n_noise independent noise realisations to X_i
-  - Forward-pass through the frozen NPE to obtain (mu_k, sigma_k) for each k
+  - Obtain (mu_k, sigma_k) for each noisy copy k (forward pass for CNN,
+    sample mean/std for FM)
   - Average across realisations: mu_avg = mean(mu_k), sigma_avg = mean(sigma_k)
   - Store the feature as (P_i, mu_avg) or (P_i, Y_i) depending on inp.use_true_y
 
@@ -31,6 +38,7 @@ from batfit import logger
 from batfit.basicutilityc import ReadInput as ri
 from batfit.model.param_utils.noise_utils import apply_noise, make_noise_levels
 from batfit.model.param_utils.train_utils import create_model_from_log
+from batfit.model.paramNN import ProbProtParamFM
 from batfit.utils.data_utils import scale_input_from_scaler
 from batfit.utils.torch_utils import get_device_type
 
@@ -63,7 +71,10 @@ def _find_best_model_file(model_dir: str) -> str:
 def _load_npe(inp):
     """Load the best NPE checkpoint and move to the compute device.
 
-    :return: (model, scaler_X, device)
+    :return: (model, scaler_X, scaler_Y, device). scaler_Y is None for
+        ProbProtParamCNN (which uses constrain_output/inv_transform_output
+        instead); for ProbProtParamFM it's loaded from inp.data_path since
+        the FM NPE is trained with scale_y=True.
     """
     model_pkl = os.path.join(inp.npe_models_dir, "model.pkl")
     best_pt = _find_best_model_file(inp.npe_models_dir)
@@ -75,10 +86,15 @@ def _load_npe(inp):
     with open(inp.scaler_path, "rb") as f:
         scaler_X = pickle.load(f)
 
+    scaler_Y = None
+    if isinstance(model, ProbProtParamFM):
+        with open(os.path.join(inp.data_path, "scaler_Y.pkl"), "rb") as f:
+            scaler_Y = pickle.load(f)
+
     device = torch.device(get_device_type())
     model.to(device)
     model.eval()
-    return model, scaler_X, device
+    return model, scaler_X, scaler_Y, device
 
 
 def _process_split(
@@ -87,6 +103,7 @@ def _process_split(
     Y_np: np.ndarray,
     model,
     scaler_X,
+    scaler_Y,
     scaler_P,
     noise_levels: torch.Tensor,
     a_min: torch.Tensor,
@@ -95,14 +112,23 @@ def _process_split(
     use_true_y: bool,
     gen_batch_size: int,
     device: torch.device,
+    n_samples: int = 1000,
+    n_ode_steps: int = 100,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Run the frozen NPE over one data split with noise augmentation.
 
     For each batch of size B:
-      - Tiles X and P to (B * n_noise, …) so one forward pass covers all
-        noise realisations simultaneously.
-      - Averages (mu, sigma) over the n_noise dimension.
+      - Tiles X and P to (B * n_noise, …) so one forward pass (CNN) or ODE
+        integration (FM) covers all noise realisations simultaneously.
+      - For ProbProtParamCNN: one forward pass gives (mu_k, sigma_k) per
+        noisy copy directly.
+      - For ProbProtParamFM: draws n_samples posterior samples per noisy
+        copy via model.sample(...), then takes their mean/std (after
+        scaler_Y.inverse_transform) as that copy's (mu_k, sigma_k).
+      - Averages (mu_k, sigma_k) over the n_noise dimension.
 
+    :param n_samples: FM only — posterior samples drawn per noisy copy.
+    :param n_ode_steps: FM only — ODE integration steps for model.sample().
     :return: (P_raw, Mu_raw, Sigma_raw) all in physical (unscaled) space
     """
     N = X_np.shape[0]
@@ -142,16 +168,29 @@ def _process_split(
         X_noisy = apply_noise(X_tiled, scaler_X, noise_levels, a_min, a_max)
 
         with torch.no_grad():
-            mu_s, sigma_s = model(X_noisy.to(device), P_tiled.to(device))
-            if model.constrain_output:
-                mu_s, sigma_s = model.inv_transform_output(
-                    mu_s,
-                    sigma_s,
-                    model.min_par.to(device),
-                    model.amp_par.to(device),
-                )
-            mu_np = mu_s.cpu().numpy()  # (B*n_noise, n_deg)
-            sigma_np = sigma_s.cpu().numpy()  # (B*n_noise, n_deg)
+            if isinstance(model, ProbProtParamFM):
+                samples_z = model.sample(
+                    X_noisy.to(device),
+                    P_tiled.to(device),
+                    n_samples=n_samples,
+                    n_steps=n_ode_steps,
+                )  # (B*n_noise, n_samples, n_deg), z-scored
+                samples_phys = scaler_Y.inverse_transform(
+                    samples_z.cpu().numpy().reshape(-1, n_deg)
+                ).reshape(B * n_noise, n_samples, n_deg)
+                mu_np = samples_phys.mean(axis=1)  # (B*n_noise, n_deg)
+                sigma_np = samples_phys.std(axis=1)  # (B*n_noise, n_deg)
+            else:
+                mu_s, sigma_s = model(X_noisy.to(device), P_tiled.to(device))
+                if model.constrain_output:
+                    mu_s, sigma_s = model.inv_transform_output(
+                        mu_s,
+                        sigma_s,
+                        model.min_par.to(device),
+                        model.amp_par.to(device),
+                    )
+                mu_np = mu_s.cpu().numpy()  # (B*n_noise, n_deg)
+                sigma_np = sigma_s.cpu().numpy()  # (B*n_noise, n_deg)
 
         # Average over noise realisations
         mu_np = mu_np.reshape(B, n_noise, n_deg).mean(axis=1)  # (B, n_deg)
@@ -195,7 +234,7 @@ def gen_var_dataset(inp) -> None:
     with open(inp.scaler_P_path, "rb") as f:
         scaler_P_npe = pickle.load(f)
 
-    model, scaler_X, device = _load_npe(inp)
+    model, scaler_X, scaler_Y, device = _load_npe(inp)
 
     noise_levels, a_min, a_max = make_noise_levels(
         target_mode=inp.target_mode,
@@ -208,18 +247,31 @@ def gen_var_dataset(inp) -> None:
         cyc_mode=inp.cyc_mode,
     )
 
+    # n_samples/n_ode_steps only apply to a ProbProtParamFM NPE; CNN recipes
+    # don't set them, so fall back to reasonable defaults.
+    n_samples = getattr(inp, "n_samples", 1000)
+    n_ode_steps = getattr(inp, "n_ode_steps", 100)
     logger.info(
-        f"Generating variance dataset: n_noise={inp.n_noise}, use_true_y={inp.use_true_y}"
+        f"Generating variance dataset: n_noise={inp.n_noise}, "
+        f"use_true_y={inp.use_true_y}"
+        + (
+            f", n_samples={n_samples}, n_ode_steps={n_ode_steps}"
+            if isinstance(model, ProbProtParamFM)
+            else ""
+        )
     )
 
     shared = dict(
         model=model,
         scaler_X=scaler_X,
+        scaler_Y=scaler_Y,
         scaler_P=scaler_P_npe,
         noise_levels=noise_levels,
         a_min=a_min,
         a_max=a_max,
         n_noise=inp.n_noise,
+        n_samples=n_samples,
+        n_ode_steps=n_ode_steps,
         use_true_y=inp.use_true_y,
         gen_batch_size=inp.gen_batch_size,
         device=device,

@@ -28,6 +28,7 @@ from batfit import logger
 from batfit.basicutilityc import ReadInput as ri
 from batfit.model.param_utils.noise_utils import apply_noise, make_noise_levels
 from batfit.model.param_utils.train_utils import create_model_from_log
+from batfit.model.paramNN import ProbProtParamFM
 from batfit.preprocess.sim_setup import make_params
 from batfit.utils.data_utils import scale_input_from_scaler
 from batfit.utils.torch_utils import get_device_type
@@ -103,14 +104,27 @@ def predict_mu_batch(
     a_max: torch.Tensor,
     n_noise_npe: int,
     device: torch.device,
+    scaler_Y=None,
+    n_samples: int = 1000,
+    n_ode_steps: int = 100,
 ) -> np.ndarray:
     """Run NPE on a batch of curves and return averaged mu in physical space.
 
     Tiles each curve n_noise_npe times, applies independent noise to each copy,
-    and averages mu over noise realisations for a stable estimate.
+    and averages mu over noise realisations for a stable estimate. Works with
+    either NPE architecture:
+
+    - ProbProtParamCNN: one forward pass gives mu directly.
+    - ProbProtParamFM: no closed-form mu; model.sample() draws n_samples
+      posterior samples per noisy copy (in z-scored space) and their mean
+      (after scaler_Y.inverse_transform) is used as that copy's mu.
 
     :param X_scaled: z-scored signal, shape (n_curves, channels, time)
     :param P_npe_scaled: MinMax-scaled protocol params, shape (n_curves, n_prot)
+    :param scaler_Y: FM only — inverse-transforms samples from z-scored to
+        physical space; required when npe_model is a ProbProtParamFM.
+    :param n_samples: FM only — posterior samples drawn per noisy copy.
+    :param n_ode_steps: FM only — ODE integration steps for model.sample().
     :return: physical mu, shape (n_curves, n_deg)
     """
     n_curves = X_scaled.shape[0]
@@ -132,14 +146,27 @@ def predict_mu_batch(
     x_noisy = apply_noise(x_tiled, scaler_x, noise_levels, a_min, a_max)
 
     with torch.no_grad():
-        mu_s, _ = npe_model(x_noisy.to(device), p_tiled.to(device))
-        if npe_model.constrain_output:
-            mu_s = npe_model.inv_transform_mu(
-                mu_s,
-                npe_model.min_par.to(device),
-                npe_model.amp_par.to(device),
-            )
-    mu_np = mu_s.cpu().numpy().reshape(n_curves, n_noise_npe, n_deg)
+        if isinstance(npe_model, ProbProtParamFM):
+            samples_z = npe_model.sample(
+                x_noisy.to(device),
+                p_tiled.to(device),
+                n_samples=n_samples,
+                n_steps=n_ode_steps,
+            )  # (n_curves*n_noise_npe, n_samples, n_deg), z-scored
+            samples_phys = scaler_Y.inverse_transform(
+                samples_z.cpu().numpy().reshape(-1, n_deg)
+            ).reshape(n_curves * n_noise_npe, n_samples, n_deg)
+            mu_np = samples_phys.mean(axis=1)  # (n_curves*n_noise_npe, n_deg)
+        else:
+            mu_s, _ = npe_model(x_noisy.to(device), p_tiled.to(device))
+            if npe_model.constrain_output:
+                mu_s = npe_model.inv_transform_mu(
+                    mu_s,
+                    npe_model.min_par.to(device),
+                    npe_model.amp_par.to(device),
+                )
+            mu_np = mu_s.cpu().numpy()
+    mu_np = mu_np.reshape(n_curves, n_noise_npe, n_deg)
     return mu_np.mean(axis=1).astype("float32")  # (n_curves, n_deg)
 
 
@@ -293,6 +320,13 @@ def run_optimization(inp) -> None:
     ) as f:
         scaler_mu = pickle.load(f)
 
+    # scaler_Y only applies to a ProbProtParamFM NPE (trained with
+    # scale_y=True); it's fit on the NPE's own training data, not var-pred data.
+    scaler_y = None
+    if isinstance(npe_model, ProbProtParamFM):
+        with open(os.path.join(inp.data_path, "scaler_Y.pkl"), "rb") as f:
+            scaler_y = pickle.load(f)
+
     # --- Load test data ---
     split_file = os.path.join(inp.data_path, "data_split.npz")
     assert os.path.isfile(
@@ -351,6 +385,9 @@ def run_optimization(inp) -> None:
         a_max=a_max,
         n_noise_npe=inp.n_noise_npe,
         device=device,
+        scaler_Y=scaler_y,
+        n_samples=getattr(inp, "n_samples", 1000),
+        n_ode_steps=getattr(inp, "n_ode_steps", 100),
     )  # (n_curves, n_deg)
     mu_scaled = scaler_mu.transform(mu_physical).astype("float32")
 

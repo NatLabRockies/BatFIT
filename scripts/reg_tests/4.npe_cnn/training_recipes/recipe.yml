@@ -1,0 +1,28 @@
+# DATA
+cyc_mode: discharge
+data_path: /Users/mhassana/Desktop/GitHub/BatFit/scripts/reg_tests/1.gen_data/data_spm_discharge
+data_val_path: /Users/mhassana/Desktop/GitHub/BatFit/scripts/reg_tests/1.gen_data/data_spm_discharge_val
+latent_dim: 128
+n_param_pred: 6
+n_points: 256
+noise_factor: 1.0
+scaler_path: /Users/mhassana/Desktop/GitHub/BatFit/scripts/reg_tests/1.gen_data/data_spm_discharge/scaler_X.pkl
+sim_config: /Users/mhassana/Desktop/GitHub/BatFit/batfit/default_exps/spm_discharge.yaml
+target_mode: phi
+
+# ARCH
+num_channels: 512
+num_convs: 2
+num_fc_gamma_mu_hidden: 4
+num_fc_gamma_mu_units: 2048
+num_fc_hidden: 1
+num_fc_units: 2048
+
+# TRAIN
+batch_size: 256
+epochs: 20
+lr: 0.0001
+models_dir: /Users/mhassana/Desktop/GitHub/BatFit/scripts/reg_tests/4.npe_cnn/models
+
+# SURROGATE
+surrogate_model_recipe: /Users/mhassana/Desktop/GitHub/BatFit/scripts/reg_tests/2.train_surrogate/training_recipes/recipe.yml
