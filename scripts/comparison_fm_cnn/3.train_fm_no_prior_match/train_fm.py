@@ -21,9 +21,7 @@ from batfit.utils.torch_utils import get_num_parameters, make_dataset_from_np
 
 def make_data_loaders(
     inp,
-) -> tuple[
-    "torch.utils.data.DataLoader", "torch.utils.data.DataLoader"
-]:
+) -> tuple["torch.utils.data.DataLoader", "torch.utils.data.DataLoader"]:
     """Assemble signals and build train/test DataLoaders.
 
     :param inp: parsed recipe (DotMap)

@@ -39,7 +39,6 @@ from batfit.model.param_utils.train_utils import create_model_from_log
 from batfit.utils.data_utils import scale_input_from_scaler
 from batfit.utils.torch_utils import get_device_type
 
-
 # ---------------------------------------------------------------------------
 # Model loading
 # ---------------------------------------------------------------------------
@@ -212,8 +211,8 @@ def _collect_cnn_scaled_results(
             sigma_list.append(gamma.cpu().numpy())
             truth_list.append(batch[1].numpy())
 
-    mu_z = np.vstack(mu_list)       # z-scored
-    sigma_z = np.vstack(sigma_list) # z-scored
+    mu_z = np.vstack(mu_list)  # z-scored
+    sigma_z = np.vstack(sigma_list)  # z-scored
     truth_all = np.vstack(truth_list)
 
     rng = np.random.default_rng(42)
@@ -225,9 +224,11 @@ def _collect_cnn_scaled_results(
 
     # Inverse-transform from z-scored → physical space
     n_test, n_samp, n_params = samples_z.shape
-    samples_all = scaler_Y.inverse_transform(
-        samples_z.reshape(-1, n_params)
-    ).reshape(n_test, n_samp, n_params).astype(np.float32)
+    samples_all = (
+        scaler_Y.inverse_transform(samples_z.reshape(-1, n_params))
+        .reshape(n_test, n_samp, n_params)
+        .astype(np.float32)
+    )
 
     mu_all = scaler_Y.inverse_transform(mu_z).astype(np.float32)
     # Approximate physical sigma: sigma_z * per-parameter training std
@@ -276,13 +277,17 @@ def _collect_fm_results(
             samples_list.append(samps.cpu().numpy())
             truth_list.append(batch[1].numpy())
 
-    samples_z = np.vstack(samples_list)  # (n_test, n_samples, n_params) z-scored
-    truth_all = np.vstack(truth_list)    # (n_test, n_params) physical
+    samples_z = np.vstack(
+        samples_list
+    )  # (n_test, n_samples, n_params) z-scored
+    truth_all = np.vstack(truth_list)  # (n_test, n_params) physical
 
     n_test, n_samp, n_params = samples_z.shape
-    samples_all = scaler_Y.inverse_transform(
-        samples_z.reshape(-1, n_params)
-    ).reshape(n_test, n_samp, n_params).astype(np.float32)
+    samples_all = (
+        scaler_Y.inverse_transform(samples_z.reshape(-1, n_params))
+        .reshape(n_test, n_samp, n_params)
+        .astype(np.float32)
+    )
 
     return samples_all, truth_all
 
@@ -292,9 +297,7 @@ def _collect_fm_results(
 # ---------------------------------------------------------------------------
 
 
-def _compute_rel_accuracy(
-    mu_est: np.ndarray, truth: np.ndarray
-) -> np.ndarray:
+def _compute_rel_accuracy(mu_est: np.ndarray, truth: np.ndarray) -> np.ndarray:
     """Per-parameter relative accuracy: 1 - mean(|mu - truth| / range).
 
     :param mu_est: (n_test, n_params)
@@ -549,9 +552,12 @@ if __name__ == "__main__":
     logger.info(sep)
 
     from scipy.stats import norm as _norm
+
     true_cov = [_norm.cdf(n) - _norm.cdf(-n) for n in [1, 2, 3]]
 
-    logger.info(f"\n{'Coverage (fraction of (test × param) pairs within ±nσ)'}")
+    logger.info(
+        f"\n{'Coverage (fraction of (test × param) pairs within ±nσ)'}"
+    )
     logger.info(sep)
     logger.info(
         f"{'nσ':<6} {'Expected':<12} {'CNN':<18} {'CNN z-scored':<18} "

@@ -7,13 +7,14 @@ target_mode: phi
 
 # TRAINED MODEL DIRECTORIES
 cnn_models_dir: /Users/mhassana/Desktop/GitHub/BatFIT_chirpslow/scripts/comparison_fm_cnn/4.train_cnn/models
-cnn_scaled_models_dir: /Users/mhassana/Desktop/GitHub/BatFIT_chirpslow/scripts/comparison_fm_cnn/5.train_cnn_scaley/models
+cnn_scaled_models_dir: /Users/mhassana/Desktop/GitHub/BatFIT_chirpslow/scripts/comparison_fm_cnn/4.train_cnn/models
+#cnn_scaled_models_dir: /Users/mhassana/Desktop/GitHub/BatFIT_chirpslow/scripts/comparison_fm_cnn/5.train_cnn_scaley/models
 fm_pm_models_dir: /Users/mhassana/Desktop/GitHub/BatFIT_chirpslow/scripts/comparison_fm_cnn/2.train_fm_prior_match/models
 fm_no_pm_models_dir: /Users/mhassana/Desktop/GitHub/BatFIT_chirpslow/scripts/comparison_fm_cnn/3.train_fm_no_prior_match/models
 
 # FM INFERENCE PARAMETERS
 n_samples: 1000      # posterior samples per observation (used for all models)
-n_ode_steps: 1000    # ODE integration steps for FM models
+n_ode_steps: 100    # ODE integration steps for FM models
 
 # CORNER PLOT OPTIONS
 n_corner_obs: 5      # number of test observations to generate corner plots for
