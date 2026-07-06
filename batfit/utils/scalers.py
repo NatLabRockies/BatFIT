@@ -24,6 +24,19 @@ class CustomScaler:
         self.means = means
         self.stds = stds
 
+    @classmethod
+    def fit(
+        cls, data: np.ndarray, axis: int | tuple[int, ...]
+    ) -> "CustomScaler":
+        """Fit a scaler from ``data``, reducing over ``axis`` with dims kept.
+
+        Mirrors the ``.fit()`` interface of scikit-learn scalers so callers
+        can treat :class:`CustomScaler` uniformly alongside them.
+        """
+        means = np.mean(data, axis=axis, keepdims=True)
+        stds = np.std(data, axis=axis, keepdims=True)
+        return cls(means, stds)
+
     def transform(self, data: np.ndarray) -> np.ndarray:
         """Return ``(data - means) / stds``, broadcasting over channels."""
         assert len(data.shape) == len(self.means.shape)

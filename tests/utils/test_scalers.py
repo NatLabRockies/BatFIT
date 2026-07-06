@@ -30,6 +30,18 @@ def test_CustomScaler():
     X_back = scaler.inverse_transform(X_scaled)
     assert np.allclose(X_back, X)
 
+    # fit(): reduces over the given axis with dims kept, matching the shape
+    # __init__ expects, and round-trips through transform/inverse_transform
+    N, n_chan, T = 20, 2, 50
+    X_fit = np.random.randn(N, n_chan, T).astype("float32")
+    fitted_scaler = CustomScaler.fit(X_fit, axis=(0, 2))
+    assert fitted_scaler.means.shape == (1, n_chan, 1)
+    assert fitted_scaler.stds.shape == (1, n_chan, 1)
+    X_fit_scaled = fitted_scaler.transform(X_fit)
+    assert np.allclose(X_fit_scaled.mean(axis=(0, 2)), 0.0, atol=1e-5)
+    assert np.allclose(X_fit_scaled.std(axis=(0, 2)), 1.0, atol=1e-5)
+    assert np.allclose(fitted_scaler.inverse_transform(X_fit_scaled), X_fit)
+
 
 def test_scale_input_from_scaler():
     N, n_chan, T = 8, 2, 20
