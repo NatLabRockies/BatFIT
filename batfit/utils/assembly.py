@@ -31,9 +31,13 @@ _SINGLE_SOL_CYC_MODES = [
 
 
 def _sol_passes_filters(
-    sol_dict: dict, n_points_min: int, t_max_min: float
+    sol_dict: dict,
+    n_points_min: int,
+    t_max_min: float,
+    max_start_phi: float,
 ) -> bool:
-    """Reject a single raw solution dict if it's too short or ends too early."""
+    """Reject a single raw solution dict if it's too short, ends too early,
+    or starts at too high a voltage."""
     if sol_dict["phis_c"].shape[0] < n_points_min:
         logger.warning(
             f"Found and removed solution with {sol_dict['phis_c'].shape[0]} points"
@@ -42,6 +46,11 @@ def _sol_passes_filters(
     if sol_dict["t"].max() < t_max_min:
         logger.warning(
             f"Found and removed solution with max t {sol_dict['t'].max()}"
+        )
+        return False
+    if sol_dict["phis_c"][0] > max_start_phi:
+        logger.warning(
+            f"Found and removed solution with start phi {sol_dict['phis_c'][0]}"
         )
         return False
     return True
@@ -53,12 +62,14 @@ def passes_quality_filters(
     cyc_mode: str,
     n_points_min: int = 0,
     t_max_min: float = 0,
+    max_start_phi: float = 1e10,
 ) -> bool:
     """Rejection-sampling prior: decide whether a raw solution is usable.
 
-    Rejects simulations with fewer than ``n_points_min`` timesteps or whose
-    max time is below ``t_max_min`` — an implicit prior that excludes buggy
-    or out-of-range physics solutions from training, independent of how an
+    Rejects simulations with fewer than ``n_points_min`` timesteps, whose max
+    time is below ``t_max_min``, or whose first recorded voltage exceeds
+    ``max_start_phi`` — an implicit prior that excludes buggy or
+    out-of-range physics solutions from training, independent of how an
     accepted solution is later converted into ``(x, y)`` arrays.
 
     :param combined_sols: the loaded ``sols.pkl`` dict
@@ -68,13 +79,19 @@ def passes_quality_filters(
     """
     if cyc_mode.lower() in _SINGLE_SOL_CYC_MODES:
         return _sol_passes_filters(
-            combined_sols[key]["sol"], n_points_min, t_max_min
+            combined_sols[key]["sol"], n_points_min, t_max_min, max_start_phi
         )
     elif cyc_mode.lower() == "discharge-chargecc":
         return _sol_passes_filters(
-            combined_sols[key]["sol_dis"], n_points_min, t_max_min
+            combined_sols[key]["sol_dis"],
+            n_points_min,
+            t_max_min,
+            max_start_phi,
         ) and _sol_passes_filters(
-            combined_sols[key]["sol_chcc"], n_points_min, t_max_min
+            combined_sols[key]["sol_chcc"],
+            n_points_min,
+            t_max_min,
+            max_start_phi,
         )
     else:
         raise NotImplementedError
@@ -186,6 +203,7 @@ def assemble_all_data(
     n_points: int = 100,
     n_points_min: int = 0,
     t_max_min: float = 0,
+    max_start_phi: float = 1e10,
     combined_pickle_file: str | None = None,
     target_mode: str = "phi",
     save_data: bool = True,
@@ -199,6 +217,8 @@ def assemble_all_data(
     :param n_points_min: reject solutions with fewer timesteps than this
         (see :func:`passes_quality_filters`).
     :param t_max_min: reject solutions whose max time is below this.
+    :param max_start_phi: reject solutions whose first recorded voltage
+        exceeds this.
     :param combined_pickle_file: filename of the combined ``sols.pkl`` (relative
         to ``data_root_folder``); required.
     :param return_prot_params: when True, also extract per-simulation protocol
@@ -251,7 +271,12 @@ def assemble_all_data(
     P_data = []
     for ifile, file in enumerate(list_files):
         if passes_quality_filters(
-            combined_sols, file, cyc_mode, n_points_min, t_max_min
+            combined_sols,
+            file,
+            cyc_mode,
+            n_points_min,
+            t_max_min,
+            max_start_phi,
         ):
             x, y = from_combined_sols_to_data(
                 combined_sols, file, n_points, target_mode, cyc_mode

@@ -25,10 +25,14 @@ def _make_sol(n_t: int = 20, t_max: float = 10.0) -> dict:
 
 
 def test_passes_quality_filters():
+    high_start_sol = _make_sol(n_t=20, t_max=10.0)
+    high_start_sol["phis_c"][0] = 999.0
+
     combined_sols = {
         "good": {"sol": _make_sol(n_t=20, t_max=10.0)},
         "too_short": {"sol": _make_sol(n_t=3, t_max=10.0)},
         "too_early": {"sol": _make_sol(n_t=20, t_max=1.0)},
+        "high_start": {"sol": high_start_sol},
         "combo_good": {
             "sol_dis": _make_sol(n_t=20, t_max=10.0),
             "sol_chcc": _make_sol(n_t=20, t_max=10.0),
@@ -47,6 +51,21 @@ def test_passes_quality_filters():
     )
     assert not passes_quality_filters(
         combined_sols, "too_early", "discharge", n_points_min=5, t_max_min=5.0
+    )
+    assert passes_quality_filters(
+        combined_sols,
+        "high_start",
+        "discharge",
+        n_points_min=5,
+        t_max_min=5.0,
+    )
+    assert not passes_quality_filters(
+        combined_sols,
+        "high_start",
+        "discharge",
+        n_points_min=5,
+        t_max_min=5.0,
+        max_start_phi=10.0,
     )
     assert passes_quality_filters(
         combined_sols,
@@ -237,6 +256,33 @@ def test_assemble_all_data():
         )
         assert X_data.shape == (2, 2, n_points)
         assert Y_data.shape == (2, n_params)
+
+    # max_start_phi rejects solutions whose first recorded voltage is too high
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        high_start_sols = {
+            k: {**v, "sol": {**v["sol"], "phis_c": v["sol"]["phis_c"].copy()}}
+            for k, v in combined_sols.items()
+            if k != "solution_bad.npz"
+        }
+        high_start_sols["solution_0.npz"]["sol"]["phis_c"][0] = 999.0
+        with open(os.path.join(tmp_dir, "sols.pkl"), "wb") as f:
+            pickle.dump(high_start_sols, f)
+
+        X_data, Y_data = assemble_all_data(
+            tmp_dir,
+            n_points=n_points,
+            n_points_min=5,
+            max_start_phi=10.0,
+            combined_pickle_file="sols.pkl",
+            target_mode="phi",
+            save_data=True,
+            cyc_mode="discharge",
+            save_path=tmp_dir,
+        )
+        # solution_0.npz is filtered out for its high starting voltage,
+        # leaving 3 of the 4 good solutions
+        assert X_data.shape == (3, 2, n_points)
+        assert Y_data.shape == (3, n_params)
 
 
 def test_check_assembled_surrogate_data_shape():
