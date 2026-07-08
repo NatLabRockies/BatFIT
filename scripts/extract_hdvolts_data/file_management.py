@@ -45,7 +45,7 @@ def get_cycling_protocol_folder(cycling_protocol: str) -> str:
 
 def get_available_rpt_folder(
     cycling_protocol_folder: str,
-) -> Tuple(list[str], list[id]):
+) -> tuple[list[str], list[int]]:
     """
     Get the list of RPT folders available
     """
