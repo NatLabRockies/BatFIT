@@ -31,7 +31,8 @@ def make_noise_levels(
     )
 
     if target_mode.lower() == "phionly":
-        inds = [0]
+        # voltage channel only (consistent with make_bias_tensor)
+        inds = [1]
     elif target_mode.lower() == "phi":
         inds = [0, 1]
     elif target_mode.lower() == "dvdq":
