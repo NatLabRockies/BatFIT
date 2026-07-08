@@ -1527,7 +1527,9 @@ def merge_combined_sols(
         logger.info("Merging all databases")
 
         sols = {}
-        offset_arr = np.zeros(parallel_env.nProc, dtype=int)
+        # Offset by the number of records actually merged so far, so a
+        # missing rank file cannot make later ranks overwrite earlier keys
+        offset = 0
 
         for rank in range(
             parallel_env.iroot, parallel_env.nProc + parallel_env.iroot
@@ -1536,21 +1538,18 @@ def merge_combined_sols(
             try:
                 db_ = PickleDB(filename=file_to_merge, read_from_existing=True)
                 records_ = db_.read(max_try=10)
-                offset_arr[rank - parallel_env.iroot] = db_.n_data
-                if rank == parallel_env.iroot:
-                    offset = 0
-                else:
-                    offset += offset_arr[rank - 1 - parallel_env.iroot]
-                if n_points_reduce is not None:
-                    records_ = reduce_npoints_records(
-                        records_, n_points_reduce=n_points_reduce
-                    )
-                for record_ in records_:
-                    sim_id = record_["sim_id"]
-                    del record_["sim_id"]
-                    sols[int(sim_id + offset - 1)] = record_
             except FileNotFoundError:
                 logger.warning(f"{file_to_merge} was not found")
+                continue
+            if n_points_reduce is not None:
+                records_ = reduce_npoints_records(
+                    records_, n_points_reduce=n_points_reduce
+                )
+            for record_ in records_:
+                sim_id = record_["sim_id"]
+                del record_["sim_id"]
+                sols[int(sim_id + offset - 1)] = record_
+            offset += len(records_)
 
         logger.info("Writing final database")
         for rank in range(
@@ -1580,30 +1579,28 @@ def merge_combined_sols(
         logger.info("Merging all databases")
         sols = {}
         sorted_files = list_sols_files(folder_save=folder_save)
-        offset_arr = np.zeros(len(sorted_files), dtype=int)
+        # Offset by the number of records actually merged so far, so a
+        # missing rank file cannot make later ranks overwrite earlier keys
+        offset = 0
 
-        for ifile, filename in enumerate(sorted_files):
-            rank = ifile + 1
+        for filename in sorted_files:
             file_to_merge = os.path.join(folder_save, filename)
             logger.info(f"Treating {file_to_merge}")
             try:
                 db_ = PickleDB(filename=file_to_merge, read_from_existing=True)
                 records_ = db_.read(max_try=10)
-                offset_arr[rank - 1] = db_.n_data
-                if rank == 1:
-                    offset = 0
-                else:
-                    offset += offset_arr[rank - 1 - 1]
-                if n_points_reduce is not None:
-                    records_ = reduce_npoints_records(
-                        records_, n_points_reduce=n_points_reduce
-                    )
-                for record_ in records_:
-                    sim_id = record_["sim_id"]
-                    del record_["sim_id"]
-                    sols[int(sim_id + offset - 1)] = record_
             except FileNotFoundError:
                 logger.warning(f"{file_to_merge} was not found")
+                continue
+            if n_points_reduce is not None:
+                records_ = reduce_npoints_records(
+                    records_, n_points_reduce=n_points_reduce
+                )
+            for record_ in records_:
+                sim_id = record_["sim_id"]
+                del record_["sim_id"]
+                sols[int(sim_id + offset - 1)] = record_
+            offset += len(records_)
 
         logger.info("Writing final database")
         for filename in sorted_files:
