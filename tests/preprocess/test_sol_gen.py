@@ -4,8 +4,13 @@ import tempfile
 from unittest import mock
 
 from batfit import BATFIT_EXP
+from batfit.preprocess.pickledb import PickleDB
 from batfit.preprocess.sim_setup import make_params
-from batfit.preprocess.sol_gen import multi_run, multi_run_ser
+from batfit.preprocess.sol_gen import (
+    merge_combined_sols,
+    multi_run,
+    multi_run_ser,
+)
 
 
 def _fake_single_run(
@@ -113,3 +118,60 @@ def test_multi_run():
     # multi_run must forward the save_* flags to save_datapoint
     assert all(kw["save_separate_sols"] is True for kw in seen_kwargs)
     assert all(kw["save_combined_sols"] is True for kw in seen_kwargs)
+
+
+def test_merge_combined_sols():
+    sim_params = {"cyc_mode": "chirp"}
+
+    def _write_rank_db(folder, rank, n_records):
+        db = PickleDB(os.path.join(folder, f"sols_{rank}.pkl"))
+        for i in range(n_records):
+            db.append(
+                {
+                    "sim_id": i + 1,
+                    "params": [rank, i],
+                    "sol": {"fake": True},
+                }
+            )
+
+    # a missing rank file (e.g. a crashed rank) must not cause key
+    # collisions: later ranks continue from the number of records merged
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        _write_rank_db(tmp_dir, 1, 3)
+        # rank 2 file intentionally missing
+        _write_rank_db(tmp_dir, 3, 2)
+        merge_combined_sols(
+            sim_params, parallel_env=None, folder_save=tmp_dir
+        )
+        with open(os.path.join(tmp_dir, "sols.pkl"), "rb") as f:
+            sols = pickle.load(f)
+        assert sorted(sols.keys()) == [0, 1, 2, 3, 4]
+        assert [sols[k]["params"] for k in sorted(sols)] == [
+            [1, 0],
+            [1, 1],
+            [1, 2],
+            [3, 0],
+            [3, 1],
+        ]
+        # per-rank sols_N.pkl files must be cleaned up after the merge
+        assert not os.path.isfile(os.path.join(tmp_dir, "sols_1.pkl"))
+        assert not os.path.isfile(os.path.join(tmp_dir, "sols_3.pkl"))
+
+    # normal case: all rank files present
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        _write_rank_db(tmp_dir, 1, 2)
+        _write_rank_db(tmp_dir, 2, 2)
+        _write_rank_db(tmp_dir, 3, 1)
+        merge_combined_sols(
+            sim_params, parallel_env=None, folder_save=tmp_dir
+        )
+        with open(os.path.join(tmp_dir, "sols.pkl"), "rb") as f:
+            sols = pickle.load(f)
+        assert sorted(sols.keys()) == [0, 1, 2, 3, 4]
+        assert [sols[k]["params"] for k in sorted(sols)] == [
+            [1, 0],
+            [1, 1],
+            [2, 0],
+            [2, 1],
+            [3, 0],
+        ]
