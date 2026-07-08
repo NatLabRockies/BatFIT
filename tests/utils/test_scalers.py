@@ -14,6 +14,7 @@ from batfit.utils.scalers import (
     unscale_input_from_scaler,
     unscale_output_from_scaler,
     unscale_pred_from_scaler,
+    unscale_pred_std_from_scaler,
 )
 
 
@@ -176,3 +177,38 @@ def test_unscale_pred_from_scaler():
     assert np.allclose(Y_unscaled, Y, atol=1e-5)
     # default scaler_Y_file=None: passthrough
     assert np.allclose(unscale_pred_from_scaler(Y_scaled), Y_scaled)
+
+
+def test_unscale_pred_std_from_scaler():
+    import pytest
+    from sklearn.preprocessing import MinMaxScaler
+
+    N, n_params = 30, 3
+    # nonzero mean so a wrong inverse_transform would shift the std
+    Y = (np.random.randn(N, n_params) + 5.0).astype("float32")
+    scaler = StandardScaler().fit(Y)
+    std_scaled = np.abs(np.random.randn(N, n_params)).astype("float32")
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        scaler_file = os.path.join(tmp_dir, "scaler_Y.pkl")
+        with open(scaler_file, "wb") as f:
+            pickle.dump(scaler, f)
+        std_unscaled = unscale_pred_std_from_scaler(std_scaled, scaler_file)
+
+        # std transforms with the scale only, never the mean shift
+        assert np.allclose(std_unscaled, std_scaled * scaler.scale_, atol=1e-5)
+        assert std_unscaled.dtype == std_scaled.dtype
+
+        # non (x - mu) / sigma scalers are not supported
+        minmax_file = os.path.join(tmp_dir, "scaler_minmax.pkl")
+        with open(minmax_file, "wb") as f:
+            pickle.dump(MinMaxScaler().fit(Y), f)
+        with pytest.raises(NotImplementedError):
+            unscale_pred_std_from_scaler(std_scaled, minmax_file)
+
+    # scaler_Y_file=None or missing file: passthrough
+    assert np.allclose(unscale_pred_std_from_scaler(std_scaled), std_scaled)
+    assert np.allclose(
+        unscale_pred_std_from_scaler(std_scaled, "does_not_exist.pkl"),
+        std_scaled,
+    )

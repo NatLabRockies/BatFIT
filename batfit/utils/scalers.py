@@ -9,6 +9,7 @@ inference/test time don't need to keep the fitted scaler around in memory.
 import pickle
 
 import numpy as np
+from sklearn.preprocessing import StandardScaler
 
 
 class CustomScaler:
@@ -169,3 +170,35 @@ def unscale_pred_from_scaler(
 ) -> np.ndarray:
     """Inverse-scale a prediction array (alias of :func:`unscale_output_from_scaler`)."""
     return unscale_output_from_scaler(Y_data, scaler_Y_file)
+
+
+def unscale_pred_std_from_scaler(
+    Y_std: np.ndarray[np.float32],
+    scaler_Y_file: str | None = None,
+) -> np.ndarray:
+    """Inverse-scale a predicted standard deviation array.
+
+    A standard deviation transforms with the scaler's scale only, never its
+    mean shift: for a ``(x - mu) / sigma``-type scaler (e.g.
+    ``StandardScaler``) the physical std is ``std_scaled * sigma``, whereas
+    ``inverse_transform`` would wrongly add the mean back. Passes through if
+    no scaler is configured (mirroring :func:`unscale_pred_from_scaler`).
+
+    :param Y_std: predicted std array of shape ``(N, n_params)``
+    :param scaler_Y_file: path to the pickled Y scaler, or ``None``
+    :raises NotImplementedError: if the pickled scaler is not a
+        ``(x - mu) / sigma``-type scaler
+    """
+    assert len(Y_std.shape) == 2
+    if scaler_Y_file is None:
+        return Y_std
+    try:
+        scaler = _load_scaler(scaler_Y_file)
+    except FileNotFoundError:
+        return Y_std
+    if isinstance(scaler, StandardScaler):
+        return (Y_std * scaler.scale_).astype(Y_std.dtype)
+    raise NotImplementedError(
+        "Std unscaling is only implemented for (x - mu) / sigma scalers "
+        f"(StandardScaler); got {type(scaler).__name__}"
+    )

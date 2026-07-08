@@ -56,6 +56,7 @@ from batfit.utils.scalers import (
     unscale_input_from_scaler,
     unscale_output_from_scaler,
     unscale_pred_from_scaler,
+    unscale_pred_std_from_scaler,
 )
 
 __all__ = [
@@ -85,4 +86,5 @@ __all__ = [
     "unscale_input_from_scaler",
     "unscale_output_from_scaler",
     "unscale_pred_from_scaler",
+    "unscale_pred_std_from_scaler",
 ]
