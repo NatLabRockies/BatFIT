@@ -7,6 +7,7 @@ from batfit import BATFIT_EXP
 from batfit.preprocess.param_sampling import (
     enforce_stoich_a,
     enforce_stoich_c,
+    get_bounding_samples,
     get_samples,
     hypercube_combinations,
     round_samples,
@@ -72,6 +73,51 @@ def test_get_samples():
     for i, name in enumerate(sim_params["deg_param_names"]):
         assert np.all(deg_samples[:, i] >= sim_params[f"deg_{name}_min"])
         assert np.all(deg_samples[:, i] <= sim_params[f"deg_{name}_max"])
+
+
+def test_get_bounding_samples():
+    sim_params = make_params(os.path.join(BATFIT_EXP, "spm_chirp.yaml"))
+    n_deg = len(sim_params["deg_param_names"])
+    n_prot = len(sim_params["prot_param_names"])
+
+    # n_bound=None returns every corner of the joint hypercube
+    deg_samples, prot_samples = get_bounding_samples(sim_params=sim_params)
+    assert deg_samples.shape == (2 ** (n_deg + n_prot), n_deg)
+    assert prot_samples.shape == (2 ** (n_deg + n_prot), n_prot)
+
+    # every value must be exactly a min or max bound
+    for i, name in enumerate(sim_params["deg_param_names"]):
+        bounds = {
+            sim_params[f"deg_{name}_min"],
+            sim_params[f"deg_{name}_max"],
+        }
+        assert set(np.unique(deg_samples[:, i])) <= bounds
+    for i, name in enumerate(sim_params["prot_param_names"]):
+        bounds = {
+            sim_params[f"prot_{name}_min"],
+            sim_params[f"prot_{name}_max"],
+        }
+        assert set(np.unique(prot_samples[:, i])) <= bounds
+
+    # protocol corners must vary independently of degradation corners:
+    # for a fixed deg corner, all 2^n_prot protocol corners must appear
+    first_deg_corner = deg_samples[0]
+    mask = np.all(deg_samples == first_deg_corner, axis=1)
+    assert np.unique(prot_samples[mask], axis=0).shape[0] == 2**n_prot
+
+    # n_bound=0 returns empty arrays with consistent shapes
+    deg_empty, prot_empty = get_bounding_samples(
+        n_bound=0, sim_params=sim_params
+    )
+    assert deg_empty.shape == (0, n_deg)
+    assert prot_empty.shape == (0, n_prot)
+
+    # n_bound caps the number of returned corners
+    deg_capped, prot_capped = get_bounding_samples(
+        n_bound=3, sim_params=sim_params
+    )
+    assert deg_capped.shape == (3, n_deg)
+    assert prot_capped.shape == (3, n_prot)
 
 
 def test_write_exec():

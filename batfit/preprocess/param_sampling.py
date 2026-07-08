@@ -108,7 +108,7 @@ def backout_x0_a(deg_par, deg_param_names, l_bounds, u_bounds, sim_params):
         cyc_mode="discharge",
         electrode="cathode",
     )
-    LI_dis_a = _get_LI_dis_a(
+    LI_dis_a = _get_LI(
         deg_par,
         deg_param_names,
         sim_params,
@@ -134,8 +134,20 @@ def backout_x0_a(deg_par, deg_param_names, l_bounds, u_bounds, sim_params):
 def backout_x0_c(deg_par, deg_param_names, l_bounds, u_bounds, sim_params):
     # We want LI ch = LI dis_a + Li dis_c
     LI_ch = get_LI_ch(deg_par, deg_param_names, sim_params)
-    LI_dis_c = get_LI_dis_c(deg_par, deg_param_names, sim_params)
-    LI_dis_a = get_LI_dis_a(deg_par, deg_param_names, sim_params)
+    LI_dis_c = _get_LI(
+        deg_par,
+        deg_param_names,
+        sim_params,
+        cyc_mode="discharge",
+        electrode="cathode",
+    )
+    LI_dis_a = _get_LI(
+        deg_par,
+        deg_param_names,
+        sim_params,
+        cyc_mode="discharge",
+        electrode="anode",
+    )
 
     if "x0_c" in deg_param_names:
         ind = deg_param_names.index("x0_c")
@@ -677,11 +689,15 @@ def get_bounding_samples(
         prot_u_bounds.append(sim_params["prot_" + par_name + "_max"])
 
     if n_bound == 0:
-        return np.empty((0, n_deg_params + n_prot_params))
+        return (
+            np.empty((0, n_deg_params)),
+            np.empty((0, n_prot_params)),
+        )
 
     verts = [[0, 1] for _ in range(n_deg_params + n_prot_params)]
     combs = hypercube_combinations(verts)
     deg_samples = []
+    prot_samples = []
     combs_list = list(combs)
 
     if n_bound is None:
@@ -696,10 +712,11 @@ def get_bounding_samples(
                 deg_par_list.append(sim_params["deg_" + name + "_max"])
         deg_samples.append(deg_par_list)
         prot_par_list = []
+        # Protocol corners live after the degradation corners in each comb
         for ipar, name in enumerate(prot_param_names):
-            if comb[ipar] == 0:
+            if comb[n_deg_params + ipar] == 0:
                 prot_par_list.append(sim_params["prot_" + name + "_min"])
-            elif comb[ipar] == 1:
+            elif comb[n_deg_params + ipar] == 1:
                 prot_par_list.append(sim_params["prot_" + name + "_max"])
         prot_samples.append(prot_par_list)
 
