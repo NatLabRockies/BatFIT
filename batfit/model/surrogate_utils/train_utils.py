@@ -81,7 +81,7 @@ def learning_rate_schedule(epoch, epoch_end, lr_beg, lr_end):
 
 
 def train_model(
-    model: nn.Module,
+    model: torch.nn.Module,
     train_data_loader: torch.utils.data.DataLoader,
     learning_rate: float,
     num_epochs: int | None,
