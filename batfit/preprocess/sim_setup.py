@@ -49,8 +49,13 @@ def parse_input(filename, parallel_env=None):
             exp["max degradation parameter charge"].keys()
         )
         assert set(deg_param_names_chcc_min) == set(deg_param_names_chcc_max)
-        deg_param_names_chcc = list(set(deg_param_names_chcc_min))
         deg_param_names_chcc = ["x0_a", "x0_c"]
+        if set(deg_param_names_chcc_min) != set(deg_param_names_chcc):
+            logger.warning(
+                "Charge degradation parameter names are hardcoded to "
+                f"{deg_param_names_chcc}; the names declared in the YAML "
+                f"({sorted(deg_param_names_chcc_min)}) are ignored"
+            )
         deg_param_names_chcc_new = [
             f"{entry}_chcc" for entry in deg_param_names_chcc
         ]
@@ -454,8 +459,8 @@ def set_interc_disconnected_discharge(
     sim.an.x_0 = sim_params["x0_a_dis"] * read_deg_param(
         key="x0_a", deg_param_sample=deg_param_sample
     )
-    C_rate = sim_params["C_dis"]
-    return sim, C_rate
+    C_rate = float(sim_params["C_dis"])
+    return C_rate, sim
 
 
 def set_interc_disconnected_charge(
@@ -470,8 +475,8 @@ def set_interc_disconnected_charge(
     sim.an.x_0 = sim_params["x0_a_chcc"] * read_deg_param(
         key="x0_a_chcc", deg_param_sample=deg_param_sample
     )
-    C_rate = sim_params["C_chcc"]
-    return sim, C_rate
+    C_rate = float(sim_params["C_chcc"])
+    return C_rate, sim
 
 
 def set_interc_connected(
