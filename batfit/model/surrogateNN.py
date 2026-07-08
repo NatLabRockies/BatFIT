@@ -29,16 +29,24 @@ class SurrogateFCNN(nn.Module):
         constrain_output=False,
         cyc_mode="discharge",
         sim_config=None,
+        scale_y: bool = False,
     ):
         logger.info("Creating Surrogate model")
         super(SurrogateFCNN, self).__init__()
+        if constrain_output and scale_y:
+            raise ValueError(
+                "constrain_output=True is incompatible with scale_y=True: "
+                "the Sigmoid output head assumes targets in physical "
+                "voltage space, not standardized targets"
+            )
         input_shape = (n_param_pred + 1,)
         self.fc_list = fc_list
         self.n_param_pred = n_param_pred
         self.constrain_output = constrain_output
         self.sim_config = sim_config
         self.output_dim = 1
-        self.cyc_mode = (cyc_mode,)
+        self.cyc_mode = cyc_mode
+        self.scale_y = scale_y
         self.loss_fn = loss_fn
         assert self.loss_fn in [
             mae_loss,
@@ -73,7 +81,10 @@ class SurrogateFCNN(nn.Module):
         self.fcnn.append(nn.Linear(fc_list[-1], self.output_dim))
         if self.constrain_output:
             self.fcnn.append(nn.Sigmoid())
-        else:
+        elif not self.scale_y:
+            # raw voltage targets are positive, so ReLU is safe here;
+            # standardized targets (scale_y=True) can be negative, in
+            # which case no final activation is applied
             self.fcnn.append(nn.ReLU())
 
         self.fcnn_layers = nn.Sequential(*self.fcnn)
