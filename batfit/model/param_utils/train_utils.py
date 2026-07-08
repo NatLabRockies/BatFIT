@@ -255,7 +255,6 @@ def train_model(
     current_step = 0
     for epoch in range(num_epochs):
         # Set LR for this epoch
-        temp = temp_schedule(epoch, 0, num_epochs * 3 // 4, 0.1, 1.0)
         for param_group in optimizer.param_groups:
             param_group["lr"] = learning_rate_schedule(
                 epoch, num_epochs * 3 // 4, learning_rate, learning_rate_end

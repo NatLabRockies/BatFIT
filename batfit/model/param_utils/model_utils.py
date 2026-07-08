@@ -40,7 +40,6 @@ def _build_conv_layers(
                     padding=1,
                 )
             )
-            pool_l.append(nn.MaxPool1d(kernel_size=2, stride=2))
         else:
             conv_l.append(
                 nn.Conv1d(
