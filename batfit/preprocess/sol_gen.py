@@ -126,7 +126,7 @@ def robust_chirp(
                     atol=atol,
                     max_step=max_step,
                 )
-                sol = sim.run(exp, reset_state=False, bar=False)
+                sol = sim.run(exp, reset_state=True, bar=False)
                 assert all(sol.success)
                 break
             except:
@@ -169,7 +169,7 @@ def robust_DiffCap(sim, sim_params, force_fail=False):
                 exp = define_diffcap_experiment(
                     sim_params, atol=atol, max_step=max_step
                 )
-                sol = sim.run(exp, reset_state=False, bar=False)
+                sol = sim.run(exp, reset_state=True, bar=False)
                 assert all(sol.success)
                 break
             except:
@@ -205,7 +205,7 @@ def robust_preHPPC(sim, sim_params, force_fail=False):
                 exp = define_pre_hppc_experiment(
                     sim_params, atol=atol, max_step=max_step
                 )
-                sol = sim.run(exp, reset_state=False, bar=False)
+                sol = sim.run(exp, reset_state=True, bar=False)
                 assert all(sol.success)
                 break
             except:
@@ -249,7 +249,7 @@ def robust_HPPC(sim, sim_params, force_fail=False):
                 exp = define_hppc_experiment(
                     sim_params, atol=atol, max_step=max_step
                 )
-                sol = sim.run(exp, reset_state=False, bar=False)
+                sol = sim.run(exp, reset_state=True, bar=False)
                 assert all(sol.success)
                 break
             except:
@@ -294,7 +294,7 @@ def robust_postHPPC(sim, sim_params, force_fail=False):
                 exp = define_post_hppc_experiment(
                     sim_params, atol=atol, max_step=max_step
                 )
-                sol = sim.run(exp, reset_state=False, bar=False)
+                sol = sim.run(exp, reset_state=True, bar=False)
                 assert all(sol.success)
                 break
             except:
@@ -1198,7 +1198,7 @@ def clean_sol_par(
 ):
 
     param_list_file = os.path.join(folder_save, param_list_file)
-    bad_par_list_file = os.path.join(folder_save, bad_par_list_file)
+    bad_par_file = os.path.join(folder_save, bad_par_file)
     param_list_multi_file = os.path.join(folder_save, param_list_multi_file)
 
     with open(param_list_file, "r+") as f:
@@ -1262,7 +1262,7 @@ def multi_run_ser(
         folder_save=folder_save, param_list_file=param_list_file
     )
     nsim = len(deg_parameter_list)
-    if cyc_mode in ["chirp"]:
+    if cyc_mode.lower() in ["chirp"]:
         protocol_parameter_list = read_list_param(
             folder_save=folder_save, param_list_file=protocol_list_file
         )
@@ -1310,10 +1310,8 @@ def multi_run_ser(
         elif cyc_mode.lower() in [
             "chirp",
         ]:
-            prot_parameter_list = read_list_param(
-                folder_save=folder_save, param_list_file=protocol_list_file
-            )
-            prot_param_entry = prot_parameter_list[count]
+            # protocol_parameter_list is read once before the loop
+            prot_param_entry = protocol_parameter_list[count]
             prot_param_sample = from_protparamlist_to_protparamdict(
                 prot_param_entry, sim_params, parallel_env=None
             )
@@ -1641,6 +1639,8 @@ def multi_run(
             bad_par_file=bad_par_file,
             protocol_list_file=protocol_list_file,
             bad_protocol_file=bad_protocol_file,
+            save_separate_sols=save_separate_sols,
+            save_combined_sols=save_combined_sols,
             folder_save=folder_save,
             n_points_reduce=n_points_reduce,
             store_current=store_current,
