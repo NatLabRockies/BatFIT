@@ -337,7 +337,11 @@ def check_assembled_surrogate_data_shape(
     assert tmp["X_data"].shape[0] == tmp["Y_data"].shape[0]
 
     if combined_pickle_file is not None:
-        with open(combined_pickle_file, "rb") as f:
+        # combined_pickle_file is relative to data_root_folder, as in
+        # assemble_all_data
+        with open(
+            os.path.join(data_root_folder, combined_pickle_file), "rb"
+        ) as f:
             sols = pickle.load(f)
             assert len(sols) * n_points == tmp["X_data"].shape[0]
 
@@ -455,13 +459,11 @@ def augment_data(
     logger.info(f"\tOld data {X_data_orig.shape}, {Y_data_orig.shape}")
 
     for ds in range(new_ds):
-        X_data = np.vstack(
-            (
-                X_data,
-                X_data_orig
-                + np.random.uniform(0, noise_level, size=X_data_orig.shape),
-            )
+        # zero-centered noise, consistent with apply_noise
+        noise = (
+            np.random.uniform(-0.5, 0.5, size=X_data_orig.shape) * noise_level
         )
+        X_data = np.vstack((X_data, X_data_orig + noise))
         Y_data = np.vstack((Y_data, Y_data_orig))
     logger.info(f"\tNew data {X_data.shape}, {Y_data.shape}")
 
