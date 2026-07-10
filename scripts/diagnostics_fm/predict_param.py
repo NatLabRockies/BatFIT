@@ -13,6 +13,7 @@ from batfit.basicutilityc import ReadInput as ri
 from batfit import logger
 from batfit.utils.torch_utils import get_device_type
 from batfit.utils.data_utils import scale_input_from_scaler
+from batfit.preprocess.sim_setup import make_params
 from utils import load_fm_model, single_forward_pass
 import sys
 
