@@ -32,7 +32,7 @@ class ForwardModel:
                     self.sim_params[f"deg_{deg_param_name}_min"],
                 )
             )
-        _, rootsol = single_run(deg_param_sample, self.sim_params)
+        _, _, rootsol = single_run(deg_param_sample, self.sim_params)
         t_sol = None
         phi_sol = None
         if rootsol is not None:
