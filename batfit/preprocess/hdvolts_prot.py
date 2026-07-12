@@ -4,7 +4,7 @@ from bmlite import Experiment
 
 def define_diffcap_experiment(sim_params, expr=None, atol=1e-9, max_step=1000):
     if expr is None:
-        expr = Experiment(atol=atol, max_step=max_step)
+        expr = Experiment(atol=atol, max_step=max_step, rtol=1e-6)
     expr.add_step(
         "current_A",
         -0.2277978276,
@@ -33,7 +33,7 @@ def define_pre_hppc_experiment(
     sim_params, expr=None, atol=1e-9, max_step=1000
 ):
     if expr is None:
-        expr = Experiment(atol=atol, max_step=max_step)
+        expr = Experiment(atol=atol, max_step=max_step, rtol=1e-6)
     expr.add_step(
         "current_A",
         -0.9117096352,
@@ -46,10 +46,10 @@ def define_pre_hppc_experiment(
     expr.add_step(
         "voltage_V",
         sim_params["vmax"],
-        (100 * 60, 150.0),
+        (100 * 60, 50.0),
         limits=(
             "current_A",
-            0.23,
+            -0.23,
         ),
     )
     expr.add_step("current_A", 0.0, (60 * 60, 90.0))
@@ -83,10 +83,10 @@ def define_post_hppc_experiment(
     expr.add_step(
         "voltage_V",
         sim_params["vmax"],
-        (100 * 60.0, 150.0),
+        (100 * 60.0, 50.0),
         limits=(
             "current_A",
-            0.23,
+            -0.23,
         ),
     )
     step18_current = {
@@ -151,7 +151,7 @@ def define_post_hppc_experiment(
             -np.random.normal(
                 step21_current[pulse + 1], step21_currentstd[pulse + 1]
             ),
-            (10, 0.1),
+            (10.0, 0.1),
         )
         expr.add_step(
             "current_A",
@@ -174,7 +174,7 @@ def define_post_hppc_experiment(
 
 def define_hppc_experiment(sim_params, expr=None, atol=1e-9, max_step=1000):
     if expr is None:
-        expr = Experiment(atol=atol, max_step=max_step)
+        expr = Experiment(atol=atol, max_step=max_step, rtol=1e-6)
     expr = define_pre_hppc_experiment(
         sim_params, expr=expr, atol=atol, max_step=max_step
     )
