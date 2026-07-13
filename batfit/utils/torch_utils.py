@@ -9,6 +9,7 @@ import os
 import pickle
 from pathlib import Path
 
+import numpy as np
 import torch
 
 from batfit import logger
@@ -28,6 +29,8 @@ __all__ = [
     "log_training",
     "save_model",
     "load_model",
+    "find_best_model_file",
+    "load_frozen_model",
 ]
 
 
@@ -192,4 +195,65 @@ def load_model(
         model.load_state_dict(torch.load(state_dict_file, weights_only=True))
         model.to(device)
 
+    return model
+
+
+def find_best_model_file(model_dir: str) -> str:
+    """Return the checkpoint path with the lowest recorded test loss.
+
+    Reads ``test_loss.csv`` in model_dir, finds the iteration with minimum
+    test loss, and returns the closest saved ``model_<iter>.pt`` checkpoint
+    (or ``model_final.pt`` when the best iteration is the last one or no
+    intermediate checkpoints exist).
+
+    :param model_dir: directory containing ``test_loss.csv`` and checkpoints
+    :return: path to the best checkpoint file
+    """
+    vals = np.loadtxt(
+        os.path.join(model_dir, "test_loss.csv"), delimiter=";", skiprows=1
+    )
+    # Handle the case where vals has only 1 row
+    vals = np.atleast_2d(vals)
+
+    best_ind = int(np.argmin(vals[:, 1]))
+    final_path = os.path.join(model_dir, "model_final.pt")
+    if best_ind == vals.shape[0] - 1 and os.path.isfile(final_path):
+        return final_path
+    iterations = np.array(
+        [
+            int(fname[6 : fname.index(".pt")])
+            for fname in os.listdir(model_dir)
+            if fname.startswith("model_")
+            and fname.endswith(".pt")
+            and "final" not in fname
+        ]
+    )
+    if len(iterations) == 0:
+        return final_path
+    best_iter = vals[best_ind, 0]
+    ind = int(np.argmin(np.abs(iterations - best_iter)))
+    return os.path.join(model_dir, f"model_{iterations[ind]}.pt")
+
+
+def load_frozen_model(
+    models_dir: str, device: torch.device
+) -> torch.nn.Module:
+    """Load the best checkpoint of a trained model in eval mode.
+
+    :param models_dir: directory containing ``model.pkl``, ``test_loss.csv``
+        and the ``model_*.pt`` checkpoints
+    :param device: device the model is moved to
+    :return: frozen model in eval mode
+    """
+    best_pt = find_best_model_file(models_dir)
+    logger.info(f"Loading model from {best_pt}")
+    with open(os.path.join(models_dir, "model.pkl"), "rb") as f:
+        model = pickle.load(f)
+    # Older pickled NPE models predate the dependent_outputs attribute
+    if not hasattr(model, "dependent_outputs"):
+        model.dependent_outputs = False
+    # Reading on cpu and passing to device as needed
+    model = load_model(model, best_pt, enable_cuda=False, enable_mps=False)
+    model.to(device)
+    model.eval()
     return model

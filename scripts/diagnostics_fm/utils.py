@@ -8,7 +8,7 @@ from batfit.utils.data_utils import (
     scale_input_from_scaler,
     unscale_output_from_scaler,
 )
-from batfit.utils.torch_utils import get_device_type
+from batfit.utils.torch_utils import find_best_model_file, get_device_type
 
 
 def load_fm_model(inp) -> ProbParamFM:
@@ -87,51 +87,6 @@ def single_forward_pass(
     sigma = samples.std(axis=0)
 
     return samples, mu, sigma
-
-
-def get_model_it(model_dirs):
-    filenames = os.listdir(model_dirs)
-    iterations = []
-    for filename in filenames:
-        if (
-            filename.startswith("model_")
-            and filename.endswith(".pt")
-            and "final" not in filename
-        ):
-            ind_end = filename.index(".pt")
-            ind_start = 6
-            iterations.append(int(filename[ind_start:ind_end]))
-    return np.array(iterations)
-
-
-def read_test_loss(model_dirs):
-    filename = os.path.join(model_dirs, "test_loss.csv")
-    vals = np.loadtxt(filename, delimiter=";", skiprows=1)
-    best_ind = np.argmin(vals[:, 1])
-    if best_ind == vals.shape[0] - 1:
-        return "final"
-    else:
-        return vals[best_ind, 0]
-
-
-def find_best_model_file(model_dirs):
-    filename = None
-    best_iter = read_test_loss(model_dirs)
-    if best_iter == "final":
-        filename = os.path.join(model_dirs, "model_final.pt")
-    else:
-        iterations = get_model_it(model_dirs)
-        if len(iterations) > 0:
-            ind = np.argmin(abs(iterations - best_iter))
-            filename_try = os.path.join(
-                model_dirs, f"model_{iterations[ind]}.pt"
-            )
-            if os.path.exists(filename_try):
-                filename = filename_try
-    if filename is None:
-        return os.path.join(model_dirs, "model_final.pt")
-    else:
-        return filename
 
 
 def figure_org(n_params: int):

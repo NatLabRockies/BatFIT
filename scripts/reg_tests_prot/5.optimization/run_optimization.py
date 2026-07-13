@@ -27,66 +27,26 @@ import torch
 from batfit import logger
 from batfit.basicutilityc import ReadInput as ri
 from batfit.model.param_utils.noise_utils import apply_noise, make_noise_levels
-from batfit.model.param_utils.train_utils import create_model_from_log
 from batfit.model.paramNN import ProbProtParamFM
 from batfit.preprocess.sim_setup import make_params
 from batfit.utils.data_utils import scale_input_from_scaler
-from batfit.utils.torch_utils import get_device_type
+from batfit.utils.torch_utils import get_device_type, load_frozen_model
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _find_best_model_file(model_dir: str) -> str:
-    """Return the checkpoint path with the lowest recorded test loss."""
-    vals = np.loadtxt(
-        os.path.join(model_dir, "test_loss.csv"), delimiter=";", skiprows=1
-    )
-    best_ind = int(np.argmin(vals[:, 1]))
-    final_path = os.path.join(model_dir, "model_final.pt")
-    if best_ind == vals.shape[0] - 1 and os.path.isfile(final_path):
-        return final_path
-    iterations = np.array(
-        [
-            int(fname[6 : fname.index(".pt")])
-            for fname in os.listdir(model_dir)
-            if fname.startswith("model_")
-            and fname.endswith(".pt")
-            and "final" not in fname
-        ]
-    )
-    if len(iterations) == 0:
-        return final_path
-    best_iter = vals[best_ind, 0]
-    ind = int(np.argmin(np.abs(iterations - best_iter)))
-    return os.path.join(model_dir, f"model_{iterations[ind]}.pt")
-
-
 def _load_npe(inp, device):
     """Load the best NPE checkpoint."""
-    model_pkl = os.path.join(inp.npe_models_dir, "model.pkl")
-    best_pt = _find_best_model_file(inp.npe_models_dir)
-    logger.info(f"Loading NPE from {best_pt}")
-    model = create_model_from_log(
-        model_obj_file=model_pkl, model_state_dict_file=best_pt
-    )
-    model.to(device)
-    model.eval()
-    return model
+    logger.info("Loading NPE")
+    return load_frozen_model(inp.npe_models_dir, device)
 
 
 def _load_var_pred(inp, device):
     """Load the best variance predictor checkpoint."""
-    model_pkl = os.path.join(inp.var_pred_models_dir, "model.pkl")
-    best_pt = _find_best_model_file(inp.var_pred_models_dir)
-    logger.info(f"Loading variance predictor from {best_pt}")
-    model = create_model_from_log(
-        model_obj_file=model_pkl, model_state_dict_file=best_pt
-    )
-    model.to(device)
-    model.eval()
-    return model
+    logger.info("Loading variance predictor")
+    return load_frozen_model(inp.var_pred_models_dir, device)
 
 
 # ---------------------------------------------------------------------------

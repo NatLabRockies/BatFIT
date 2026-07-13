@@ -2,73 +2,14 @@
 Shared helpers for NPE-based protocol optimization pipelines.
 """
 
-import os
 import pickle
 
 import numpy as np
 import scipy.optimize
 import torch
 
-from batfit import logger
-
 from .model_utils import _ProbParamFMBase
 from .noise_utils import apply_noise
-from .train_utils import create_model_from_log
-
-
-def find_best_model_file(model_dir: str) -> str:
-    """Return the checkpoint path with the lowest recorded test loss.
-
-    Reads ``test_loss.csv`` in model_dir, finds the iteration with minimum
-    test loss, and returns the closest saved ``model_<iter>.pt`` checkpoint
-    (or ``model_final.pt`` when the best iteration is the last one or no
-    intermediate checkpoints exist).
-
-    :param model_dir: directory containing ``test_loss.csv`` and checkpoints
-    :return: path to the best checkpoint file
-    """
-    vals = np.loadtxt(
-        os.path.join(model_dir, "test_loss.csv"), delimiter=";", skiprows=1
-    )
-    best_ind = int(np.argmin(vals[:, 1]))
-    final_path = os.path.join(model_dir, "model_final.pt")
-    if best_ind == vals.shape[0] - 1 and os.path.isfile(final_path):
-        return final_path
-    iterations = np.array(
-        [
-            int(fname[6 : fname.index(".pt")])
-            for fname in os.listdir(model_dir)
-            if fname.startswith("model_")
-            and fname.endswith(".pt")
-            and "final" not in fname
-        ]
-    )
-    if len(iterations) == 0:
-        return final_path
-    best_iter = vals[best_ind, 0]
-    ind = int(np.argmin(np.abs(iterations - best_iter)))
-    return os.path.join(model_dir, f"model_{iterations[ind]}.pt")
-
-
-def load_frozen_model(
-    models_dir: str, device: torch.device
-) -> torch.nn.Module:
-    """Load the best checkpoint of a trained model in eval mode.
-
-    :param models_dir: directory containing ``model.pkl``, ``test_loss.csv``
-        and the ``model_*.pt`` checkpoints
-    :param device: device the model is moved to
-    :return: frozen model in eval mode
-    """
-    model_pkl = os.path.join(models_dir, "model.pkl")
-    best_pt = find_best_model_file(models_dir)
-    logger.info(f"Loading model from {best_pt}")
-    model = create_model_from_log(
-        model_obj_file=model_pkl, model_state_dict_file=best_pt
-    )
-    model.to(device)
-    model.eval()
-    return model
 
 
 def load_pickle(path: str):
@@ -261,7 +202,7 @@ def optimize_protocol(
 
     Runs L-BFGS-B (bounded quasi-Newton) with exact PyTorch autograd
     gradients, restarted from n_restarts random initial points sampled
-    uniformly within bounds. 
+    uniformly within bounds.
     Clamping a protocol amplitude dimension to evaluate a
     chirp-free baseline).
 

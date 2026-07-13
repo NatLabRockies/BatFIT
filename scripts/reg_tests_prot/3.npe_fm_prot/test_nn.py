@@ -13,7 +13,7 @@ from batfit.basicutilityc import ReadInput as ri
 from batfit.model.param_utils.noise_utils import apply_noise, make_noise_levels
 from batfit.model.param_utils.train_utils import create_model_from_log
 from batfit.utils.data_utils import scale_input_from_scaler
-from batfit.utils.torch_utils import get_device_type
+from batfit.utils.torch_utils import find_best_model_file, get_device_type
 
 
 def norm_coverage(n):
@@ -41,42 +41,6 @@ def empirical_coverage(
     upper = np.percentile(samples, 100.0 - alpha / 2.0, axis=1)
     covered = (truth >= lower) & (truth <= upper)
     return covered.mean()
-
-
-def get_model_it(model_dir):
-    iterations = []
-    for fname in os.listdir(model_dir):
-        if (
-            fname.startswith("model_")
-            and fname.endswith(".pt")
-            and "final" not in fname
-        ):
-            iterations.append(int(fname[6 : fname.index(".pt")]))
-    return np.array(iterations)
-
-
-def read_test_loss(model_dir):
-    vals = np.loadtxt(
-        os.path.join(model_dir, "test_loss.csv"), delimiter=";", skiprows=1
-    )
-    best_ind = np.argmin(vals[:, 1])
-    if best_ind == vals.shape[0] - 1 and os.path.isfile(
-        os.path.join(model_dir, "model_final.pt")
-    ):
-        return "final"
-    return vals[best_ind, 0]
-
-
-def find_best_model_file(model_dir: str) -> str:
-    """Return the checkpoint path with the lowest test loss."""
-    best_iter = read_test_loss(model_dir)
-    if best_iter == "final":
-        return os.path.join(model_dir, "model_final.pt")
-    iterations = get_model_it(model_dir)
-    if len(iterations) == 0:
-        return os.path.join(model_dir, "model_final.pt")
-    ind = np.argmin(abs(iterations - best_iter))
-    return os.path.join(model_dir, f"model_{iterations[ind]}.pt")
 
 
 def test_perf(inp):

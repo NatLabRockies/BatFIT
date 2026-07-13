@@ -37,36 +37,11 @@ from batfit.basicutilityc import ReadInput as ri
 from batfit.model.param_utils.noise_utils import apply_noise, make_noise_levels
 from batfit.model.param_utils.train_utils import create_model_from_log
 from batfit.utils.data_utils import scale_input_from_scaler
-from batfit.utils.torch_utils import get_device_type
+from batfit.utils.torch_utils import find_best_model_file, get_device_type
 
 # ---------------------------------------------------------------------------
 # Model loading
 # ---------------------------------------------------------------------------
-
-
-def _find_best_model_file(models_dir: str) -> str:
-    """Return the checkpoint path with the lowest recorded test loss.
-
-    :param models_dir: directory produced by a training run
-    :return: absolute path to the best .pt file
-    """
-    loss_file = os.path.join(models_dir, "test_loss.csv")
-    vals = np.loadtxt(loss_file, delimiter=";", skiprows=1)
-    if vals.ndim == 1:
-        vals = vals[np.newaxis, :]
-    best_idx = int(np.argmin(vals[:, 1]))
-    final_path = os.path.join(models_dir, "model_final.pt")
-    if best_idx == vals.shape[0] - 1 and os.path.isfile(final_path):
-        return final_path
-    filenames = [
-        f
-        for f in os.listdir(models_dir)
-        if f.startswith("model_") and f.endswith(".pt") and "final" not in f
-    ]
-    iterations = [int(f[6:-3]) for f in filenames]
-    best_step = int(vals[best_idx, 0])
-    closest = min(iterations, key=lambda x: abs(x - best_step))
-    return os.path.join(models_dir, f"model_{closest}.pt")
 
 
 def _load_model(models_dir: str) -> torch.nn.Module:
@@ -76,7 +51,7 @@ def _load_model(models_dir: str) -> torch.nn.Module:
     :return: model in eval mode on CPU
     """
     model_pkl = os.path.join(models_dir, "model.pkl")
-    best_pt = _find_best_model_file(models_dir)
+    best_pt = find_best_model_file(models_dir)
     logger.info(f"Loading {best_pt}")
     model = create_model_from_log(model_pkl, best_pt)
     model.eval()

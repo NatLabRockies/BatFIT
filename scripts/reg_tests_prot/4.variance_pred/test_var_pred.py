@@ -25,32 +25,7 @@ from batfit import logger
 from batfit.basicutilityc import ReadInput as ri
 from batfit.model.param_utils.train_utils import create_model_from_log
 from batfit.preprocess.sim_setup import make_params
-from batfit.utils.torch_utils import get_device_type
-
-
-def _find_best_model_file(model_dir: str) -> str:
-    """Return the checkpoint path with the lowest recorded test loss."""
-    vals = np.loadtxt(
-        os.path.join(model_dir, "test_loss.csv"), delimiter=";", skiprows=1
-    )
-    best_ind = int(np.argmin(vals[:, 1]))
-    final_path = os.path.join(model_dir, "model_final.pt")
-    if best_ind == vals.shape[0] - 1 and os.path.isfile(final_path):
-        return final_path
-    iterations = np.array(
-        [
-            int(fname[6 : fname.index(".pt")])
-            for fname in os.listdir(model_dir)
-            if fname.startswith("model_")
-            and fname.endswith(".pt")
-            and "final" not in fname
-        ]
-    )
-    if len(iterations) == 0:
-        return final_path
-    best_iter = vals[best_ind, 0]
-    ind = int(np.argmin(np.abs(iterations - best_iter)))
-    return os.path.join(model_dir, f"model_{iterations[ind]}.pt")
+from batfit.utils.torch_utils import find_best_model_file, get_device_type
 
 
 def parity_plot(inp) -> None:
@@ -70,7 +45,7 @@ def parity_plot(inp) -> None:
 
     # Load model
     model_pkl = os.path.join(inp.models_dir, "model.pkl")
-    best_pt = _find_best_model_file(inp.models_dir)
+    best_pt = find_best_model_file(inp.models_dir)
     logger.info(f"Loading variance predictor from {best_pt}")
     model = create_model_from_log(
         model_obj_file=model_pkl,

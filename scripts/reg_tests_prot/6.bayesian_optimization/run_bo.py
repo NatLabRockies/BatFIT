@@ -43,42 +43,17 @@ from batfit.preprocess.utils import (
     from_degparamlist_to_degparamdict,
     from_protparamlist_to_protparamdict,
 )
-from batfit.utils.torch_utils import get_device_type
+from batfit.utils.torch_utils import find_best_model_file, get_device_type
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _find_best_model_file(model_dir: str) -> str:
-    """Return the checkpoint path with the lowest recorded test loss."""
-    vals = np.loadtxt(
-        os.path.join(model_dir, "test_loss.csv"), delimiter=";", skiprows=1
-    )
-    best_ind = int(np.argmin(vals[:, 1]))
-    final_path = os.path.join(model_dir, "model_final.pt")
-    if best_ind == vals.shape[0] - 1 and os.path.isfile(final_path):
-        return final_path
-    iterations = np.array(
-        [
-            int(fname[6 : fname.index(".pt")])
-            for fname in os.listdir(model_dir)
-            if fname.startswith("model_")
-            and fname.endswith(".pt")
-            and "final" not in fname
-        ]
-    )
-    if len(iterations) == 0:
-        return final_path
-    best_iter = vals[best_ind, 0]
-    ind = int(np.argmin(np.abs(iterations - best_iter)))
-    return os.path.join(model_dir, f"model_{iterations[ind]}.pt")
-
-
 def _load_npe(inp, device: torch.device):
     """Load the best NPE checkpoint and move it to device."""
     model_pkl = os.path.join(inp.npe_models_dir, "model.pkl")
-    best_pt = _find_best_model_file(inp.npe_models_dir)
+    best_pt = find_best_model_file(inp.npe_models_dir)
     logger.info(f"Loading NPE from {best_pt}")
     model = create_model_from_log(
         model_obj_file=model_pkl, model_state_dict_file=best_pt
