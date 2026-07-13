@@ -1,0 +1,38 @@
+# Recipe for run_optimization_clean.py and plot_optimization_clean.py
+# Evaluates the benefit of adding a chirp to a plain 1C charge: the nochirp
+# NPE (2b.npe_cnn_nochirp) provides the baseline (mu, sigma) from a chargecc
+# observation; the chirp-side variance estimator (4.variance_pred) is then
+# minimised over the chirp parameters at fixed mu.
+
+# --- Models ---
+nochirp_npe_models_dir: /Users/mhassana/Desktop/GitHub/BatFIT_chirpslow/scripts/reg_tests_prot/2b.npe_cnn_nochirp/models
+var_pred_models_dir: /Users/mhassana/Desktop/GitHub/BatFIT_chirpslow/scripts/reg_tests_prot/4.variance_pred/models
+var_pred_save_path: /Users/mhassana/Desktop/GitHub/BatFIT_chirpslow/scripts/reg_tests_prot/4.variance_pred/var_pred_data
+
+# --- Data ---
+# nochirp observations (chargecc); sim_config is the CHIRP config, used for
+# the protocol parameter names and physical bounds
+nochirp_data_path: /Users/mhassana/Desktop/GitHub/BatFIT_chirpslow/scripts/reg_tests_prot/1b.gen_data_nochirp/data_spm_nochirp
+sim_config: /Users/mhassana/Desktop/GitHub/BatFIT_chirpslow/batfit/default_exps/spm_chirp.yaml
+cyc_mode: chargecc
+target_mode: phi
+noise_factor: 1.0
+
+# --- Settings ---
+# Number of nochirp test curves to evaluate
+n_curves: 100
+
+# Number of random restarts for L-BFGS-B (more = better global search)
+n_restarts: 10
+
+# Number of noise realisations used to average the NPE (mu, sigma) estimate
+n_noise_npe: 1
+
+# Number of bins for the conditional-average plots
+n_bins: 10
+
+# Random seed for reproducible test-curve selection
+random_seed: 42
+
+# --- Output ---
+save_path: optimization_clean_results

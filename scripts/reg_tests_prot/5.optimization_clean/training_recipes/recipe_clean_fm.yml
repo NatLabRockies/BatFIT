@@ -1,0 +1,35 @@
+# Recipe for run_optimization_clean.py and plot_optimization_clean.py — FM variant
+# Same pipeline as recipe_clean.yml but with a flow-matching nochirp NPE and
+# the variance estimator trained on FM-generated data (4.variance_pred's
+# *_fm outputs). run_optimization_clean.py dispatches on the NPE type
+# automatically (ProbParamFM posterior samples -> mu/sigma).
+#
+# NOTE: no FM nochirp training step is scaffolded yet; train one first by
+# mirroring 2b.npe_cnn_nochirp with the reg_tests/5.npe_fm scripts and point
+# nochirp_npe_models_dir at its models directory.
+
+# --- Models ---
+nochirp_npe_models_dir: /Users/mhassana/Desktop/GitHub/BatFIT_chirpslow/scripts/reg_tests_prot/2b.npe_fm_nochirp/models
+var_pred_models_dir: /Users/mhassana/Desktop/GitHub/BatFIT_chirpslow/scripts/reg_tests_prot/4.variance_pred/models_fm
+var_pred_save_path: /Users/mhassana/Desktop/GitHub/BatFIT_chirpslow/scripts/reg_tests_prot/4.variance_pred/var_pred_data_fm
+
+# --- Data ---
+nochirp_data_path: /Users/mhassana/Desktop/GitHub/BatFIT_chirpslow/scripts/reg_tests_prot/1b.gen_data_nochirp/data_spm_nochirp
+sim_config: /Users/mhassana/Desktop/GitHub/BatFIT_chirpslow/batfit/default_exps/spm_chirp.yaml
+cyc_mode: chargecc
+target_mode: phi
+noise_factor: 1.0
+
+# --- FM sampling settings (used by predict_mu_sigma) ---
+n_samples: 1000
+n_ode_steps: 100
+
+# --- Settings ---
+n_curves: 100
+n_restarts: 10
+n_noise_npe: 1
+n_bins: 10
+random_seed: 42
+
+# --- Output ---
+save_path: optimization_clean_results_fm
