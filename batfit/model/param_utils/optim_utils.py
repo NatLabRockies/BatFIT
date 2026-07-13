@@ -2,24 +2,12 @@
 Shared helpers for NPE-based protocol optimization pipelines.
 """
 
-import pickle
-
 import numpy as np
 import scipy.optimize
 import torch
 
 from .model_utils import _ProbParamFMBase
 from .noise_utils import apply_noise
-
-
-def load_pickle(path: str):
-    """Load a pickled object (typically a scikit-learn scaler).
-
-    :param path: path to the pickle file
-    :return: the unpickled object
-    """
-    with open(path, "rb") as f:
-        return pickle.load(f)
 
 
 def predict_mu_sigma(

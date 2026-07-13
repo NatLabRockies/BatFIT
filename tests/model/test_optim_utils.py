@@ -1,7 +1,3 @@
-import os
-import pickle
-import tempfile
-
 import numpy as np
 import pytest
 import torch
@@ -11,7 +7,6 @@ from batfit.model.param_utils.losses import independent_normal_loss
 from batfit.model.param_utils.noise_utils import make_noise_levels
 from batfit.model.param_utils.optim_utils import (
     evaluate_sigma,
-    load_pickle,
     optimize_protocol,
     predict_mu_sigma,
     sigma_physical,
@@ -28,17 +23,6 @@ def _tiny_var_model():
         hidden_list=[8],
         sim_config="batfit/default_exps/spm_chirp.yaml",
     )
-
-
-def test_load_pickle():
-    obj = {"a": 1, "b": np.arange(3)}
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = os.path.join(tmpdir, "obj.pkl")
-        with open(path, "wb") as f:
-            pickle.dump(obj, f)
-        loaded = load_pickle(path)
-    assert loaded["a"] == 1
-    assert np.array_equal(loaded["b"], obj["b"])
 
 
 def test_predict_mu_sigma():

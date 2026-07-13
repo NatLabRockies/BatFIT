@@ -3,9 +3,9 @@
 The actual implementations now live in focused modules under ``batfit.utils``:
 :mod:`~batfit.utils.assembly`, :mod:`~batfit.utils.raw_sol_utils`,
 :mod:`~batfit.utils.scalers`, :mod:`~batfit.utils.dataset_split`, and
-:mod:`~batfit.utils.dataset_scaling`. This module only re-exports their public
+:mod:`~batfit.utils.dataset_scaling`. This module re-exports their public
 names so existing ``from batfit.utils.data_utils import ...`` call sites keep
-working unchanged.
+working unchanged, and hosts the small shared I/O helper :func:`load_pickle`.
 
 Dataset assembly workflow (in order):
 
@@ -20,6 +20,8 @@ Dataset assembly workflow (in order):
    train split and apply them to both splits. Models are only ever trained
    and evaluated on this scaled data, never on raw/unscaled arrays.
 """
+
+import pickle
 
 from batfit.utils.assembly import (
     assemble_all_data,
@@ -87,4 +89,15 @@ __all__ = [
     "unscale_output_from_scaler",
     "unscale_pred_from_scaler",
     "unscale_pred_std_from_scaler",
+    "load_pickle",
 ]
+
+
+def load_pickle(path: str):
+    """Load a pickled object (typically a scikit-learn scaler).
+
+    :param path: path to the pickle file
+    :return: the unpickled object
+    """
+    with open(path, "rb") as f:
+        return pickle.load(f)
