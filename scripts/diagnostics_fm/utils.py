@@ -1,13 +1,15 @@
-from batfit.model.paramNN import *
-from batfit import logger
+import os
 import pickle
+
+from batfit import logger
 from batfit.model.param_utils.train_utils import create_model_from_log
+from batfit.model.paramNN import *
 from batfit.utils.data_utils import (
     scale_input_from_scaler,
     unscale_output_from_scaler,
 )
 from batfit.utils.torch_utils import get_device_type
-import os
+
 
 def load_fm_model(inp) -> ProbParamFM:
     """Load the trained flow matching NPE from its training run directory.
@@ -28,6 +30,7 @@ def load_fm_model(inp) -> ProbParamFM:
     )
     model.eval()
     return model
+
 
 def single_forward_pass(
     time_input: np.ndarray,
@@ -90,20 +93,26 @@ def get_model_it(model_dirs):
     filenames = os.listdir(model_dirs)
     iterations = []
     for filename in filenames:
-        if filename.startswith("model_") and filename.endswith(".pt") and "final" not in filename:
+        if (
+            filename.startswith("model_")
+            and filename.endswith(".pt")
+            and "final" not in filename
+        ):
             ind_end = filename.index(".pt")
             ind_start = 6
             iterations.append(int(filename[ind_start:ind_end]))
     return np.array(iterations)
 
+
 def read_test_loss(model_dirs):
     filename = os.path.join(model_dirs, "test_loss.csv")
-    vals = np.loadtxt(filename, delimiter=';', skiprows=1)
-    best_ind = np.argmin(vals[:,1])
-    if best_ind == vals.shape[0]-1:
+    vals = np.loadtxt(filename, delimiter=";", skiprows=1)
+    best_ind = np.argmin(vals[:, 1])
+    if best_ind == vals.shape[0] - 1:
         return "final"
     else:
-        return vals[best_ind,0]
+        return vals[best_ind, 0]
+
 
 def find_best_model_file(model_dirs):
     filename = None
@@ -112,18 +121,21 @@ def find_best_model_file(model_dirs):
         filename = os.path.join(model_dirs, "model_final.pt")
     else:
         iterations = get_model_it(model_dirs)
-        if len(iterations)>0:
-            ind = np.argmin(abs(iterations-best_iter))
-            filename_try = os.path.join(model_dirs, f"model_{iterations[ind]}.pt")
+        if len(iterations) > 0:
+            ind = np.argmin(abs(iterations - best_iter))
+            filename_try = os.path.join(
+                model_dirs, f"model_{iterations[ind]}.pt"
+            )
             if os.path.exists(filename_try):
-               filename = filename_try
+                filename = filename_try
     if filename is None:
         return os.path.join(model_dirs, "model_final.pt")
     else:
         return filename
 
-def figure_org(n_params:int):
-    
+
+def figure_org(n_params: int):
+
     logger.info(f"Organizing figure for n_param = {n_params}")
     if n_params == 10:
         rows = 4

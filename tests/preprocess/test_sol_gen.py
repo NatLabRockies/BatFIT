@@ -78,11 +78,14 @@ def test_multi_run():
             ) as f:
                 f.write("\n".join(prot_lines) + "\n")
 
-            with mock.patch(
-                "batfit.preprocess.sol_gen.single_run", _fake_single_run
-            ), mock.patch(
-                "batfit.preprocess.sol_gen.save_datapoint",
-                _fake_save_datapoint,
+            with (
+                mock.patch(
+                    "batfit.preprocess.sol_gen.single_run", _fake_single_run
+                ),
+                mock.patch(
+                    "batfit.preprocess.sol_gen.save_datapoint",
+                    _fake_save_datapoint,
+                ),
             ):
                 if label == "ser":
                     multi_run_ser(
@@ -140,9 +143,7 @@ def test_merge_combined_sols():
         _write_rank_db(tmp_dir, 1, 3)
         # rank 2 file intentionally missing
         _write_rank_db(tmp_dir, 3, 2)
-        merge_combined_sols(
-            sim_params, parallel_env=None, folder_save=tmp_dir
-        )
+        merge_combined_sols(sim_params, parallel_env=None, folder_save=tmp_dir)
         with open(os.path.join(tmp_dir, "sols.pkl"), "rb") as f:
             sols = pickle.load(f)
         assert sorted(sols.keys()) == [0, 1, 2, 3, 4]
@@ -162,9 +163,7 @@ def test_merge_combined_sols():
         _write_rank_db(tmp_dir, 1, 2)
         _write_rank_db(tmp_dir, 2, 2)
         _write_rank_db(tmp_dir, 3, 1)
-        merge_combined_sols(
-            sim_params, parallel_env=None, folder_save=tmp_dir
-        )
+        merge_combined_sols(sim_params, parallel_env=None, folder_save=tmp_dir)
         with open(os.path.join(tmp_dir, "sols.pkl"), "rb") as f:
             sols = pickle.load(f)
         assert sorted(sols.keys()) == [0, 1, 2, 3, 4]
