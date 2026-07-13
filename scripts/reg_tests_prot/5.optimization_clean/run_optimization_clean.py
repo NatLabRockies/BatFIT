@@ -115,6 +115,9 @@ def run_optimization_clean(inp) -> None:
         scaler_Y=scaler_y,
         n_samples=getattr(inp, "n_samples", 1000),
         n_ode_steps=getattr(inp, "n_ode_steps", 100),
+        # Curves per forward pass: n_curves * n_noise_npe rows enter the CNN
+        # encoder at once, which OOMs on GPU without batching
+        batch_size=getattr(inp, "gen_batch_size", 256),
     )
     # scaler_mu was fitted on chirp-NPE mus; nochirp mus may fall slightly
     # outside [0, 1]

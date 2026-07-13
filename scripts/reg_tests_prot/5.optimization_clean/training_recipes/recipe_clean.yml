@@ -28,6 +28,10 @@ n_restarts: 10
 # Number of noise realisations used to average the NPE (mu, sigma) estimate
 n_noise_npe: 1
 
+# Curves per NPE forward pass (n_curves * n_noise_npe rows are tiled; keep
+# bounded to avoid GPU out-of-memory)
+gen_batch_size: 256
+
 # Number of bins for the conditional-average plots
 n_bins: 10
 

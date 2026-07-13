@@ -31,5 +31,10 @@ n_noise_npe: 1
 n_bins: 10
 random_seed: 42
 
+# Curves per NPE forward pass (n_curves * n_noise_npe rows are tiled; the FM
+# sampler additionally multiplies by n_samples downstream — keep bounded to
+# avoid GPU out-of-memory)
+gen_batch_size: 64
+
 # --- Output ---
 save_path: optimization_clean_results_fm
