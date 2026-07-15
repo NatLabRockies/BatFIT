@@ -18,5 +18,9 @@ target_mode: phi
 gen_batch_size: 256
 n_noise: 1
 scale_sigma: true
+# log_sigma: targets become z-scored log(sigma) (StandardScaler saved as
+# scaler_logsigma.pkl); mutually exclusive with scale_sigma. Use a fresh
+# var_pred_save_path so old scale_sigma artifacts are not mixed in.
+log_sigma: false
 use_true_y: false
 var_pred_save_path: var_pred_data

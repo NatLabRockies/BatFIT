@@ -18,9 +18,12 @@ Both splits (train and test) are processed so the variance predictor can be
 evaluated on held-out data. Only the train split is used to fit scalers.
 
 Outputs written to inp.var_pred_save_path:
-  var_pred_dataset.npz  — raw physical (P, Mu, Sigma) for train and test
+  var_pred_dataset.npz  — (P, Mu, Sigma) for train and test
   scaler_P_varpred.pkl  — MinMaxScaler fitted on P_train
   scaler_Mu.pkl         — MinMaxScaler fitted on Mu_train
+  scaler_sigma.pkl      — only with scale_sigma: true (MinMax on sigma)
+  scaler_logsigma.pkl   — only with log_sigma: true (StandardScaler on
+                          log(sigma); targets are z-scored log sigma)
 """
 
 import os
@@ -32,7 +35,7 @@ import sys
 
 import numpy as np
 import torch
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 from batfit import logger
 from batfit.basicutilityc import ReadInput as ri
@@ -269,11 +272,19 @@ def gen_var_dataset(inp) -> None:
     with open(os.path.join(save_path, "scaler_mu.pkl"), "wb") as f:
         pickle.dump(scaler_mu, f)
 
-    # Optional per-parameter sigma scaling: maps each sigma_j to [0, 1] using
-    # MinMaxScaler fitted on the train set. Recommended when degradation parameters
-    # have very different variance magnitudes. When enabled, scaler_sigma.pkl is
-    # saved and train_var_pred.py will use the scaled sigma as the direct training
-    # target (bypassing amp_par scaling).
+    # Two optional (mutually exclusive) sigma target reparameterisations:
+    #   scale_sigma — MinMax per parameter to [0, 1]; Sigmoid head trained
+    #     directly on the scaled sigma (historical behaviour).
+    #   log_sigma — z-scored log(sigma) (StandardScaler on log(sigma_train));
+    #     MSE then acts as a relative-error loss, removing the constant
+    #     absolute-error floor that inflates relative error at small sigma,
+    #     and each parameter contributes with unit variance to the loss.
+    #     train_var_pred.py detects scaler_logsigma.pkl and switches the
+    #     model to a linear output head.
+    log_sigma: bool = getattr(inp, "log_sigma", False)
+    assert not (
+        inp.scale_sigma and log_sigma
+    ), "scale_sigma and log_sigma are mutually exclusive"
     if inp.scale_sigma:
         scaler_sigma = MinMaxScaler()
         scaler_sigma.fit(sigma_tr)
@@ -282,6 +293,23 @@ def gen_var_dataset(inp) -> None:
         sigma_tr = scaler_sigma.transform(sigma_tr).astype("float32")
         sigma_te = scaler_sigma.transform(sigma_te).astype("float32")
         logger.info("sigma MinMax-scaled per parameter (scale_sigma=true)")
+    elif log_sigma:
+        assert (
+            sigma_tr.min() > 0 and sigma_te.min() > 0
+        ), "sigma must be strictly positive to train on log sigma"
+        scaler_logsigma = StandardScaler()
+        scaler_logsigma.fit(np.log(sigma_tr))
+        with open(os.path.join(save_path, "scaler_logsigma.pkl"), "wb") as f:
+            pickle.dump(scaler_logsigma, f)
+        sigma_tr = scaler_logsigma.transform(np.log(sigma_tr)).astype(
+            "float32"
+        )
+        sigma_te = scaler_logsigma.transform(np.log(sigma_te)).astype(
+            "float32"
+        )
+        logger.info(
+            "sigma log-transformed and z-scored per parameter (log_sigma=true)"
+        )
 
     logger.info(f"Scalers saved to {save_path}")
 
