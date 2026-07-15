@@ -3,11 +3,12 @@ Train the amortized variance estimator (VariancePredFCNN) on the dataset
 produced by gen_var_dataset.py.
 
 Inputs  (scaled): P_train, Mu_train   — MinMax-scaled protocol and deg-param mean
-Target  (physical): Sigma_train       — NPE sigma averaged over noise realisations
-
-The model outputs a Sigmoid value that is converted to physical sigma via
-inv_transform_gamma(sigma_sigmoid, amp_par). MSE loss is computed in physical
-space, mirroring how ProbProtParamCNN is trained with constrain_output=True.
+Target: Sigma_train — NPE sigma averaged over noise realisations, in the
+parameterisation chosen at dataset generation (see detect_sigma_mode):
+  amp_par     — physical sigma; Sigmoid output converted via
+                inv_transform_gamma before the MSE (historical default)
+  scale_sigma — MinMax-scaled sigma; Sigmoid output is the direct target
+  log_sigma   — z-scored log sigma; linear output is the direct target
 
 Outputs written to inp.models_dir:
   model.pkl, model_<step>.pt, optimizer_<step>.pt
@@ -37,6 +38,35 @@ from batfit.utils.torch_utils import (
     prepare_log,
     save_model,
 )
+
+
+def detect_sigma_mode(var_pred_save_path: str) -> str:
+    """Detect how sigma targets were parameterised by gen_var_dataset.py.
+
+    The mode is inferred from which scaler file sits next to
+    var_pred_dataset.npz, so a dataset directory is self-describing.
+
+    :param var_pred_save_path: directory holding var_pred_dataset.npz
+    :return: "log_sigma" (z-scored log sigma, linear head), "scale_sigma"
+        (MinMax-scaled sigma, Sigmoid head), or "amp_par" (physical sigma,
+        Sigmoid head + inv_transform_gamma)
+    """
+    has_log = os.path.isfile(
+        os.path.join(var_pred_save_path, "scaler_logsigma.pkl")
+    )
+    has_minmax = os.path.isfile(
+        os.path.join(var_pred_save_path, "scaler_sigma.pkl")
+    )
+    assert not (has_log and has_minmax), (
+        f"Both scaler_logsigma.pkl and scaler_sigma.pkl found in "
+        f"{var_pred_save_path}: target parameterisation is ambiguous. "
+        "Regenerate the dataset in a fresh var_pred_save_path."
+    )
+    if has_log:
+        return "log_sigma"
+    if has_minmax:
+        return "scale_sigma"
+    return "amp_par"
 
 
 def _lr_schedule(
@@ -102,11 +132,15 @@ def define_model(inp) -> VariancePredFCNN:
 
     :return: model (on CPU; moved to device inside train_model)
     """
+    sigma_mode = detect_sigma_mode(inp.var_pred_save_path)
     model = VariancePredFCNN(
         n_prot=inp.n_prot_params,
         n_deg=inp.n_param_pred,
         hidden_list=inp.hidden_list,
         sim_config=inp.sim_config,
+        output_activation=(
+            "linear" if sigma_mode == "log_sigma" else "sigmoid"
+        ),
     )
     logger.info(f"Trainable parameters: {get_num_parameters(model)}")
     return model
@@ -120,10 +154,11 @@ def train_model(
 ) -> None:
     """Train the variance predictor with Adamax and piecewise LR decay.
 
-    When scaler_sigma.pkl exists in var_pred_save_path, sigma in the dataset is
-    already MinMax-scaled to [0, 1] and the Sigmoid output is compared directly
-    (no amp_par conversion). Otherwise, inv_transform_gamma is applied to the
-    Sigmoid output before computing MSE in physical sigma space.
+    The loss target follows detect_sigma_mode: in "scale_sigma" and
+    "log_sigma" modes the raw network output is compared directly to the
+    (already transformed) dataset targets; in "amp_par" mode
+    inv_transform_gamma is applied to the Sigmoid output before computing
+    MSE in physical sigma space.
 
     :param inp: recipe object
     :param model: VariancePredFCNN instance
@@ -135,12 +170,10 @@ def train_model(
     model = model.to(device)
     amp_par = model.amp_par.to(device)
 
-    # If scaler_sigma.pkl is present, sigma in the dataset is already scaled to
-    # [0, 1] per parameter — the Sigmoid output is the direct prediction target.
-    scale_sigma: bool = os.path.isfile(
-        os.path.join(inp.var_pred_save_path, "scaler_sigma.pkl")
-    )
-    logger.info(f"scale_sigma={scale_sigma}")
+    # In scale_sigma/log_sigma modes the dataset targets are already
+    # transformed — the raw network output is the direct prediction target.
+    sigma_mode = detect_sigma_mode(inp.var_pred_save_path)
+    logger.info(f"sigma_mode={sigma_mode}")
 
     mse = nn.MSELoss()
     lr_end = inp.lr / 100.0
@@ -184,10 +217,10 @@ def train_model(
             optimizer.zero_grad()
 
             sigma_out = model(p_batch.to(device), mu_batch.to(device))
-            if scale_sigma:
-                sigma_pred = sigma_out
-            else:
+            if sigma_mode == "amp_par":
                 sigma_pred = model.inv_transform_gamma(sigma_out, amp_par)
+            else:
+                sigma_pred = sigma_out
             loss = mse(sigma_pred, sigma_batch.to(device))
 
             if not (torch.isnan(loss) or torch.isinf(loss)):
@@ -232,10 +265,12 @@ def train_model(
         with torch.no_grad():
             for p_batch, mu_batch, sigma_batch in test_loader:
                 sigma_out = model(p_batch.to(device), mu_batch.to(device))
-                if scale_sigma:
-                    sigma_pred = sigma_out
+                if sigma_mode == "amp_par":
+                    sigma_pred = model.inv_transform_gamma(
+                        sigma_out, amp_par
+                    )
                 else:
-                    sigma_pred = model.inv_transform_gamma(sigma_out, amp_par)
+                    sigma_pred = sigma_out
                 b = p_batch.shape[0]
                 test_loss_acc += (
                     mse(sigma_pred, sigma_batch.to(device)).item() * b
