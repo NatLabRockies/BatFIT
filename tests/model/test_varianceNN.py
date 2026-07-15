@@ -44,3 +44,18 @@ def test_VariancePredFCNN():
     loss.backward()
     for p in model.parameters():
         assert p.grad is not None
+
+    # output_activation="linear": no final Sigmoid, unbounded output
+    model_lin = VariancePredFCNN(
+        n_prot=n_prot,
+        n_deg=n_deg,
+        hidden_list=hidden_list,
+        sim_config=sim_config,
+        output_activation="linear",
+    )
+    assert not isinstance(model_lin.layers[-1], torch.nn.Sigmoid)
+    out_lin = model_lin(prot_params, mu)
+    assert out_lin.shape == (batch, n_deg)
+    out_lin.sum().backward()
+    for p in model_lin.parameters():
+        assert p.grad is not None
