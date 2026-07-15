@@ -142,9 +142,7 @@ def parity_plot(inp) -> None:
         ) as f:
             scaler_logsigma = pickle.load(f)
         sigma_pred = np.exp(scaler_logsigma.inverse_transform(sigma_out))
-        sigma_true = np.exp(
-            scaler_logsigma.inverse_transform(A["Sigma_test"])
-        )
+        sigma_true = np.exp(scaler_logsigma.inverse_transform(A["Sigma_test"]))
     elif sigma_mode == "scale_sigma":
         with open(
             os.path.join(inp.var_pred_save_path, "scaler_sigma.pkl"), "rb"

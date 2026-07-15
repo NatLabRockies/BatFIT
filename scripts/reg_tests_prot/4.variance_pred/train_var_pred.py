@@ -266,9 +266,7 @@ def train_model(
             for p_batch, mu_batch, sigma_batch in test_loader:
                 sigma_out = model(p_batch.to(device), mu_batch.to(device))
                 if sigma_mode == "amp_par":
-                    sigma_pred = model.inv_transform_gamma(
-                        sigma_out, amp_par
-                    )
+                    sigma_pred = model.inv_transform_gamma(sigma_out, amp_par)
                 else:
                     sigma_pred = sigma_out
                 b = p_batch.shape[0]

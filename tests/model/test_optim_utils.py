@@ -159,9 +159,7 @@ def test_sigma_physical():
     )
     z_in = torch.randn(batch, 6, requires_grad=True)
     out_log = sigma_physical(z_in, var_model, scaler_logsigma, device)
-    ref_log = np.exp(
-        scaler_logsigma.inverse_transform(z_in.detach().numpy())
-    )
+    ref_log = np.exp(scaler_logsigma.inverse_transform(z_in.detach().numpy()))
     assert np.allclose(out_log.detach().numpy(), ref_log, rtol=1e-5)
     # physical sigma is strictly positive by construction
     assert out_log.min().item() > 0.0
