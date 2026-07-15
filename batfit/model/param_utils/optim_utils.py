@@ -5,6 +5,7 @@ Shared helpers for NPE-based protocol optimization pipelines.
 import numpy as np
 import scipy.optimize
 import torch
+from sklearn.preprocessing import StandardScaler
 
 from .model_utils import _ProbParamFMBase
 from .noise_utils import apply_noise
@@ -127,17 +128,34 @@ def sigma_physical(
     scaler_sigma,
     device: torch.device,
 ) -> torch.Tensor:
-    """Convert the variance estimator's Sigmoid output to physical sigma.
+    """Convert the variance estimator's raw output to physical sigma.
 
     Differentiable in sigma_out so it can sit inside an autograd objective.
+    Dispatches on the scaler type, matching the target parameterisation the
+    estimator was trained with (see gen_var_dataset.py):
 
-    :param sigma_out: raw VariancePredFCNN output in [0, 1]
+    - StandardScaler (``log_sigma: true``): output is z-scored log sigma;
+      sigma = exp(out * scale_ + mean_)
+    - MinMaxScaler (``scale_sigma: true``): output is MinMax-scaled sigma;
+      sigma = out / scale_ + data_min_
+    - None: Sigmoid output rescaled via inv_transform_gamma (amp_par)
+
+    :param sigma_out: raw VariancePredFCNN output
     :param var_model: the variance estimator (provides inv_transform_gamma)
-    :param scaler_sigma: MinMaxScaler fitted on sigma when the estimator was
-        trained with ``scale_sigma: true``; None otherwise
+    :param scaler_sigma: the sigma scaler saved by gen_var_dataset.py
+        (scaler_logsigma.pkl or scaler_sigma.pkl), or None
     :param device: compute device
     :return: sigma in physical space, same shape as sigma_out
     """
+    if isinstance(scaler_sigma, StandardScaler):
+        # Reverse z-scored log sigma: sigma = exp(z * scale + mean)
+        scale = torch.tensor(
+            scaler_sigma.scale_, dtype=torch.float32, device=device
+        )
+        mean = torch.tensor(
+            scaler_sigma.mean_, dtype=torch.float32, device=device
+        )
+        return torch.exp(sigma_out * scale + mean)
     if scaler_sigma is not None:
         # Reverse the MinMax transform: x_physical = x_scaled / scale + min
         scale = torch.tensor(
@@ -165,7 +183,7 @@ def evaluate_sigma(
         space, shape (n_prot,)
     :param mu_scaled: MinMax-scaled degradation param mean, shape (n_deg,)
     :param var_model: trained VariancePredFCNN
-    :param scaler_sigma: sigma MinMaxScaler or None (see sigma_physical)
+    :param scaler_sigma: sigma scaler or None (see sigma_physical)
     :param device: compute device
     :return: physical sigma, shape (n_deg,)
     """
@@ -206,7 +224,7 @@ def optimize_protocol(
     :param bounds: list of (low, high) tuples in scaled protocol space, one
         per protocol parameter
     :param n_restarts: number of L-BFGS-B restarts
-    :param scaler_sigma: sigma MinMaxScaler or None (see sigma_physical)
+    :param scaler_sigma: sigma scaler or None (see sigma_physical)
     :param device: compute device
     :return: (P_scaled_opt, sigma_physical_opt) for the target parameter
     """

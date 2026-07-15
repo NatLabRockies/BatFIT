@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 import torch
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 from batfit.model.param_utils.losses import independent_normal_loss
 from batfit.model.param_utils.noise_utils import make_noise_levels
@@ -151,6 +151,23 @@ def test_sigma_physical():
     # gradients must flow through the inverse transform
     out_sc.sum().backward()
     assert sigma_in.grad is not None
+
+    # StandardScaler (log_sigma mode) -> differentiable exp(z * scale + mean)
+    scaler_logsigma = StandardScaler()
+    scaler_logsigma.fit(
+        np.log(np.random.rand(20, 6).astype("float32") * 0.1 + 1e-3)
+    )
+    z_in = torch.randn(batch, 6, requires_grad=True)
+    out_log = sigma_physical(z_in, var_model, scaler_logsigma, device)
+    ref_log = np.exp(
+        scaler_logsigma.inverse_transform(z_in.detach().numpy())
+    )
+    assert np.allclose(out_log.detach().numpy(), ref_log, rtol=1e-5)
+    # physical sigma is strictly positive by construction
+    assert out_log.min().item() > 0.0
+    # gradients must flow through the exp inverse transform
+    out_log.sum().backward()
+    assert z_in.grad is not None
 
 
 def test_evaluate_sigma():
