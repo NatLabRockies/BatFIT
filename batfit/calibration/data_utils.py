@@ -2029,12 +2029,12 @@ def mcmc_iter(
         realization_phis_c["chargecc"] = []
         realization_dV_dQ["chargecc"] = []
         realization_dQ_dV["chargecc"] = []
-        indc = list(range(sim_params_dict["chargecc"]["n_params"]))
+        indc = list(range(sim_params_dict["chargecc"]["n_deg_params"]))
         indc[sim_params_dict["chargecc"]["ind_deg_x0_a"]] = nn_dict[
             "chargecc"
-        ].params["n_params"]
+        ].params["n_deg_params"]
         indc[sim_params_dict["chargecc"]["ind_deg_x0_c"]] = (
-            sim_params_dict["chargecc"]["n_params"] + 1
+            sim_params_dict["chargecc"]["n_deg_params"] + 1
         )
         for i in range(min(nsamples, 40)):
             if cal_sigma:
@@ -2538,12 +2538,12 @@ def postprocess(
                     realization_dV_dQ.append(dV_dQ)
                     realization_dQ_dV.append(dQ_dV)
             if key == "chargecc":
-                indc = list(range(sim_params_dict["chargecc"]["n_params"]))
+                indc = list(range(sim_params_dict["chargecc"]["n_deg_params"]))
                 indc[sim_params_dict["chargecc"]["ind_deg_x0_a"]] = nn_dict[
                     "chargecc"
-                ].params["n_params"]
+                ].params["n_deg_params"]
                 indc[sim_params_dict["chargecc"]["ind_deg_x0_c"]] = (
-                    sim_params_dict["chargecc"]["n_params"] + 1
+                    sim_params_dict["chargecc"]["n_deg_params"] + 1
                 )
                 for i in range(nsamples):
                     if args_cal.calibrate_one_sigma:
@@ -2824,14 +2824,16 @@ def make_data_in(
             data_in[0, 1 + n_chan * icyc, :] = data_dV_dQ_y[cyc] * qt_ratio
         elif target_mode.lower() == "dqdv":
             data_in[0, 0 + n_chan * icyc, :] = t_int
-            data_in[0, 1 + n_chan * icyc, :] = data_dQ_dV_y[cyc] * qt_ratio
+            # dQ/dV converts to the time axis with t/Q, i.e. divided by
+            # qt_ratio, consistent with the combined branches below
+            data_in[0, 1 + n_chan * icyc, :] = data_dQ_dV_y[cyc] / qt_ratio
         elif target_mode.lower() in shuffle_substrings("phi-dvdq"):
             data_in[0, 0 + n_chan * icyc, :] = t_int
             data_in[0, 1 + n_chan * icyc, :] = np.interp(
                 t_int, data_t[cyc], data_phis_c[cyc]
             )
             data_in[0, 2 + n_chan * icyc, :] = data_dV_dQ_y[cyc] * qt_ratio
-        elif target_mode.lower() in shuffle_substrings("phi-dvdq"):
+        elif target_mode.lower() in shuffle_substrings("phi-dqdv"):
             data_in[0, 0 + n_chan * icyc, :] = t_int
             data_in[0, 1 + n_chan * icyc, :] = np.interp(
                 t_int, data_t[cyc], data_phis_c[cyc]

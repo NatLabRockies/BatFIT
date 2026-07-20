@@ -1,0 +1,36 @@
+# Recipe for run_optimization.py
+# Loads a frozen NPE and variance predictor, then finds protocol parameters
+# that minimise the NPE sigma for a chosen degradation parameter.
+
+# --- Model references ---
+npe_models_dir: /Users/mhassana/Desktop/GitHub/BatFIT_chirp/scripts/reg_tests_prot/2.npe_cnn_prot/models
+var_pred_models_dir: /Users/mhassana/Desktop/GitHub/BatFIT_chirp/scripts/reg_tests_prot/4.variance_pred/models
+var_pred_save_path: /Users/mhassana/Desktop/GitHub/BatFIT_chirp/scripts/reg_tests_prot/4.variance_pred/var_pred_data
+
+# --- Data (same paths as the NPE recipe) ---
+cyc_mode: chirp
+data_path: /Users/mhassana/Desktop/GitHub/BatFIT_chirp/scripts/reg_tests_prot/1.gen_data/data_spm_chirp
+scaler_path: /Users/mhassana/Desktop/GitHub/BatFIT_chirp/scripts/reg_tests_prot/1.gen_data/data_spm_chirp/scaler_X.pkl
+scaler_P_path: /Users/mhassana/Desktop/GitHub/BatFIT_chirp/scripts/reg_tests_prot/1.gen_data/data_spm_chirp/scaler_P.pkl
+sim_config: /Users/mhassana/Desktop/GitHub/BatFIT_chirp/batfit/default_exps/spm_chirp.yaml
+target_mode: phi
+noise_factor: 1.0
+
+# --- Optimization settings ---
+# Name of the degradation parameter whose variance is minimised
+param_to_minimize: eps_s_c_am
+
+# Number of test curves to run optimization on
+n_curves: 100
+
+# Number of random restarts for L-BFGS-B (more = better global search)
+n_restarts: 10
+
+# Number of noise realisations used to average the NPE mu estimate
+n_noise_npe: 1
+
+# Random seed for reproducible test-curve selection
+random_seed: 42
+
+# --- Output ---
+save_path: optimization_results

@@ -1,0 +1,26 @@
+# Recipe for gen_var_dataset.py
+# References the frozen NPE and controls how the variance dataset is built.
+
+# NPE reference
+npe_models_dir: /Users/mhassana/Desktop/GitHub/BatFIT_chirp/scripts/reg_tests_prot/2.npe_cnn_prot/models
+
+# DATA (same paths as the NPE recipe)
+cyc_mode: chirp
+data_path: /Users/mhassana/Desktop/GitHub/BatFIT_chirp/scripts/reg_tests_prot/1.gen_data/data_spm_chirp
+n_points: 256
+n_prot_params: 3
+noise_factor: 1.0
+scaler_path: /Users/mhassana/Desktop/GitHub/BatFIT_chirp/scripts/reg_tests_prot/1.gen_data/data_spm_chirp/scaler_X.pkl
+scaler_P_path: /Users/mhassana/Desktop/GitHub/BatFIT_chirp/scripts/reg_tests_prot/1.gen_data/data_spm_chirp/scaler_P.pkl
+target_mode: phi
+
+# Dataset generation settings
+gen_batch_size: 256
+n_noise: 1
+scale_sigma: true
+# log_sigma: targets become z-scored log(sigma) (StandardScaler saved as
+# scaler_logsigma.pkl); mutually exclusive with scale_sigma. Use a fresh
+# var_pred_save_path so old scale_sigma artifacts are not mixed in.
+log_sigma: false
+use_true_y: false
+var_pred_save_path: var_pred_data

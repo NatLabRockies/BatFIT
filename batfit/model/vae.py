@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 
 import numpy as np
+import optuna
 import torch
 import torch.nn as nn
 from prettyPlot.progressBar import print_progress_bar

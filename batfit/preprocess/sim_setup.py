@@ -22,6 +22,21 @@ def parse_input(filename, parallel_env=None):
     ]
     assert deg_param_names == deg_param_names_min
     assert deg_param_names == deg_param_names_max
+
+    prot_param_names = None
+    prot_param_min = None
+    prot_param_max = None
+    if cyc_mode.lower() in ["chirp"]:
+        prot_param_names_min = list(exp["min protocol parameter"].keys())
+        prot_param_names_max = list(exp["max protocol parameter"].keys())
+        assert set(prot_param_names_min) == set(prot_param_names_max)
+        prot_param_names = [
+            entry.strip()
+            for entry in exp["protocol parameter names"].split(",")
+        ]
+        assert prot_param_names == prot_param_names_min
+        assert prot_param_names == prot_param_names_max
+
     # deg_param_names = list(set(deg_param_names_min))
     # deg_param_names.sort()
     # deg_param_names = ["i0_a", "ds_c", "x0_a", "x0_c", "i0_c", "eps_s_c"]
@@ -34,8 +49,13 @@ def parse_input(filename, parallel_env=None):
             exp["max degradation parameter charge"].keys()
         )
         assert set(deg_param_names_chcc_min) == set(deg_param_names_chcc_max)
-        deg_param_names_chcc = list(set(deg_param_names_chcc_min))
         deg_param_names_chcc = ["x0_a", "x0_c"]
+        if set(deg_param_names_chcc_min) != set(deg_param_names_chcc):
+            logger.warning(
+                "Charge degradation parameter names are hardcoded to "
+                f"{deg_param_names_chcc}; the names declared in the YAML "
+                f"({sorted(deg_param_names_chcc_min)}) are ignored"
+            )
         deg_param_names_chcc_new = [
             f"{entry}_chcc" for entry in deg_param_names_chcc
         ]
@@ -43,7 +63,13 @@ def parse_input(filename, parallel_env=None):
         pass
     elif cyc_mode.lower() in ["rh", "lh", "lh2"]:
         pass
-    elif cyc_mode.lower() in ["diffcap", "hppc", "prehppc", "posthppc"]:
+    elif cyc_mode.lower() in [
+        "diffcap",
+        "hppc",
+        "prehppc",
+        "posthppc",
+        "chirp",
+    ]:
         pass
     else:
         raise NotImplementedError
@@ -58,8 +84,22 @@ def parse_input(filename, parallel_env=None):
             for param_name in deg_param_names
         ]
     except KeyError:
-        logger.error("Mismatch of parameters")
+        logger.error("Mismatch of degradation parameters")
         raise KeyError
+
+    if cyc_mode.lower() in ["chirp"]:
+        try:
+            prot_param_min = [
+                exp["min protocol parameter"][param_name]
+                for param_name in prot_param_names
+            ]
+            prot_param_max = [
+                exp["max protocol parameter"][param_name]
+                for param_name in prot_param_names
+            ]
+        except KeyError:
+            logger.error("Mismatch of protocol parameters")
+            raise KeyError
 
     if cyc_mode == "discharge-chargecc":
         try:
@@ -92,6 +132,7 @@ def parse_input(filename, parallel_env=None):
         "posthppc",
         "diffcap",
         "prehppc",
+        "chirp",
     ]:
         phy_par["model"] = exp["macroscopic"]["model"]
         phy_par["cap"] = exp["macroscopic"]["cap"]
@@ -339,15 +380,36 @@ def parse_input(filename, parallel_env=None):
 
     if parallel_env is None:
         print("deg param names = ", deg_param_names)
+        if cyc_mode.lower() in ["chirp"]:
+            print("prot param names = ", prot_param_names)
     else:
         parallel_env.printAll("deg param names = " + str(deg_param_names))
-    return deg_param_names, deg_param_min, deg_param_max, phy_par
+        if cyc_mode.lower() in ["chirp"]:
+            parallel_env.printAll(
+                "prot param names = " + str(prot_param_names)
+            )
+
+    return (
+        deg_param_names,
+        deg_param_min,
+        deg_param_max,
+        prot_param_names,
+        prot_param_min,
+        prot_param_max,
+        phy_par,
+    )
 
 
 def make_params(filename, parallel_env=None):
-    deg_param_names, deg_param_min, deg_param_max, phy_par = parse_input(
-        filename, parallel_env=parallel_env
-    )
+    (
+        deg_param_names,
+        deg_param_min,
+        deg_param_max,
+        prot_param_names,
+        prot_param_min,
+        prot_param_max,
+        phy_par,
+    ) = parse_input(filename, parallel_env=parallel_env)
 
     params = {}
     params["deg_param_names"] = deg_param_names
@@ -358,7 +420,17 @@ def make_params(filename, parallel_env=None):
         params["deg_" + param_name + "_max"] = deg_param_max[
             deg_param_names.index(param_name)
         ]
-    params["n_params"] = len(deg_param_names)
+    params["n_deg_params"] = len(deg_param_names)
+    if prot_param_names is not None:
+        params["prot_param_names"] = prot_param_names
+        for param_name in prot_param_names:
+            params["prot_" + param_name + "_min"] = prot_param_min[
+                prot_param_names.index(param_name)
+            ]
+            params["prot_" + param_name + "_max"] = prot_param_max[
+                prot_param_names.index(param_name)
+            ]
+        params["n_prot_params"] = len(prot_param_names)
     for key in phy_par:
         params[key] = phy_par[key]
 
@@ -386,32 +458,42 @@ def read_deg_param(key: str, deg_param_sample: dict):
 def set_interc_disconnected_discharge(
     sim, sim_params: dict, deg_param_sample: dict
 ):
+    """
+    Set initial intercalation fractions scaled by degradation parameters
+    """
     sim.ca.x_0 = sim_params["x0_c_dis"] * read_deg_param(
         key="x0_c", deg_param_sample=deg_param_sample
     )
     sim.an.x_0 = sim_params["x0_a_dis"] * read_deg_param(
         key="x0_a", deg_param_sample=deg_param_sample
     )
-    C_rate = sim_params["C_dis"]
-    return sim, C_rate
+    C_rate = float(sim_params["C_dis"])
+    return C_rate, sim
 
 
 def set_interc_disconnected_charge(
     sim, sim_params: dict, deg_param_sample: dict
 ):
+    """
+    Set initial intercalation fractions scaled by degradation parameters
+    """
     sim.ca.x_0 = sim_params["x0_c_chcc"] * read_deg_param(
         key="x0_c_chcc", deg_param_sample=deg_param_sample
     )
     sim.an.x_0 = sim_params["x0_a_chcc"] * read_deg_param(
         key="x0_a_chcc", deg_param_sample=deg_param_sample
     )
-    C_rate = sim_params["C_chcc"]
-    return sim, C_rate
+    C_rate = float(sim_params["C_chcc"])
+    return C_rate, sim
 
 
 def set_interc_connected(
     sim, sim_params: dict, deg_param_sample: dict, cyc_mode: str
 ):
+    """
+    Set initial intercalation fractions scaled by degradation parameters
+    Read C rate only if constant current cycle or chirp
+    """
     sim.ca.x_0 = sim_params["x0_c"] * read_deg_param(
         key="x0_c", deg_param_sample=deg_param_sample
     )
@@ -419,8 +501,8 @@ def set_interc_connected(
         key="x0_a", deg_param_sample=deg_param_sample
     )
     # C rate if constant current cycle
-    if cyc_mode.lower() in ["discharge", "chargecc"]:
-        C_rate = sim_params["C"]
+    if cyc_mode.lower() in ["discharge", "chargecc", "chirp"]:
+        C_rate = float(sim_params["C"])
     else:
         C_rate = None
 

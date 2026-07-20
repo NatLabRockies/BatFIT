@@ -1,0 +1,22 @@
+# DATA
+cyc_mode: chargecc
+data_path: data_spm_nochirp
+n_param_pred: 6
+n_points: 256
+noise_factor: 1.0
+sim_config: spm_nochirp.yaml
+target_mode: phi
+
+# ARCH
+num_channels: 64
+num_convs: 2
+num_fc_hidden: 1
+num_fc_units: 256
+num_fc_gamma_mu_hidden: 2
+num_fc_gamma_mu_units: 256
+
+# TRAIN
+batch_size: 32
+epochs: 20
+lr: 0.0001
+models_dir: models

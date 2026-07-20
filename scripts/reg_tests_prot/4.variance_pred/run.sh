@@ -1,0 +1,3 @@
+python gen_var_dataset.py training_recipes/recipe_gen_dataset.yml
+python train_var_pred.py training_recipes/recipe_var_pred.yml
+python test_var_pred.py training_recipes/recipe_var_pred.yml

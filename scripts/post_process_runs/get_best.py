@@ -1,10 +1,12 @@
 import os
 import sys
+from pathlib import Path
+
 import numpy as np
 import yaml
-from pathlib import Path
-from batfit.basicutilityc import ReadInput as ri
+
 from batfit import logger
+from batfit.basicutilityc import ReadInput as ri
 
 
 def is_valid_model(model_folder):
@@ -17,11 +19,12 @@ def is_valid_model(model_folder):
             exist_recipe = True
         if filename.startswith("post.txt"):
             exist_post = True
-     
+
     if exist_recipe and exist_post:
         return True
     else:
         return False
+
 
 def get_model_id(model_folder):
     if model_folder.startswith("models"):
@@ -34,12 +37,13 @@ def get_model_id(model_folder):
         sys.exit()
     return model_id
 
+
 def read_perf(model_folder):
     assert os.path.isabs(model_folder)
     test_filename = os.path.join(model_folder, "test_loss.csv")
     vals_test = np.loadtxt(test_filename, delimiter=";", skiprows=1)
-    end_loss = vals_test[-1,1]
-    min_loss = vals_test[:,1].min()
+    end_loss = vals_test[-1, 1]
+    min_loss = vals_test[:, 1].min()
     rmse_file = Path(os.path.join(model_folder, "post.txt"))
     if not rmse_file.is_file():
         logger.error(f"The file {rmse_file} does not exist")
@@ -54,6 +58,7 @@ def read_perf(model_folder):
                     cov = float(line.split()[1][:])
     return perf, cov, end_loss, min_loss
 
+
 def read_recipe(model_folder):
     assert os.path.isabs(model_folder)
     files = os.listdir(model_folder)
@@ -62,6 +67,7 @@ def read_recipe(model_folder):
             break
     recipe_filename = os.path.join(model_folder, filename)
     return ri.basic_input(recipe_filename)
+
 
 def find_best(root_folder):
     folder = root_folder
@@ -80,12 +86,14 @@ def find_best(root_folder):
     model_folders = []
     files = os.listdir(root_folder)
     for filename in files:
-        if os.path.isdir(os.path.join(root_folder, filename)) and filename.startswith("models"):
+        if os.path.isdir(
+            os.path.join(root_folder, filename)
+        ) and filename.startswith("models"):
             if is_valid_model(os.path.join(root_folder, filename)):
-                model_folders += [os.path.join(root_folder,filename)]
+                model_folders += [os.path.join(root_folder, filename)]
 
     logger.info(f"Found {len(model_folders)} valid model folder")
-    
+
     for model_folder in model_folders:
         model_id = get_model_id(model_folder)
         recipe = read_recipe(model_folder)
@@ -167,20 +175,27 @@ def find_best(root_folder):
 
 
 root_folder = "/scratch/mhassana/LHX/tune_diffcap_2M"
-results = find_best(
-    root_folder
+results = find_best(root_folder)
+print(
+    f"\tEnd Loss {results['best_end_loss']:.2g} model {results['best_end_loss_id']}"
 )
-print(f"\tEnd Loss {results['best_end_loss']:.2g} model {results['best_end_loss_id']}")
-print(f"\tMin Loss {results['best_min_loss']:.2g} model {results['best_min_loss_id']}")
+print(
+    f"\tMin Loss {results['best_min_loss']:.2g} model {results['best_min_loss_id']}"
+)
 print(f"\tPERF {results['best_perf']:.2g} model {results['best_perf_id']}")
 print(f"\tCOV {results['best_cov']:.2g} model {results['best_cov_id']}")
-print(f"\tPERF+COV {results['best_perf_cov']:.2g} model {results['best_perf_cov_id']}")
+print(
+    f"\tPERF+COV {results['best_perf_cov']:.2g} model {results['best_perf_cov_id']}"
+)
 
-print(f"\tEnd Loss {results['worst_end_loss']:.2g} model {results['worst_end_loss_id']}")
-print(f"\tMin Loss {results['worst_min_loss']:.2g} model {results['worst_min_loss_id']}")
+print(
+    f"\tEnd Loss {results['worst_end_loss']:.2g} model {results['worst_end_loss_id']}"
+)
+print(
+    f"\tMin Loss {results['worst_min_loss']:.2g} model {results['worst_min_loss_id']}"
+)
 print(f"\tPERF {results['worst_perf']:.2g} model {results['worst_perf_id']}")
 print(f"\tCOV {results['worst_cov']:.2g} model {results['worst_cov_id']}")
-print(f"\tPERF+COV {results['worst_perf_cov']:.2g} model {results['worst_perf_cov_id']}")
-
-
-
+print(
+    f"\tPERF+COV {results['worst_perf_cov']:.2g} model {results['worst_perf_cov_id']}"
+)

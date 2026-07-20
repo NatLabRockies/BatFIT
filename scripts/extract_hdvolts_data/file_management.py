@@ -1,6 +1,8 @@
 import os
 import sys
+
 import numpy as np
+
 from batfit import logger
 
 
@@ -43,7 +45,7 @@ def get_cycling_protocol_folder(cycling_protocol: str) -> str:
 
 def get_available_rpt_folder(
     cycling_protocol_folder: str,
-) -> Tuple(list[str], list[id]):
+) -> tuple[list[str], list[int]]:
     """
     Get the list of RPT folders available
     """
@@ -53,7 +55,7 @@ def get_available_rpt_folder(
     list_folder = os.listdir(cycling_protocol_folder)
     available_rpt_folder = []
     available_rpt_id = []
-    #if "BOL" in list_folder:
+    # if "BOL" in list_folder:
     #    available_rpt_folder.append("BOL")
     #    available_rpt_id.append(-1)
     available_rpt_folder += [
@@ -64,9 +66,10 @@ def get_available_rpt_folder(
     ]
     # Sort so it is easy to manipulate for debugging
     ind_sort = np.argsort(np.array(available_rpt_id))
-    available_rpt_folder_sorted = [available_rpt_folder[i] for i in list(ind_sort)]
+    available_rpt_folder_sorted = [
+        available_rpt_folder[i] for i in list(ind_sort)
+    ]
     available_rpt_id_sorted = [available_rpt_id[i] for i in list(ind_sort)]
-
 
     return available_rpt_folder_sorted, available_rpt_id_sorted
 
@@ -136,12 +139,12 @@ def get_data_folder(
 def cells_protocols_pairs():
     # Only include cells that are consistently observed in HPPC, Diffcap, *Cycle*
     pairs = {
-        #"LH-1": [13, 14, 15], # Noisy HPPC for cell 15
+        # "LH-1": [13, 14, 15], # Noisy HPPC for cell 15
         "LH-1": [13, 14],
         "LH-2": [16, 17, 18],
         "LH-3": [19, 20, 21],
         "LH-4": [22, 23, 24],
-        #"RH-1": [1, 3], #Noisy HPPC for cell 3
+        # "RH-1": [1, 3], #Noisy HPPC for cell 3
         "RH-1": [1],
         "RH-2": [4, 5, 6],
         "RH-3": [7, 8, 9],
@@ -175,7 +178,7 @@ def get_data_file(
     for cell in cells:
         for file in list_files:
             if file.startswith("600" + format_cell_name(cell)):
-            #if file.endswith(format_cell_name(cell) + ".csv"):
+                # if file.endswith(format_cell_name(cell) + ".csv"):
                 file_keep[cell] = os.path.join(data_folder, file)
     return file_keep
 

@@ -29,7 +29,7 @@ def define_diffcap_experiment(sim_params, expr=None, atol=1e-9, max_step=1000):
 
 
 def define_pre_hppc_experiment(
-        sim_params, expr=None, atol=1e-9, max_step=1000
+    sim_params, expr=None, atol=1e-9, max_step=1000
 ):
     if expr is None:
         expr = Experiment(atol=atol, max_step=max_step, rtol=1e-6)
@@ -64,8 +64,9 @@ def define_pre_hppc_experiment(
     expr.add_step("current_A", 0.0, (60 * 60, 90.0))
     return expr
 
+
 def define_post_hppc_experiment(
-        sim_params, expr=None, atol=1e-9, max_step=1000
+    sim_params, expr=None, atol=1e-9, max_step=1000
 ):
     if expr is None:
         # max_num_steps is the IDA internal step-count budget between
@@ -182,6 +183,7 @@ def define_post_hppc_experiment(
         )
 
     return expr
+
 
 def define_hppc_experiment(sim_params, expr=None, atol=1e-9, max_step=1000):
     if expr is None:

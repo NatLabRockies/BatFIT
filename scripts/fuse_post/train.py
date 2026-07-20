@@ -5,8 +5,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from classifier import JointBoundaryClassifier
-from torch.utils.data import DataLoader
 from fuse_utils import prepare_datasets
+from torch.utils.data import DataLoader
 
 from batfit import BATFIT_EXP, logger
 from batfit.utils.torch_utils import (
@@ -96,7 +96,10 @@ def train_classifier(
                 )
             elif current_step % log_freq == 0 and not logged:
                 log_training(
-                    current_step, loss, "train_log", filename="train_loss.csv"
+                    current_step,
+                    total_loss,
+                    "train_log",
+                    filename="train_loss.csv",
                 )
 
         avg_loss1 = epoch_loss1 / len(loader1)

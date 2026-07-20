@@ -163,15 +163,27 @@ jobs:
             exit 2
           fi 
           cd ../../../
-      - name: NPE training
+      - name: NPE training (CNN)
         run: |
-          cd scripts/reg_tests/4.npe
+          cd scripts/reg_tests/4.npe_cnn
           bash run_change_recipe_github.sh
           bash run.sh
           if [ ! -f "models/post_test.txt" ]; then
             exit 1
-          fi 
+          fi
           if [ ! -f "models/post_val.txt" ]; then
             exit 2
-          fi 
+          fi
+          cd ../../../
+      - name: NPE training (FM)
+        run: |
+          cd scripts/reg_tests/5.npe_fm
+          bash run_change_recipe_github.sh
+          bash run.sh
+          if [ ! -f "models/post_test.txt" ]; then
+            exit 1
+          fi
+          if [ ! -f "models/post_val.txt" ]; then
+            exit 2
+          fi
           cd ../../../
