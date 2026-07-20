@@ -214,13 +214,21 @@ def robust_preHPPC(sim, sim_params, force_fail=False):
     return sol
 
 
-def robust_HPPC(sim, sim_params, force_fail=False):
+def robust_HPPC(sim, sim_params, force_fail=False, skip_degenerate_cv=True):
     if force_fail:
         return None
+
+    def _run(exp, reset_state):
+        if skip_degenerate_cv:
+            return run_steps_skip_degenerate_cv(
+                sim, exp, sim_params["vmax"]
+            )
+        return sim.run(exp, reset_state=reset_state, bar=False)
+
     sol = None
     try:
         exp = define_hppc_experiment(sim_params)
-        sol = sim.run(exp, reset_state=True, bar=False)
+        sol = _run(exp, reset_state=True)
         assert all(sol.success)
     except:
         counter = 0
@@ -249,7 +257,7 @@ def robust_HPPC(sim, sim_params, force_fail=False):
                 exp = define_hppc_experiment(
                     sim_params, atol=atol, max_step=max_step
                 )
-                sol = sim.run(exp, reset_state=True, bar=False)
+                sol = _run(exp, reset_state=False)
                 assert all(sol.success)
                 break
             except:
@@ -257,15 +265,91 @@ def robust_HPPC(sim, sim_params, force_fail=False):
         pass
     return sol
 
+def run_steps_skip_degenerate_cv(
+    sim: bm.SPM._simulation.Simulation | bm.P2D._simulation.Simulation,
+    exp: bm.Experiment,
+    vmax: float,
+) -> bm.SPM.CycleSolution | bm.P2D.CycleSolution:
+    """
+    Equivalent of sim.run(exp) that skips a CV-hold step whenever the
+    preceding charge pulse never reached vmax.
 
-def robust_postHPPC(sim, sim_params, force_fail=False):
+    The cycler's CV clamp only engages once vmax is hit during the
+    pulse; initializing the hold from a lower voltage makes IDACalcIC
+    solve for a nonphysical current spike and fail (deterministically
+    for jumps larger than ~0.4V). The solution is stitched with
+    CycleSolution(*solns, t_shift=1e-3), exactly as bmlite's
+    Simulation.run does, so memory behavior is identical to sim.run
+    minus the skipped steps.
+
+    Parameters
+    ----------
+    sim: bm.SPM._simulation.Simulation | bm.P2D._simulation.Simulation
+        BatMODS-lite simulation, already initialized with pre()
+    exp: bm.Experiment
+        Experiment built by define_post_hppc_experiment or
+        define_hppc_experiment
+    vmax: float
+        Upper cutoff voltage [V]
+
+    Returns
+    -------
+    sol: bm.SPM.CycleSolution | bm.P2D.CycleSolution
+        Stitched solution of the executed steps
+    """
+    solns = []
+    skip_next_cv = False
+    for i in range(exp.num_steps):
+        step = exp.steps[i]
+        # bmlite stores the mode with units stripped: 'voltage'/
+        # 'current'. CV-completion holds are the only voltage steps
+        # bounded by a phase_time_s limit
+        is_cv_completion = (
+            step["mode"] == "voltage"
+            and step["limits"] is not None
+            and "phase_time_s" in step["limits"]
+        )
+        if is_cv_completion and skip_next_cv:
+            logger.debug(f"Skipping CV step {i} (pulse ended below vmax)")
+            skip_next_cv = False
+            continue
+        soln = sim.run_step(exp, i)
+        solns.append(soln)
+        # a regen (charge) pulse is a fixed negative-current step with
+        # a voltage limit; the flag only survives to the next step
+        if (
+            step["mode"] == "current"
+            and not callable(step["value"])
+            and step["value"] < 0.0
+            and step["limits"] is not None
+            and "voltage_V" in step["limits"]
+        ):
+            skip_next_cv = soln.vars["voltage_V"][-1] < vmax - 1e-6
+        else:
+            skip_next_cv = False
+    if isinstance(sim, bm.P2D._simulation.Simulation):
+        return bm.P2D.CycleSolution(*solns, t_shift=1e-3)
+    return bm.SPM.CycleSolution(*solns, t_shift=1e-3)
+
+
+def robust_postHPPC(
+    sim, sim_params, force_fail=False, skip_degenerate_cv=True
+):
     if force_fail:
         return None
+
+    def _run(exp, reset_state):
+        if skip_degenerate_cv:
+            return run_steps_skip_degenerate_cv(
+                sim, exp, sim_params["vmax"]
+            )
+        return sim.run(exp, reset_state=reset_state, bar=False)
+
     sol = None
     exp = define_post_hppc_experiment(sim_params)
     try:
         exp = define_post_hppc_experiment(sim_params)
-        sol = sim.run(exp, reset_state=True, bar=False)
+        sol = _run(exp, reset_state=True)
         assert all(sol.success)
     except:
         counter = 0
@@ -283,10 +367,9 @@ def robust_postHPPC(sim, sim_params, force_fail=False):
         #    ],
         # ):
         for atol, max_step in zip(
-            [1e-6, 1e-13],
+            [1e-12],
             [
                 int(1e3),
-                int(1e6),
             ],
         ):
             try:
@@ -294,7 +377,7 @@ def robust_postHPPC(sim, sim_params, force_fail=False):
                 exp = define_post_hppc_experiment(
                     sim_params, atol=atol, max_step=max_step
                 )
-                sol = sim.run(exp, reset_state=True, bar=False)
+                sol = _run(exp, reset_state=False)
                 assert all(sol.success)
                 break
             except:
@@ -564,6 +647,9 @@ def single_run(
                 sim=sim,
                 sim_params=sim_params,
                 force_fail=force_fail,
+                skip_degenerate_cv=sim_params.get(
+                    "skip_degenerate_cv", True
+                ),
             )
             if rootsol is None:
                 print(f"All sim failed for {deg_param_sample}")
@@ -574,6 +660,9 @@ def single_run(
                 sim=sim,
                 sim_params=sim_params,
                 force_fail=force_fail,
+                skip_degenerate_cv=sim_params.get(
+                    "skip_degenerate_cv", True
+                ),
             )
             if rootsol is None:
                 print(f"All sim failed for {deg_param_sample}")

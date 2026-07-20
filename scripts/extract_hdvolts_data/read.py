@@ -151,7 +151,7 @@ def read_single_csv(
             filtered_df = apply_diffcap_filter(filtered_df)
         if data_type.lower() == "hppc":
             filtered_df = apply_hppc_filter(filtered_df)
-        if data_type.lower() == "posthppc":
+        if data_type.lower() in ["posthppc"]:
             filtered_df = apply_post_hppc_filter(filtered_df)
 
     logger.info(f"Read {fpath} ({filtered_df.shape})")

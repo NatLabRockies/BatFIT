@@ -1,4 +1,3 @@
-import numpy as np
 from bmlite import Experiment
 
 
@@ -70,7 +69,12 @@ def define_post_hppc_experiment(
     sim_params, expr=None, atol=1e-9, max_step=1000
 ):
     if expr is None:
-        expr = Experiment(atol=atol, max_step=max_step)
+        # max_num_steps is the IDA internal step-count budget between
+        # outputs (default 500); stiff rests need more headroom
+        expr = Experiment(
+            atol=atol, max_step=max_step, rtol=1e-6,
+            max_num_steps=int(1e4),
+        )
     expr.add_step(
         "current_A",
         -0.9117085305,
@@ -99,9 +103,9 @@ def define_post_hppc_experiment(
         7: 4.559683775,
     }
     step21_current = {
-        1: 1.400344099,
-        2: 2.829861821,
-        3: 3.328936251,
+        1: 3.418400583,
+        2: 3.418400583,
+        3: 3.418400583,
         4: 3.418400583,
         5: 3.419835874,
         6: 3.419834331,
@@ -145,28 +149,37 @@ def define_post_hppc_experiment(
                 sim_params["vmin"],
             ),
         )
-        expr.add_step("current_A", 0.0, (40, 0.4))
+        expr.add_step("current_A", 0.0, (40, 0.4), reset_capacity=False)
         expr.add_step(
-            "current_A",
-            -np.random.normal(
-                step21_current[pulse + 1], step21_currentstd[pulse + 1]
-            ),
+            "current_A", -step21_current[pulse + 1],
             (10.0, 0.1),
+            reset_capacity=False,
+            limits=(
+                "voltage_V",
+                sim_params["vmax"],
+            ),
+        )
+        expr.add_step(
+            "voltage_V", sim_params["vmax"],
+            (10.0, 0.1),
+            reset_capacity=False,
+            reset_timer=False,
+            limits=(
+                "phase_time_s",
+                10.0
+            ),
         )
         expr.add_step(
             "current_A",
             0.9117080293,
-            (
-                60
-                * np.random.normal(
-                    step23_time[pulse + 1], step23_timestd[pulse + 1]
-                ),
-                8.0,
-            ),
+            (60 * 60.0, 8.0),
             limits=(
+                "capacity_Ah",
+                0.456,
                 "voltage_V",
                 sim_params["vmin"],
             ),
+            reset_capacity=False,
         )
 
     return expr
@@ -174,7 +187,10 @@ def define_post_hppc_experiment(
 
 def define_hppc_experiment(sim_params, expr=None, atol=1e-9, max_step=1000):
     if expr is None:
-        expr = Experiment(atol=atol, max_step=max_step, rtol=1e-6)
+        expr = Experiment(
+            atol=atol, max_step=max_step, rtol=1e-6,
+            max_num_steps=int(1e4),
+        )
     expr = define_pre_hppc_experiment(
         sim_params, expr=expr, atol=atol, max_step=max_step
     )

@@ -195,6 +195,14 @@ def parse_input(filename, parallel_env=None):
         except KeyError:
             logger.warning("Using default max v 4.1V")
             phy_par["vmax"] = 4.1
+        # posthppc/hppc only: skip the CV-hold step of a pulse when the
+        # regen pulse never reached vmax (see sol_gen)
+        try:
+            phy_par["skip_degenerate_cv"] = bool(
+                exp["macroscopic"]["skip_degenerate_cv"]
+            )
+        except KeyError:
+            phy_par["skip_degenerate_cv"] = True
         if phy_par["model"].lower() == "p2d":
             phy_par["eps_el_s"] = exp["separator"]["eps_el"]
             phy_par["p_l_s"] = exp["separator"]["p_liq"]
