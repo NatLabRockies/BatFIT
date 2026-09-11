@@ -1,6 +1,7 @@
 import os
 import pickle
 import random
+import re
 import sys
 import time
 from pathlib import Path
@@ -13,245 +14,384 @@ from batfit import BATFIT_EXP, logger
 from batfit.preprocess.diff_cap import calc_dqdv_dvdq
 from batfit.preprocess.pickledb import PickleDB
 
+from .hdvolts_prot import (
+    define_diffcap_experiment,
+    define_hppc_experiment,
+    define_post_hppc_experiment,
+    define_pre_hppc_experiment,
+)
+from .mppoc_prot import (
+    define_chirp_experiment,
+)
+from .sim_setup import *
+from .utils import *
 
-def mod_sim(sim, sim_params, deg_param_sample, cyc_mode, run_mode):
 
-    # Discretization
-    sim.an.Nr = sim_params["Nr_a"]
-    sim.ca.Nr = sim_params["Nr_c"]
-    if sim_params["model"].lower() == "p2d":
-        sim.an.Nx = sim_params["Nx_a"]
-        sim.ca.Nx = sim_params["Nx_c"]
-        sim.sep.Nx = sim_params["Nx_s"]
+def mod_sim(
+    sim: bm.SPM._simulation.Simulation | bm.P2D._simulation.Simulation,
+    sim_params: dict,
+    deg_param_sample: dict,
+    cyc_mode: str,
+    run_mode: str,
+):
+    """
+    Modify the parameters of a BatMODS-lite simulation
 
-    # Degradation parameters
-    if cyc_mode.lower() == "discharge-chargecc":
-        if run_mode.lower() == "discharge":
-            if "cs0_c" in deg_param_sample:
-                sim.ca.x_0 = sim_params["x0_c_dis"] * deg_param_sample["cs0_c"]
-            else:
-                sim.ca.x_0 = sim_params["x0_c_dis"]
-            if "cs0_a" in deg_param_sample:
-                sim.an.x_0 = sim_params["x0_a_dis"] * deg_param_sample["cs0_a"]
-            else:
-                sim.an.x_0 = sim_params["x0_a_dis"]
-            C_rate = sim_params["C_dis"]
-        elif run_mode.lower() == "chargecc":
-            if "cs0_c_chcc" in deg_param_sample:
-                sim.ca.x_0 = (
-                    sim_params["x0_c_chcc"] * deg_param_sample["cs0_c_chcc"]
-                )
-            else:
-                sim.ca.x_0 = sim_params["x0_c_chcc"]
+    Parameters
+    ----------
+    sim: bm.SPM._simulation.Simulation | bm.P2D._simulation.Simulation
+        BatMODS-lite simulation
+    sim_params: dict
+        Parameters values used by BatMODS-lite
+    deg_param_sample: dict
+        Degradation parameter values: scaling parameters
+    """
 
-            if "cs0_a_chcc" in deg_param_sample:
-                sim.an.x_0 = (
-                    sim_params["x0_a_chcc"] * deg_param_sample["cs0_a_chcc"]
-                )
-            else:
-                sim.an.x_0 = sim_params["x0_a_chcc"]
-            C_rate = sim_params["C_chcc"]
-    elif cyc_mode.lower() in ["discharge", "chargecc", "rh", "lh"]:
-        if "cs0_c" in deg_param_sample:
-            sim.ca.x_0 = sim_params["x0_c"] * deg_param_sample["cs0_c"]
-        else:
-            sim.ca.x_0 = sim_params["x0_c"]
-        if "cs0_a" in deg_param_sample:
-            sim.an.x_0 = sim_params["x0_a"] * deg_param_sample["cs0_a"]
-        else:
-            sim.an.x_0 = sim_params["x0_a"]
-        C_rate = None
-    if cyc_mode.lower() in ["discharge", "chargecc"]:
-        C_rate = sim_params["C"]
-    if "ds_c" in deg_param_sample:
-        sim.ca.Ds_deg = deg_param_sample["ds_c"]
+    sim = set_discretization(sim=sim, sim_params=sim_params)
+    C_rate, sim = set_interc(
+        sim=sim,
+        sim_params=sim_params,
+        deg_param_sample=deg_param_sample,
+        cyc_mode=cyc_mode,
+        run_mode=run_mode,
+    )
+
+    if isinstance(sim, bm.P2D._simulation.Simulation):
+        is_p2d = True
     else:
-        sim.ca.Ds_deg = 1.0
-    if "ds_a" in deg_param_sample:
-        sim.an.Ds_deg = deg_param_sample["ds_a"]
-    else:
-        sim.an.Ds_deg = 1.0
-    if "i0_a" in deg_param_sample:
-        sim.an.i0_deg = deg_param_sample["i0_a"]
-    else:
-        sim.an.i0_deg = 1.0
-    if "i0_c" in deg_param_sample:
-        sim.ca.i0_deg = deg_param_sample["i0_c"]
-    else:
-        sim.ca.i0_deg = 1.0
+        is_p2d = False
 
-    if "eps_cbd_a" in deg_param_sample:
-        sim.an.eps_CBD = (
-            sim_params["eps_CBD_a"] * deg_param_sample["eps_cbd_a"]
-        )
-    else:
-        sim.an.eps_CBD = sim_params["eps_CBD_a"]
-    if "eps_cbd_c" in deg_param_sample:
-        sim.ca.eps_CBD = (
-            sim_params["eps_CBD_c"] * deg_param_sample["eps_cbd_c"]
-        )
-    else:
-        sim.ca.eps_CBD = sim_params["eps_CBD_c"]
-    if "eps_s_c" in deg_param_sample:
-        sim.ca.eps_s = sim_params["eps_s_c"] * deg_param_sample["eps_s_c"]
-    elif "eps_s_c_am" in deg_param_sample:
-        # sim.ca.eps_s = sim.ca.eps_CBD + sim.ca.eps_AM * deg
-        # sim.ca.eps_s = sim.ca.eps_CBD + (sim_params["eps_s_c"] - sim_params["eps_CBD_c"]) * deg
-        sim.ca.eps_s = (
-            sim.ca.eps_CBD
-            + (sim_params["eps_s_c"] - sim_params["eps_CBD_c"])
-            * deg_param_sample["eps_s_c_am"]
-        )
-    else:
-        sim.ca.eps_s = sim_params["eps_s_c"]
-    if "eps_s_a" in deg_param_sample:
-        sim.an.eps_s = sim_params["eps_s_a"] * deg_param_sample["eps_s_a"]
-    elif "eps_s_a_am" in deg_param_sample:
-        # sim.an.eps_s = sim.an.eps_CBD + sim.an.eps_AM * deg
-        # sim.an.eps_s = sim.an.eps_CBD + (sim_params["eps_s_a"] - sim_params["eps_CBD_a"]) * deg
-        sim.an.eps_s = (
-            sim.an.eps_CBD
-            + (sim_params["eps_s_a"] - sim_params["eps_CBD_a"])
-            * deg_param_sample["eps_s_a_am"]
-        )
-    else:
-        sim.an.eps_s = sim_params["eps_s_a"]
-    if "ce" in deg_param_sample:
-        sim.el.Li_0 = sim_params["ce"] * deg_param_sample["ce"]
-    else:
-        sim.el.Li_0 = sim_params["ce"]
-    if "eps_el_a" in deg_param_sample:
-        sim.an.eps_el = sim_params["eps_el_a"] * deg_param_sample["eps_el_a"]
-    else:
-        sim.an.eps_el = sim_params["eps_el_a"]
-    if "eps_el_c" in deg_param_sample:
-        sim.ca.eps_el = sim_params["eps_el_c"] * deg_param_sample["eps_el_c"]
-    else:
-        sim.ca.eps_el = sim_params["eps_el_c"]
-    if "area" in deg_param_sample:
-        sim.bat.area = sim_params["area"] * deg_param_sample["area"]
-    else:
-        sim.bat.area = sim_params["area"]
-    if "l_a" in deg_param_sample:
-        sim.an.thick = sim_params["L_a"] * deg_param_sample["l_a"]
-    else:
-        sim.an.thick = sim_params["L_a"]
-    if "l_c" in deg_param_sample:
-        sim.ca.thick = sim_params["L_c"] * deg_param_sample["l_c"]
-    else:
-        sim.ca.thick = sim_params["L_c"]
-
-    if "rs_a" in deg_param_sample:
-        sim.an.R_s = sim_params["Rs_a"] * deg_param_sample["rs_a"]
-    else:
-        sim.an.R_s = sim_params["Rs_a"]
-
-    if "rs_c" in deg_param_sample:
-        sim.ca.R_s = sim_params["Rs_c"] * deg_param_sample["rs_c"]
-    else:
-        sim.ca.R_s = sim_params["Rs_c"]
-
-    if sim_params["model"].lower() == "p2d":
-        if "l_s" in deg_param_sample:
-            sim.sep.thick = sim_params["L_s"] * deg_param_sample["l_s"]
-        else:
-            sim.sep.thick = sim_params["L_s"]
-
-        if "eps_el" in deg_param_sample:
-            sim.sep.eps_el = sim_params["eps_el"] * deg_param_sample["eps_el"]
-        else:
-            sim.sep.eps_el = sim_params["eps_el"]
-
-        if "p_l" in deg_param_sample:
-            sim.sep.p_liq = sim_params["p_l"] * deg_param_sample["p_l"]
-        else:
-            sim.sep.p_liq = sim_params["p_l"]
-
-        if "p_s_a" in deg_param_sample:
-            sim.an.p_sol = sim_params["p_s_a"] * deg_param_sample["p_s_a"]
-        else:
-            sim.an.p_sol = sim_params["p_s_a"]
-
-        if "p_l_a" in deg_param_sample:
-            sim.an.p_liq = sim_params["p_l_a"] * deg_param_sample["p_l_a"]
-        else:
-            sim.an.p_liq = sim_params["p_l_a"]
-
-        if "p_s_c" in deg_param_sample:
-            sim.ca.p_sol = sim_params["p_s_c"] * deg_param_sample["p_s_c"]
-        else:
-            sim.ca.p_sol = sim_params["p_s_c"]
-
-        if "p_l_c" in deg_param_sample:
-            sim.ca.p_liq = sim_params["p_l_c"] * deg_param_sample["p_l_c"]
-        else:
-            sim.ca.p_liq = sim_params["p_l_c"]
-
-        if "de" in deg_param_sample:
-            sim.el.D_deg = deg_param_sample["de"]
-        else:
-            sim.el.D_deg = 1.0
-
-        if "t0" in deg_param_sample:
-            sim.el.t0_deg = deg_param_sample["t0"]
-        else:
-            sim.el.t0_deg = 1.0
-
-        if "kappa" in deg_param_sample:
-            sim.el.kappa_deg = deg_param_sample["kappa"]
-        else:
-            sim.el.kappa_deg = 1.0
-
-        if "gamma" in deg_param_sample:
-            sim.el.gamma_deg = deg_param_sample["gamma"]
-        else:
-            sim.el.gamma_deg = 1.0
+    sim = set_battery(
+        sim=sim,
+        sim_params=sim_params,
+        deg_param_sample=deg_param_sample,
+        cyc_mode=cyc_mode,
+        run_mode=run_mode,
+        is_p2d=is_p2d,
+    )
+    sim = set_electrodes(
+        sim=sim,
+        sim_params=sim_params,
+        deg_param_sample=deg_param_sample,
+        cyc_mode=cyc_mode,
+        run_mode=run_mode,
+        is_p2d=is_p2d,
+    )
+    sim = set_electrolyte(
+        sim=sim,
+        sim_params=sim_params,
+        deg_param_sample=deg_param_sample,
+        cyc_mode=cyc_mode,
+        run_mode=run_mode,
+        is_p2d=is_p2d,
+    )
+    sim = set_separator(
+        sim=sim,
+        sim_params=sim_params,
+        deg_param_sample=deg_param_sample,
+        cyc_mode=cyc_mode,
+        run_mode=run_mode,
+        is_p2d=is_p2d,
+    )
 
     return sim, C_rate
 
 
-def print_an(sim):
-    print("Anode")
-    print(f"\tA_s = {sim.an.A_s}")
-    print(f"\tLi_max = {sim.an.Li_max}")
-    print(f"\tR_s = {sim.an.R_s}")
-    print(f"\tmaterial = {sim.an.material}")
-    print(f"\talpha_a = {sim.an.alpha_a}")
-    print(f"\talpha_c = {sim.an.alpha_c}")
-    print(f"\teps_AM = {sim.an.eps_AM}")
-    print(f"\teps_CBD = {sim.an.eps_CBD}")
-    print(f"\teps_el = {sim.an.eps_el}")
-    print(f"\teps_s = {sim.an.eps_s}")
-    print(f"\teps_void = {sim.an.eps_void}")
-    print(f"\tx_0 = {sim.an.x_0}")
+def robust_chirp(
+    sim, sim_params, chirp_params, background_C_rate, force_fail=False
+):
+    if force_fail:
+        return None
 
-
-def print_ca(sim):
-    print("Anode")
-    print(f"\tA_s = {sim.ca.A_s}")
-    print(f"\tLi_max = {sim.ca.Li_max}")
-    print(f"\tR_s = {sim.ca.R_s}")
-    print(f"\tmaterial = {sim.ca.material}")
-    print(f"\talpha_a = {sim.ca.alpha_a}")
-    print(f"\talpha_c = {sim.ca.alpha_c}")
-    print(f"\teps_AM = {sim.ca.eps_AM}")
-    print(f"\teps_CBD = {sim.ca.eps_CBD}")
-    print(f"\teps_el = {sim.ca.eps_el}")
-    print(f"\teps_s = {sim.ca.eps_s}")
-    print(f"\teps_void = {sim.ca.eps_void}")
-    print(f"\tDs_deg = {sim.ca.Ds_deg}")
-    print(f"\ti0_deg = {sim.ca.i0_deg}")
-    print(f"\tx_0 = {sim.ca.x_0}")
-
-
-def remove_file(filename):
+    sol = None
     try:
-        os.remove(filename)
-    except FileNotFoundError:
+        exp = define_chirp_experiment(
+            sim_params, chirp_params, background_C_rate=background_C_rate
+        )
+        sol = sim.run(exp, reset_state=True, bar=False)
+        assert all(sol.success)
+    except:
+        for atol, max_step in zip(
+            [1e-6, 1e-12],
+            [
+                int(1e3),
+                int(1e6),
+            ],
+        ):
+            try:
+                exp = define_chirp_experiment(
+                    sim_params,
+                    chirp_params,
+                    background_C_rate=background_C_rate,
+                    atol=atol,
+                    max_step=max_step,
+                )
+                sol = sim.run(exp, reset_state=True, bar=False)
+                assert all(sol.success)
+                break
+            except:
+                pass
         pass
+    return sol
 
 
-def robust_LHRH(sim, df, charge, protocol, sim_params, bat_model):
+def robust_DiffCap(sim, sim_params, force_fail=False):
+    if force_fail:
+        return None
+
+    sol = None
+    try:
+        exp = define_diffcap_experiment(sim_params)
+        sol = sim.run(exp, reset_state=True, bar=False)
+        assert all(sol.success)
+    except:
+        # for atol, max_step in zip(
+        #    [1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12, 1e-13],
+        #    [
+        #        int(1e3),
+        #        int(1e4),
+        #        int(1e5),
+        #        int(1e6),
+        #        int(1e6),
+        #        int(1e6),
+        #        int(1e6),
+        #        int(1e6),
+        #    ],
+        # ):
+        for atol, max_step in zip(
+            [1e-6, 1e-12],
+            [
+                int(1e3),
+                int(1e6),
+            ],
+        ):
+            try:
+                exp = define_diffcap_experiment(
+                    sim_params, atol=atol, max_step=max_step
+                )
+                sol = sim.run(exp, reset_state=True, bar=False)
+                assert all(sol.success)
+                break
+            except:
+                pass
+        pass
+    return sol
+
+
+def robust_preHPPC(sim, sim_params, force_fail=False):
+    if force_fail:
+        return None
+
+    sol = None
+    try:
+        exp = define_pre_hppc_experiment(sim_params)
+        sol = sim.run(exp, reset_state=True, bar=False)
+        assert all(sol.success)
+    except:
+        for atol, max_step in zip(
+            [1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12, 1e-13],
+            [
+                int(1e3),
+                int(1e4),
+                int(1e5),
+                int(1e6),
+                int(1e6),
+                int(1e6),
+                int(1e6),
+                int(1e6),
+            ],
+        ):
+            try:
+                exp = define_pre_hppc_experiment(
+                    sim_params, atol=atol, max_step=max_step
+                )
+                sol = sim.run(exp, reset_state=True, bar=False)
+                assert all(sol.success)
+                break
+            except:
+                pass
+        pass
+    return sol
+
+
+def robust_HPPC(sim, sim_params, force_fail=False, skip_degenerate_cv=True):
+    if force_fail:
+        return None
+
+    def _run(exp, reset_state):
+        if skip_degenerate_cv:
+            return run_steps_skip_degenerate_cv(
+                sim, exp, sim_params["vmax"]
+            )
+        return sim.run(exp, reset_state=reset_state, bar=False)
+
+    sol = None
+    try:
+        exp = define_hppc_experiment(sim_params)
+        sol = _run(exp, reset_state=True)
+        assert all(sol.success)
+    except:
+        counter = 0
+        # for atol, max_step in zip(
+        #    [1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12, 1e-13],
+        #    [
+        #        int(1e3),
+        #        int(1e4),
+        #        int(1e5),
+        #        int(1e6),
+        #        int(1e6),
+        #        int(1e6),
+        #        int(1e6),
+        #        int(1e6),
+        #    ],
+        # ):
+        for atol, max_step in zip(
+            [1e-6, 1e-12],
+            [
+                int(1e3),
+                int(1e6),
+            ],
+        ):
+            try:
+                counter += 1
+                exp = define_hppc_experiment(
+                    sim_params, atol=atol, max_step=max_step
+                )
+                sol = _run(exp, reset_state=False)
+                assert all(sol.success)
+                break
+            except:
+                pass
+        pass
+    return sol
+
+def run_steps_skip_degenerate_cv(
+    sim: bm.SPM._simulation.Simulation | bm.P2D._simulation.Simulation,
+    exp: bm.Experiment,
+    vmax: float,
+) -> bm.SPM.CycleSolution | bm.P2D.CycleSolution:
+    """
+    Equivalent of sim.run(exp) that skips a CV-hold step whenever the
+    preceding charge pulse never reached vmax.
+
+    The cycler's CV clamp only engages once vmax is hit during the
+    pulse; initializing the hold from a lower voltage makes IDACalcIC
+    solve for a nonphysical current spike and fail (deterministically
+    for jumps larger than ~0.4V). The solution is stitched with
+    CycleSolution(*solns, t_shift=1e-3), exactly as bmlite's
+    Simulation.run does, so memory behavior is identical to sim.run
+    minus the skipped steps.
+
+    Parameters
+    ----------
+    sim: bm.SPM._simulation.Simulation | bm.P2D._simulation.Simulation
+        BatMODS-lite simulation, already initialized with pre()
+    exp: bm.Experiment
+        Experiment built by define_post_hppc_experiment or
+        define_hppc_experiment
+    vmax: float
+        Upper cutoff voltage [V]
+
+    Returns
+    -------
+    sol: bm.SPM.CycleSolution | bm.P2D.CycleSolution
+        Stitched solution of the executed steps
+    """
+    solns = []
+    skip_next_cv = False
+    for i in range(exp.num_steps):
+        step = exp.steps[i]
+        # bmlite stores the mode with units stripped: 'voltage'/
+        # 'current'. CV-completion holds are the only voltage steps
+        # bounded by a phase_time_s limit
+        is_cv_completion = (
+            step["mode"] == "voltage"
+            and step["limits"] is not None
+            and "phase_time_s" in step["limits"]
+        )
+        if is_cv_completion and skip_next_cv:
+            logger.debug(f"Skipping CV step {i} (pulse ended below vmax)")
+            skip_next_cv = False
+            continue
+        soln = sim.run_step(exp, i)
+        solns.append(soln)
+        # a regen (charge) pulse is a fixed negative-current step with
+        # a voltage limit; the flag only survives to the next step
+        if (
+            step["mode"] == "current"
+            and not callable(step["value"])
+            and step["value"] < 0.0
+            and step["limits"] is not None
+            and "voltage_V" in step["limits"]
+        ):
+            skip_next_cv = soln.vars["voltage_V"][-1] < vmax - 1e-6
+        else:
+            skip_next_cv = False
+    if isinstance(sim, bm.P2D._simulation.Simulation):
+        return bm.P2D.CycleSolution(*solns, t_shift=1e-3)
+    return bm.SPM.CycleSolution(*solns, t_shift=1e-3)
+
+
+def robust_postHPPC(
+    sim, sim_params, force_fail=False, skip_degenerate_cv=True
+):
+    if force_fail:
+        return None
+
+    def _run(exp, reset_state):
+        if skip_degenerate_cv:
+            return run_steps_skip_degenerate_cv(
+                sim, exp, sim_params["vmax"]
+            )
+        return sim.run(exp, reset_state=reset_state, bar=False)
+
+    sol = None
+    exp = define_post_hppc_experiment(sim_params)
+    try:
+        exp = define_post_hppc_experiment(sim_params)
+        sol = _run(exp, reset_state=True)
+        assert all(sol.success)
+    except:
+        counter = 0
+        # for atol, max_step in zip(
+        #    [1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12, 1e-13],
+        #    [
+        #        int(1e3),
+        #        int(1e4),
+        #        int(1e5),
+        #        int(1e6),
+        #        int(1e6),
+        #        int(1e6),
+        #        int(1e6),
+        #        int(1e6),
+        #    ],
+        # ):
+        for atol, max_step in zip(
+            [1e-12],
+            [
+                int(1e3),
+            ],
+        ):
+            try:
+                counter += 1
+                exp = define_post_hppc_experiment(
+                    sim_params, atol=atol, max_step=max_step
+                )
+                sol = _run(exp, reset_state=False)
+                assert all(sol.success)
+                break
+            except:
+                pass
+        pass
+    return sol
+
+
+def robust_LHRH(
+    sim, df, charge, protocol, sim_params, bat_model, force_fail=False
+):
+    raise NotImplementedError("timespan needs to be defined differently now")
+    if force_fail:
+        return None
     rootsol = None
     try:
         stmp = sim.run(charge, reset_state=False)
@@ -347,7 +487,10 @@ def robust_LHRH(sim, df, charge, protocol, sim_params, bat_model):
     return rootsol
 
 
-def robust_CC(sim, C_rate, sim_params):
+def robust_CC(sim, C_rate, sim_params, force_fail=False):
+    # raise NotImplementedError("timespan needs to be defined differently now")
+    if force_fail:
+        return None
 
     t_step = (3600.0 / abs(C_rate), 3600.0 / abs(10000.0 * C_rate))
     t_step_init = (10.0 / abs(C_rate), 10.0 / abs(150.0 * C_rate))
@@ -418,12 +561,18 @@ def single_run(
     nsim=None,
     parallel_env=None,
     run_mode=None,
+    prot_param_sample=None,
 ):
 
     cyc_mode = sim_params["cyc_mode"]
     params_list = [
         deg_param_sample[key] for key in sim_params["deg_param_names"]
     ]
+    prot_params_list = None
+    if prot_param_sample is not None:
+        prot_params_list = [
+            prot_param_sample[key] for key in sim_params["prot_param_names"]
+        ]
     param_string = from_param_list_to_str(params_list)
 
     bat_model = None
@@ -436,19 +585,101 @@ def single_run(
     sim, C_rate = mod_sim(
         sim, sim_params, deg_param_sample, cyc_mode, run_mode=run_mode
     )
+
+    # if any exception occurred during pre, then fail
+    force_fail = False
+    try:
+        sim.pre()
+    except Exception:
+        force_fail = True
+
+    # print(deg_param_sample)
     # print_an(sim)
     # print_ca(sim)
 
-    sim.pre()
     time_s = time.time()
     if cyc_mode.lower() in ["discharge", "chargecc", "discharge-chargecc"]:
-        rootsol = robust_CC(sim=sim, C_rate=C_rate, sim_params=sim_params)
+        rootsol = robust_CC(
+            sim=sim,
+            C_rate=C_rate,
+            sim_params=sim_params,
+            force_fail=force_fail,
+        )
         if rootsol is None:
             print(f"All sim failed for {deg_param_sample}")
         else:
             print(f"Success for {deg_param_sample}")
 
-    elif cyc_mode.lower() in ["rh", "lh"]:
+    elif cyc_mode.lower() in ["chirp"]:
+        assert prot_param_sample is not None
+        assert "time_start" in prot_param_sample
+        assert "amplitude" in prot_param_sample
+        assert "length" in prot_param_sample
+        rootsol = robust_chirp(
+            sim=sim,
+            sim_params=sim_params,
+            chirp_params=prot_param_sample,
+            background_C_rate=C_rate,
+            force_fail=force_fail,
+        )
+
+        if rootsol is None:
+            print(
+                f"All sim failed for {deg_param_sample} and protocol {prot_param_sample}"
+            )
+        else:
+            print(
+                f"Success for {deg_param_sample} and protocol {prot_param_sample}"
+            )
+    elif cyc_mode.lower() in ["diffcap", "hppc", "prehppc", "posthppc"]:
+        if cyc_mode.lower() == "diffcap":
+            rootsol = robust_DiffCap(
+                sim=sim,
+                sim_params=sim_params,
+                force_fail=force_fail,
+            )
+            if rootsol is None:
+                print(f"All sim failed for {deg_param_sample}")
+            else:
+                print(f"Success for {deg_param_sample}")
+        if cyc_mode.lower() == "hppc":
+            rootsol = robust_HPPC(
+                sim=sim,
+                sim_params=sim_params,
+                force_fail=force_fail,
+                skip_degenerate_cv=sim_params.get(
+                    "skip_degenerate_cv", True
+                ),
+            )
+            if rootsol is None:
+                print(f"All sim failed for {deg_param_sample}")
+            else:
+                print(f"Success for {deg_param_sample}")
+        if cyc_mode.lower() == "posthppc":
+            rootsol = robust_postHPPC(
+                sim=sim,
+                sim_params=sim_params,
+                force_fail=force_fail,
+                skip_degenerate_cv=sim_params.get(
+                    "skip_degenerate_cv", True
+                ),
+            )
+            if rootsol is None:
+                print(f"All sim failed for {deg_param_sample}")
+            else:
+                print(f"Success for {deg_param_sample}")
+        if cyc_mode.lower() == "prehppc":
+            rootsol = robust_preHPPC(
+                sim=sim,
+                sim_params=sim_params,
+                force_fail=force_fail,
+            )
+            if rootsol is None:
+                print(f"All sim failed for {deg_param_sample}")
+            else:
+                print(f"Success for {deg_param_sample}")
+
+    elif cyc_mode.lower() in ["rh", "lh", "lh2"]:
         df = pd.read_csv(os.path.join(BATFIT_EXP, "LHmax.csv"))
         charge = bm.Experiment()
         charge.add_step(
@@ -458,22 +689,6 @@ def single_run(
             limits=("voltage_V", sim_params["vmax"]),
         )
         charge.add_step("voltage_V", sim_params["vmax"], (3600.0, 30.0))
-        # LHmax = bm.Experiment()
-        # for i in range(40):
-        #    for _, row in df.iterrows():
-        #        dt, P_ratio = row["dt_s"], row["P_ratio"]
-        #        P_scalar = 0.11  # Wh
-        #        LHmax.add_step(
-        #            "power_W",
-        #            P_scalar * P_ratio,
-        #            (dt, 10.0),
-        #            limits=(
-        #                "voltage_V",
-        #                sim_params["vmin"],
-        #                "voltage_V",
-        #                sim_params["vmax"],
-        #            ),
-        #        )
         if cyc_mode.lower() == "rh":
             reg = bm.Experiment(max_step=1.0)
             reg.add_step(
@@ -495,6 +710,7 @@ def single_run(
                 protocol=reg,
                 sim_params=sim_params,
                 bat_model=bat_model,
+                force_fail=force_fail,
             )
             if rootsol is None:
                 print(f"All sim failed for {deg_param_sample}")
@@ -521,6 +737,34 @@ def single_run(
                 protocol=long,
                 sim_params=sim_params,
                 bat_model=bat_model,
+                force_fail=force_fail,
+            )
+            if rootsol is None:
+                print(f"All sim failed for {deg_param_sample}")
+            else:
+                print(f"Success for {deg_param_sample}")
+        if cyc_mode.lower() == "lh2":
+            long = bm.Experiment(max_step=1.0)
+            long.add_step(
+                "current_C",
+                -0.4,
+                (3600.0 * 2.0, 10.0),
+                limits=("voltage_V", sim_params["vmax"]),
+            )
+            long.add_step(
+                "voltage_V",
+                sim_params["vmax"],
+                (3600.0 * 2.0, 10.0),
+                limits=("time_h", 2.0),
+            )
+            rootsol = robust_LHRH(
+                sim=sim,
+                df=df,
+                charge=charge,
+                protocol=long,
+                sim_params=sim_params,
+                bat_model=bat_model,
+                force_fail=force_fail,
             )
             if rootsol is None:
                 print(f"All sim failed for {deg_param_sample}")
@@ -542,76 +786,7 @@ def single_run(
                 f"Elapsed time ({count+1}/{nsim}) = {time_e-time_s:.2f}s"
             )
 
-    return params_list, rootsol
-
-
-def reduce_npoints_dict(sol_dict, n_points_reduce=512):
-    new_sol_dict = {}
-    t_int = np.linspace(
-        np.nanmin(sol_dict["t"]),
-        np.nanmax(sol_dict["t"]),
-        n_points_reduce,
-    )
-    phis_c_int = np.interp(t_int, sol_dict["t"], sol_dict["phis_c"])
-    new_sol_dict["t"] = t_int
-    new_sol_dict["phis_c"] = phis_c_int
-
-    if "t_diff" in sol_dict:
-        t_diff_int = np.linspace(
-            np.nanmin(sol_dict["t_diff"]),
-            np.nanmax(sol_dict["t_diff"]),
-            n_points_reduce,
-        )
-        phis_c_diff_int = np.interp(
-            t_diff_int, sol_dict["t_diff"], sol_dict["phis_c_diff"]
-        )
-        dvdq_int = np.interp(t_diff_int, sol_dict["t_diff"], sol_dict["dvdq"])
-        dqdv_int = np.interp(t_diff_int, sol_dict["t_diff"], sol_dict["dqdv"])
-        new_sol_dict["t_diff"] = t_diff_int
-        new_sol_dict["phis_c_diff"] = phis_c_diff_int
-        new_sol_dict["dvdq"] = dvdq_int
-        new_sol_dict["dqdv"] = dqdv_int
-
-    if "t_diff_crop" in sol_dict:
-        t_diff_crop_int = np.linspace(
-            np.nanmin(sol_dict["t_diff_crop"]),
-            np.nanmax(sol_dict["t_diff_crop"]),
-            n_points_reduce,
-        )
-        phis_c_diff_crop_int = np.interp(
-            t_diff_crop_int,
-            sol_dict["t_diff_crop"],
-            sol_dict["phis_c_diff_crop"],
-        )
-        dvdq_crop_int = np.interp(
-            t_diff_crop_int,
-            sol_dict["t_diff_crop"],
-            sol_dict["dvdq_crop"],
-        )
-        dqdv_crop_int = np.interp(
-            t_diff_crop_int,
-            sol_dict["t_diff_crop"],
-            sol_dict["dqdv_crop"],
-        )
-
-        new_sol_dict["t_diff_crop"] = t_diff_crop_int
-        new_sol_dict["phis_c_diff_crop"] = phis_c_diff_crop_int
-        new_sol_dict["dvdq_crop"] = dvdq_crop_int
-        new_sol_dict["dqdv_crop"] = dqdv_crop_int
-
-    return new_sol_dict
-
-
-def reduce_npoints_records(records, n_points_reduce=512):
-    new_records = []
-    for record in records:
-        new_sol = reduce_npoints_dict(
-            record["sol"], n_points_reduce=n_points_reduce
-        )
-        record["sol"] = new_sol
-        new_records.append(record)
-
-    return new_records
+    return params_list, prot_params_list, rootsol
 
 
 def single_run_save(
@@ -621,14 +796,21 @@ def single_run_save(
     phis_c_max,
     folder_save=".",
     bad_par_filename="bad_par.txt",
-    bad_sol_filename="bad_sol.txt",
+    bad_prot_filename="bad_protocol.txt",
     only_phi_CC=True,
+    store_current=False,
     n_points_reduce=512,
     cyc_mode="discharge",
     run_mode=None,
+    prot_params_list=None,
 ):
 
     param_string = from_param_list_to_str(params_list)
+    if prot_params_list is not None:
+        prot_param_string = from_prot_param_list_to_str(prot_params_list)
+    else:
+        prot_param_string = None
+
     if "p2d" in str(type(rootsol)).lower():
         run_p2d = True
         run_spm = False
@@ -651,26 +833,36 @@ def single_run_save(
                 )
         else:
             sol_dict = rootsol.to_dict()
-        if cyc_mode in ["discharge", "chargecc", "discharge-chargecc"]:
-            if phis_c_min is not -np.inf:
-                try:
-                    ind_t_max = np.argwhere(sol_dict["phis_c"] < phis_c_min)[
-                        0
-                    ][0]
-                except IndexError:
-                    ind_t_max = None
-            elif phis_c_max is not np.inf:
-                try:
-                    ind_t_max = np.argwhere(sol_dict["phis_c"] > phis_c_max)[
-                        0
-                    ][0]
-                except IndexError:
-                    ind_t_max = None
-            else:
-                ind_t_max = None
-        else:
-            ind_t_max = None
 
+        if store_current:
+            if run_spm:
+                sol_dict["i"] = rootsol.vars["current_A"]
+            else:
+                sol_dict["i"] = np.expand_dims(
+                    rootsol.vars["current_A"], axis=1
+                )
+
+        # if cyc_mode in ["discharge", "chargecc", "discharge-chargecc"]:
+        #    if phis_c_min is not -np.inf:
+        #        try:
+        #            ind_t_max = np.argwhere(sol_dict["phis_c"] < phis_c_min)[
+        #                0
+        #            ][0]
+        #        except IndexError:
+        #            ind_t_max = None
+        #    elif phis_c_max is not np.inf:
+        #        try:
+        #            ind_t_max = np.argwhere(sol_dict["phis_c"] > phis_c_max)[
+        #                0
+        #            ][0]
+        #        except IndexError:
+        #            ind_t_max = None
+        #    else:
+        #        ind_t_max = None
+        # else:
+        #    ind_t_max = None
+
+        ind_t_max = None
         save_dict = {}
 
         if run_spm:
@@ -678,17 +870,23 @@ def single_run_save(
             if only_phi_CC:
                 save_dict["t"] = sol_dict["t"][:ind_t_max]
                 save_dict["phis_c"] = sol_dict["phis_c"][:ind_t_max]
+                if store_current:
+                    save_dict["i"] = sol_dict["i"][:ind_t_max]
             else:
                 save_dict["t"] = sol_dict["t"][:ind_t_max]
                 save_dict["cs_a"] = sol_dict["cs_a"][:ind_t_max]
                 save_dict["cs_c"] = sol_dict["cs_c"][:ind_t_max]
                 save_dict["phie"] = sol_dict["phie"][:ind_t_max]
                 save_dict["phis_c"] = sol_dict["phis_c"][:ind_t_max]
+                if store_current:
+                    save_dict["i"] = sol_dict["i"][:ind_t_max]
         elif run_p2d:
             # P2D
             if only_phi_CC:
                 save_dict["t"] = sol_dict["t"][:ind_t_max]
                 save_dict["phis_c"] = sol_dict["phis_c"][:ind_t_max, -1]
+                if store_current:
+                    save_dict["i"] = sol_dict["i"][:ind_t_max, -1]
             else:
                 save_dict["t"] = sol_dict["t"][:ind_t_max]
                 save_dict["cs_a"] = sol_dict["cs_a"][:ind_t_max]
@@ -701,6 +899,8 @@ def single_run_save(
                 save_dict["ie"] = sol_dict["ie"][:ind_t_max]
                 save_dict["j_a"] = sol_dict["j_a"][:ind_t_max]
                 save_dict["j_c"] = sol_dict["j_c"][:ind_t_max]
+                if store_current:
+                    save_dict["i"] = sol_dict["i"][:ind_t_max, -1]
 
         t = sol_dict["t"]
         phis_c = sol_dict["phis_c"]
@@ -708,10 +908,21 @@ def single_run_save(
 
         if cyc_mode.lower() in ["discharge", "chargecc", "discharge-chargecc"]:
             if run_p2d:
-                diff_dict = calc_dqdv_dvdq(t, phis_c[:, -1])
+                # diff_dict = calc_dqdv_dvdq(t, phis_c[:, -1])
+                diff_dict = {}
             elif run_spm:
-                diff_dict = calc_dqdv_dvdq(t, phis_c)
-        elif cyc_mode.lower() in ["rh", "lh"]:
+                # diff_dict = calc_dqdv_dvdq(t, phis_c)
+                diff_dict = {}
+        elif cyc_mode.lower() in [
+            "rh",
+            "lh",
+            "lh2",
+            "hppc",
+            "posthppc",
+            "prehppc",
+            "diffcap",
+            "chirp",
+        ]:
             diff_dict = {}
 
         for key in diff_dict:
@@ -727,8 +938,12 @@ def single_run_save(
                 n_points_reduce,
             )
             phis_c_int = np.interp(t_int, save_dict["t"], save_dict["phis_c"])
+            if "i" in save_dict:
+                i_int = np.interp(t_int, save_dict["t"], save_dict["i"])
             save_dict["t"] = t_int
             save_dict["phis_c"] = phis_c_int
+            if "i" in save_dict:
+                save_dict["i"] = i_int
 
             if len(diff_dict) > 0:
                 t_diff_int = np.linspace(
@@ -777,19 +992,23 @@ def single_run_save(
                 save_dict["dvdq_crop"] = dvdq_crop_int
                 save_dict["dqdv_crop"] = dqdv_crop_int
 
-        return save_dict, param_string
-
+        return save_dict, param_string, prot_param_string
     except (AssertionError, TypeError, AttributeError) as err:
         print(f"ERROR: {err}")
-        with open(os.path.join(folder_save, bad_sol_filename), "a+") as f:
-            f.write(f"solution{param_string}.npz\n")
         with open(os.path.join(folder_save, bad_par_filename), "a+") as f:
             string_par = ""
             for parameter in params_list:
                 string_par += f"{parameter:g} "
             f.write(f"{string_par}\n")
 
-        return None, None
+        if prot_params_list is not None:
+            with open(os.path.join(folder_save, bad_prot_filename), "a+") as f:
+                string_prot_par = ""
+                for prot_parameter in prot_params_list:
+                    string_prot_par += f"{prot_parameter:g} "
+                f.write(f"{string_prot_par}\n")
+
+        return None, None, None
 
 
 def save_datapoint(
@@ -802,11 +1021,13 @@ def save_datapoint(
     save_combined_sols=True,
     db: PickleDB | None = None,
     bad_par_filename="bad_par.txt",
-    bad_sol_filename="bad_sol.txt",
+    bad_prot_filename="bad_prot.txt",
     only_phi_CC=True,
+    store_current=False,
     n_points_reduce=512,
     cyc_mode="discharge",
     run_mode=None,
+    prot_params_list=None,
 ):
 
     if cyc_mode.lower() in ["discharge-chargecc", "discharge"]:
@@ -816,15 +1037,15 @@ def save_datapoint(
         else:
             p_list = params_list
             rsol = rootsol
-        save_dict_dis, param_string_dis = single_run_save(
+        save_dict_dis, param_string_dis, _ = single_run_save(
             p_list,
             rsol,
             phis_c_min=phis_c_min,
             phis_c_max=phis_c_max,
             folder_save=folder_save,
             bad_par_filename=bad_par_filename,
-            bad_sol_filename=bad_sol_filename,
             only_phi_CC=only_phi_CC,
+            store_current=store_current,
             n_points_reduce=n_points_reduce,
             cyc_mode=cyc_mode,
             run_mode="discharge",
@@ -846,15 +1067,15 @@ def save_datapoint(
             save_dict_chcc = None
             param_string_chcc = None
         else:
-            save_dict_chcc, param_string_chcc = single_run_save(
+            save_dict_chcc, param_string_chcc, _ = single_run_save(
                 p_list,
                 rsol,
                 phis_c_min=phis_c_min,
                 phis_c_max=phis_c_max,
                 folder_save=folder_save,
                 bad_par_filename=bad_par_filename,
-                bad_sol_filename=bad_sol_filename,
                 only_phi_CC=only_phi_CC,
+                store_current=store_current,
                 n_points_reduce=n_points_reduce,
                 cyc_mode=cyc_mode,
                 run_mode="chargecc",
@@ -862,18 +1083,57 @@ def save_datapoint(
         if save_dict_chcc is None:
             save_separate_sols = False
             save_combined_sols = False
-    if cyc_mode.lower() in ["rh"]:
+    if cyc_mode.lower() in ["diffcap", "hppc", "prehppc", "posthppc"]:
         p_list = params_list
         rsol = rootsol
-        save_dict_rh, param_string_rh = single_run_save(
+        save_dict, param_string, _ = single_run_save(
             p_list,
             rsol,
             phis_c_min=phis_c_min,
             phis_c_max=phis_c_max,
             folder_save=folder_save,
             bad_par_filename=bad_par_filename,
-            bad_sol_filename=bad_sol_filename,
             only_phi_CC=only_phi_CC,
+            store_current=store_current,
+            n_points_reduce=n_points_reduce,
+            cyc_mode=cyc_mode,
+        )
+        if save_dict is None:
+            save_separate_sols = False
+            save_combined_sols = False
+    if cyc_mode.lower() in ["chirp"]:
+        p_list = params_list
+        prot_p_list = prot_params_list
+        rsol = rootsol
+        save_dict, param_string, prot_param_string = single_run_save(
+            p_list,
+            rsol,
+            phis_c_min=phis_c_min,
+            phis_c_max=phis_c_max,
+            folder_save=folder_save,
+            bad_par_filename=bad_par_filename,
+            bad_prot_filename=bad_prot_filename,
+            only_phi_CC=only_phi_CC,
+            store_current=store_current,
+            n_points_reduce=n_points_reduce,
+            cyc_mode=cyc_mode,
+            prot_params_list=prot_p_list,
+        )
+        if save_dict is None:
+            save_separate_sols = False
+            save_combined_sols = False
+    if cyc_mode.lower() in ["rh"]:
+        p_list = params_list
+        rsol = rootsol
+        save_dict_rh, param_string_rh, _ = single_run_save(
+            p_list,
+            rsol,
+            phis_c_min=phis_c_min,
+            phis_c_max=phis_c_max,
+            folder_save=folder_save,
+            bad_par_filename=bad_par_filename,
+            only_phi_CC=only_phi_CC,
+            store_current=store_current,
             n_points_reduce=n_points_reduce,
             cyc_mode=cyc_mode,
         )
@@ -883,15 +1143,33 @@ def save_datapoint(
     if cyc_mode.lower() in ["lh"]:
         p_list = params_list
         rsol = rootsol
-        save_dict_lh, param_string_lh = single_run_save(
+        save_dict_lh, param_string_lh, _ = single_run_save(
             p_list,
             rsol,
             phis_c_min=phis_c_min,
             phis_c_max=phis_c_max,
             folder_save=folder_save,
             bad_par_filename=bad_par_filename,
-            bad_sol_filename=bad_sol_filename,
             only_phi_CC=only_phi_CC,
+            store_current=store_current,
+            n_points_reduce=n_points_reduce,
+            cyc_mode=cyc_mode,
+        )
+        if save_dict_lh is None:
+            save_separate_sols = False
+            save_combined_sols = False
+    if cyc_mode.lower() in ["lh2"]:
+        p_list = params_list
+        rsol = rootsol
+        save_dict_lh, param_string_lh, _ = single_run_save(
+            p_list,
+            rsol,
+            phis_c_min=phis_c_min,
+            phis_c_max=phis_c_max,
+            folder_save=folder_save,
+            bad_par_filename=bad_par_filename,
+            only_phi_CC=only_phi_CC,
+            store_current=store_current,
             n_points_reduce=n_points_reduce,
             cyc_mode=cyc_mode,
         )
@@ -905,6 +1183,11 @@ def save_datapoint(
         "discharge-chargecc",
         "discharge",
         "chargecc",
+        "hppc",
+        "posthppc",
+        "prehppc",
+        "diffcap",
+        "chirp",
     ]:
         raise NotImplementedError
 
@@ -924,6 +1207,9 @@ def save_datapoint(
     elif cyc_mode.lower() == "lh":
         param_string = param_string_lh
         save_dict = save_dict_lh
+    elif cyc_mode.lower() == "lh2":
+        param_string = param_string_lh
+        save_dict = save_dict_lh
 
     if save_separate_sols:
         if cyc_mode.lower() == "discharge-chargecc":
@@ -941,7 +1227,18 @@ def save_datapoint(
                 ),
                 **save_dict_chcc,
             )
-        elif cyc_mode.lower() in ["discharge", "chargecc", "rh", "lh"]:
+        elif cyc_mode.lower() in [
+            "discharge",
+            "chargecc",
+            "rh",
+            "lh",
+            "lh2",
+            "hppc",
+            "posthppc",
+            "prehppc",
+            "diffcap",
+            "chirp",
+        ]:
             np.savez(
                 os.path.join(folder_save, f"solution{param_string}.npz"),
                 **save_dict,
@@ -959,7 +1256,22 @@ def save_datapoint(
         # params_list = [np.float32(entry) for entry in params_list]
 
         combined_data["params"] = params_list
-        if cyc_mode.lower() in ["discharge", "chargecc", "rh", "lh"]:
+        if cyc_mode.lower() in [
+            "chirp",
+        ]:
+            combined_data["prot_params"] = prot_params_list
+        if cyc_mode.lower() in [
+            "discharge",
+            "chargecc",
+            "rh",
+            "lh",
+            "lh2",
+            "hppc",
+            "posthppc",
+            "prehppc",
+            "diffcap",
+            "chirp",
+        ]:
             combined_data["sol"] = save_dict
         elif cyc_mode.lower() == "discharge-chargecc":
             combined_data["sol_dis"] = save_dict_dis
@@ -967,102 +1279,26 @@ def save_datapoint(
         db.append(combined_data, max_try=10)
 
 
-def from_param_list_to_str(params_list, params_name=None):
-    param_string = ""
-    if params_list is not None:
-        if isinstance(params_list[0], str):
-            params_list_val = [float(val) for val in params_list]
-        else:
-            params_list_val = params_list
-        if params_name is None:
-            for paramval in params_list_val:
-                param_string += "_"
-                param_string += f"{paramval:g}"
-        else:
-            for paramval, name in zip(params_list_val, params_name):
-                param_string += f"_{name}_"
-                param_string += f"{paramval:g}"
-    return param_string
-
-
-def from_param_list_to_dict(params_list, params):
-    deg_dict = {}
-    for ipar, name in enumerate(params["deg_param_names"]):
-        if params_list is not None:
-            if isinstance(params_list[0], str):
-                deg_dict[name] = float(params_list[ipar])
-            else:
-                deg_dict[name] = params_list[ipar]
-        else:
-            deg_dict[name] = params["deg_" + name + "_ref"]
-    return deg_dict
-
-
-def from_param_list_to_str(params_list, params_name=None):
-    param_string = ""
-    if params_list is not None:
-        if isinstance(params_list[0], str):
-            params_list_val = [float(val) for val in params_list]
-        else:
-            params_list_val = params_list
-        if params_name is None:
-            for paramval in params_list_val:
-                param_string += "_"
-                param_string += f"{paramval:g}"
-        else:
-            for paramval, name in zip(params_list_val, params_name):
-                param_string += f"_{name}_"
-                param_string += f"{paramval:g}"
-    return param_string
-
-
-def from_param_list_to_dict(params_list, params):
-    deg_dict = {}
-    for ipar, name in enumerate(params["deg_param_names"]):
-        if params_list is not None:
-            if isinstance(params_list[0], str):
-                deg_dict[name] = float(params_list[ipar])
-            else:
-                deg_dict[name] = params_list[ipar]
-        else:
-            deg_dict[name] = params["deg_" + name + "_ref"]
-    return deg_dict
-
-
 def clean_sol_par(
     folder_save=".",
     param_list_file="parameter_list.txt",
-    sol_list_file="solution_list.txt",
     bad_par_file="bad_par.txt",
-    bad_sol_file="bad_sol.txt",
     param_list_multi_file="parameter_list_multi.txt",
-    sol_list_multi_file="solution_list_multi.txt",
 ):
 
     param_list_file = os.path.join(folder_save, param_list_file)
-    sol_list_file = os.path.join(folder_save, sol_list_file)
-    bad_par_list_file = os.path.join(folder_save, bad_par_list_file)
-    bad_sol_list_file = os.path.join(folder_save, bad_sol_list_file)
+    bad_par_file = os.path.join(folder_save, bad_par_file)
     param_list_multi_file = os.path.join(folder_save, param_list_multi_file)
-    sol_list_multi_file = os.path.join(folder_save, sol_list_multi_file)
 
     with open(param_list_file, "r+") as f:
         old_par_lines = f.readlines()
-    with open(sol_list_file, "r+") as f:
-        old_sol_lines = f.readlines()
     if not os.path.isfile(bad_par_file):
         with open(param_list_multi_file, "w+") as f:
             for line in old_par_lines:
                 f.write(line)
-        with open(sol_list_multi_file, "w+") as f:
-            for line in old_sol_lines:
-                f.write(line)
         return
-
     with open(bad_par_file, "r+") as f:
         bad_par_lines = f.readlines()
-    with open(bad_sol_file, "r+") as f:
-        bad_sol_lines = f.readlines()
 
     with open(param_list_multi_file, "w+") as f:
         count_remove = 0
@@ -1072,149 +1308,71 @@ def clean_sol_par(
             else:
                 count_remove += 1
         print(f"Removed {count_remove} param")
-    with open(sol_list_multi_file, "w+") as f:
-        count_remove = 0
-        for line in old_sol_lines:
-            if line not in bad_sol_lines:
-                f.write(line)
-            else:
-                count_remove += 1
-        print(f"Removed {count_remove} sol")
 
 
 def read_list_param(
-    folder_save=".", param_list_file="parameter_list.txt", parameter_list=[]
+    folder_save=".", param_list_file="parameter_list.txt", parameter_list=None
 ):
     param_list_file = os.path.join(folder_save, param_list_file)
     if not os.path.isfile(param_list_file):
         return parameter_list
     with open(param_list_file, "r+") as f:
         lines = f.readlines()
+    if parameter_list is None:
+        parameter_list = []
     for line in lines:
         parameter_list.append([float(entry) for entry in line.split()])
     return parameter_list
 
 
-def read_list_sol(
-    folder_save=".", sol_list_file="solution_list.txt", solution_list=[]
-):
-    sol_list_file = os.path.join(folder_save, sol_list_file)
-    if not os.path.isfile(sol_list_file):
-        return solution_list
-    with open(sol_list_file, "r+") as f:
-        lines = f.readlines()
-    for line in lines:
-        solution_list.append(line[:-1])
-    return solution_list
-
-
-def check_degparamdict(deg_param_dict, sim_params, parallel_env=None):
-    for deg_param_name in sim_params["deg_param_names"]:
-        try:
-            assert (
-                deg_param_dict[deg_param_name]
-                >= sim_params["deg_" + deg_param_name + "_min"]
-            )
-            assert (
-                deg_param_dict[deg_param_name]
-                <= sim_params["deg_" + deg_param_name + "_max"]
-            )
-        except AssertionError:
-            msg = f"ERROR: In dict {deg_param_dict}\n\tParameter {deg_param_name} = {deg_param_dict[deg_param_name]} out of bounds ({sim_params['deg_' + deg_param_name + '_min']}-{sim_params['deg_' + deg_param_name + '_max']})"
-            if parallel_env is None:
-                sys.exit(msg)
-            else:
-                parallel_env.printAll(msg)
-                parallel_env.comm.Abort()
-
-
-def check_degparamlist(deg_param_list, sim_params, parallel_env=None):
-    for deg_val, deg_param_name in zip(
-        deg_param_list, sim_params["deg_param_names"]
-    ):
-        try:
-            assert deg_val >= sim_params["deg_" + deg_param_name + "_min"]
-            assert deg_val <= sim_params["deg_" + deg_param_name + "_max"]
-
-        except AssertionError:
-            msg = f"ERROR: In list {deg_param_list}\n\t"
-            msg += f"Parameter {deg_param_name} = {deg_val} out of bounds"
-            msg += f"({sim_params['deg_' + deg_param_name + '_min']}-"
-            msg += f"{sim_params['deg_' + deg_param_name + '_max']})"
-            if parallel_env is None:
-                sys.exit(msg)
-            else:
-                parallel_env.printAll(msg)
-                parallel_env.comm.Abort()
-
-
-def from_degparamlist_to_degparamdict(
-    deg_param_list, sim_params, parallel_env=None
-):
-    check_degparamlist(deg_param_list, sim_params, parallel_env)
-    deg_param_dict = {}
-    for deg_param_val, deg_param_name in zip(
-        deg_param_list, sim_params["deg_param_names"]
-    ):
-        deg_param_dict[deg_param_name] = deg_param_val
-    check_degparamdict(deg_param_dict, sim_params, parallel_env)
-    return deg_param_dict
-
-
-def from_degparamdict_to_degparamlist(
-    deg_param_dict, sim_params, parallel_env=None
-):
-    check_degparamdict(deg_param_dict, sim_params, parallel_env)
-    deg_param_list = []
-    for deg_param_name in sim_params["deg_param_names"]:
-        deg_param_list.append(deg_param_dict[deg_param_name])
-    check_degparamlist(deg_param_list, sim_params, parallel_env)
-    return deg_param_list
-
-
 def multi_run_ser(
     sim_params,
     param_list_file="parameter_list.txt",
-    sol_list_file="solution_list.txt",
     bad_par_file="bad_par.txt",
-    bad_sol_file="bad_sol.txt",
+    protocol_list_file="protocol_parameter_list.txt",
+    bad_protocol_file="bad_protocol.txt",
     save_separate_sols=False,
     save_combined_sols=True,
     folder_save=".",
     only_phi_CC=True,
+    store_current=False,
     n_points_reduce=512,
+    protocol_params=None,
 ):
 
     cyc_mode = sim_params["cyc_mode"]
     log_dir = Path(folder_save)
     log_dir.mkdir(parents=True, exist_ok=True)
     remove_file(os.path.join(folder_save, bad_par_file))
-    remove_file(os.path.join(folder_save, bad_sol_file))
+    remove_file(os.path.join(folder_save, bad_protocol_file))
     remove_file(os.path.join(folder_save, "sols.pkl"))
 
     deg_parameter_list = read_list_param(
         folder_save=folder_save, param_list_file=param_list_file
     )
-    solution_list = read_list_sol(
-        folder_save=folder_save, sol_list_file=sol_list_file
-    )
-    try:
-        assert len(deg_parameter_list) == len(solution_list)
-    except AssertionError:
-        msg = f"ERROR: deg_parameter_list (len={len(deg_parameter_list)}) and"
-        msg += f"solution_list (len={len(solution_list)}) are inconsistent"
-        print(msg)
-        sys.exit()
-
-    nsim = len(solution_list)
+    nsim = len(deg_parameter_list)
+    if cyc_mode.lower() in ["chirp"]:
+        protocol_parameter_list = read_list_param(
+            folder_save=folder_save, param_list_file=protocol_list_file
+        )
+        assert nsim == len(protocol_parameter_list)
 
     db = PickleDB(filename=os.path.join(folder_save, "sols.pkl"))
 
-    for count, (deg_param_entry, solution_entry) in enumerate(
-        zip(deg_parameter_list, solution_list)
-    ):
-        if cyc_mode.lower() in ["discharge", "chargecc", "rh", "lh"]:
-            params_list, root_sol = single_run(
+    for count, deg_param_entry in enumerate(deg_parameter_list):
+        if cyc_mode.lower() in [
+            "discharge",
+            "chargecc",
+            "rh",
+            "lh",
+            "lh2",
+            "prehppc",
+            "hppc",
+            "posthppc",
+            "diffcap",
+        ]:
+
+            params_list, prot_params_list, root_sol = single_run(
                 sim_params=sim_params,
                 deg_param_sample=from_degparamlist_to_degparamdict(
                     deg_param_entry, sim_params, parallel_env=None
@@ -1232,16 +1390,50 @@ def multi_run_ser(
                 save_combined_sols=save_combined_sols,
                 db=db,
                 bad_par_filename="bad_par.txt",
-                bad_sol_filename="bad_sol.txt",
                 only_phi_CC=only_phi_CC,
+                store_current=store_current,
                 cyc_mode=cyc_mode,
                 n_points_reduce=n_points_reduce,
+                prot_params_list=prot_params_list,
+            )
+        elif cyc_mode.lower() in [
+            "chirp",
+        ]:
+            # protocol_parameter_list is read once before the loop
+            prot_param_entry = protocol_parameter_list[count]
+            prot_param_sample = from_protparamlist_to_protparamdict(
+                prot_param_entry, sim_params, parallel_env=None
+            )
+            params_list, prot_params_list, root_sol = single_run(
+                sim_params=sim_params,
+                deg_param_sample=from_degparamlist_to_degparamdict(
+                    deg_param_entry, sim_params, parallel_env=None
+                ),
+                count=count,
+                nsim=nsim,
+                prot_param_sample=prot_param_sample,
+            )
+            save_datapoint(
+                params_list,
+                root_sol,
+                phis_c_min=sim_params["vmin"],
+                phis_c_max=sim_params["vmax"],
+                folder_save=folder_save,
+                save_separate_sols=save_separate_sols,
+                save_combined_sols=save_combined_sols,
+                db=db,
+                bad_par_filename="bad_par.txt",
+                only_phi_CC=only_phi_CC,
+                store_current=store_current,
+                cyc_mode=cyc_mode,
+                n_points_reduce=n_points_reduce,
+                prot_params_list=prot_params_list,
             )
         elif cyc_mode.lower() == "discharge-chargecc":
             params_list = []
             root_sol = []
             for run_mode in ["discharge", "chargecc"]:
-                params_list_i, root_sol_i = single_run(
+                params_list_i, _, root_sol_i = single_run(
                     sim_params=sim_params,
                     deg_param_sample=from_degparamlist_to_degparamdict(
                         deg_param_entry, sim_params, parallel_env=None
@@ -1263,8 +1455,8 @@ def multi_run_ser(
                 save_combined_sols=save_combined_sols,
                 db=db,
                 bad_par_filename="bad_par.txt",
-                bad_sol_filename="bad_sol.txt",
                 only_phi_CC=only_phi_CC,
+                store_current=store_current,
                 cyc_mode=cyc_mode,
                 n_points_reduce=n_points_reduce,
             )
@@ -1285,50 +1477,131 @@ def merge_badpar_badsol(
     parallel_env=None,
     folder_save=".",
     bad_par_file="bad_par.txt",
-    bad_sol_file="bad_sol.txt",
+    bad_prot_file="bad_prot.txt",
 ):
-    parallel_env.comm.Barrier()
+    if parallel_env is not None:
+        parallel_env.comm.Barrier()
 
-    if not parallel_env.irank == parallel_env.iroot:
-        return
-    param_list = []
-    sol_list = []
+        if not parallel_env.irank == parallel_env.iroot:
+            return
+        deg_param_list = []
+        prot_param_list = []
 
-    for rank in range(
-        parallel_env.iroot, parallel_env.nProc + parallel_env.iroot
-    ):
-        param_list = read_list_param(
-            folder_save=folder_save,
-            param_list_file=f"bad_par_filename_{rank}.txt",
-            parameter_list=param_list,
-        )
-        sol_list = read_list_sol(
-            folder_save=folder_save,
-            sol_list_file=f"bad_sol_filename_{rank}.txt",
-            solution_list=sol_list,
-        )
+        for rank in range(
+            parallel_env.iroot, parallel_env.nProc + parallel_env.iroot
+        ):
+            deg_param_list = read_list_param(
+                folder_save=folder_save,
+                param_list_file=f"bad_par_filename_{rank}.txt",
+                parameter_list=deg_param_list,
+            )
+            if sim_params["cyc_mode"].lower() in ["chirp"]:
+                prot_param_list = read_list_param(
+                    folder_save=folder_save,
+                    param_list_file=f"bad_prot_filename_{rank}.txt",
+                    parameter_list=prot_param_list,
+                )
 
-    with open(os.path.join(folder_save, bad_par_file), "w+") as f:
-        for param_entry in param_list:
-            string_par = ""
-            for parameter in param_entry:
-                string_par += f"{parameter:g} "
-            f.write(f"{string_par}\n")
-    with open(os.path.join(folder_save, bad_sol_file), "w+") as f:
-        for sol_entry in sol_list:
-            f.write(sol_entry + "\n")
+        with open(os.path.join(folder_save, bad_par_file), "w+") as f:
+            for param_entry in deg_param_list:
+                string_par = ""
+                for parameter in param_entry:
+                    string_par += f"{parameter:g} "
+                f.write(f"{string_par}\n")
 
-    for rank in range(
-        parallel_env.iroot, parallel_env.nProc + parallel_env.iroot
-    ):
-        remove_file(os.path.join(folder_save, f"bad_par_filename_{rank}.txt"))
-        remove_file(os.path.join(folder_save, f"bad_sol_filename_{rank}.txt"))
+        if sim_params["cyc_mode"].lower() in ["chirp"]:
+            with open(os.path.join(folder_save, bad_prot_file), "w+") as f:
+                for param_entry in prot_param_list:
+                    string_par = ""
+                    for parameter in param_entry:
+                        string_par += f"{parameter:g} "
+                    f.write(f"{string_par}\n")
+
+        for rank in range(
+            parallel_env.iroot, parallel_env.nProc + parallel_env.iroot
+        ):
+            remove_file(
+                os.path.join(folder_save, f"bad_par_filename_{rank}.txt")
+            )
+            if sim_params["cyc_mode"].lower() in ["chirp"]:
+                remove_file(
+                    os.path.join(folder_save, f"bad_prot_filename_{rank}.txt")
+                )
+    else:
+
+        def list_bad_par_files(folder_save="."):
+            directory = Path(folder_save)
+            files = list(directory.glob("bad_par_filename_*.txt"))
+
+            def extract_rank(filepath):
+                match = re.search(
+                    r"bad_par_filename_(\d+)\.txt", filepath.name
+                )
+                if match:
+                    return int(match.group(1))
+                return -1
+
+            sorted_files = sorted(files, key=extract_rank)
+            return sorted_files
+
+        def list_bad_prot_files(folder_save="."):
+            directory = Path(folder_save)
+            files = list(directory.glob("bad_prot_filename_*.txt"))
+
+            def extract_rank(filepath):
+                match = re.search(
+                    r"bad_prot_filename_(\d+)\.txt", filepath.name
+                )
+                if match:
+                    return int(match.group(1))
+                return -1
+
+            sorted_files = sorted(files, key=extract_rank)
+            return sorted_files
+
+        deg_param_list = []
+        sorted_par_files = list_bad_par_files(folder_save=folder_save)
+        for filename in sorted_par_files:
+            deg_param_list = read_list_param(
+                folder_save=folder_save,
+                param_list_file=filename,
+                parameter_list=deg_param_list,
+            )
+        if sim_params["cyc_mode"].lower() in ["chirp"]:
+            prot_param_list = []
+            sorted_prot_files = list_bad_prot_files(folder_save=folder_save)
+            for filename in sorted_prot_files:
+                prot_param_list = read_list_param(
+                    folder_save=folder_save,
+                    param_list_file=filename,
+                    parameter_list=prot_param_list,
+                )
+
+        with open(os.path.join(folder_save, bad_par_file), "w+") as f:
+            for param_entry in deg_param_list:
+                string_par = ""
+                for parameter in param_entry:
+                    string_par += f"{parameter:g} "
+                f.write(f"{string_par}\n")
+
+        for filename in sorted_par_files:
+            remove_file(os.path.join(folder_save, filename))
+
+        if sim_params["cyc_mode"].lower() in ["chirp"]:
+            with open(os.path.join(folder_save, bad_prot_file), "w+") as f:
+                for param_entry in prot_param_list:
+                    string_par = ""
+                    for parameter in param_entry:
+                        string_par += f"{parameter:g} "
+                    f.write(f"{string_par}\n")
+
+            for filename in sorted_prot_files:
+                remove_file(os.path.join(folder_save, filename))
 
 
 def merge_combined_sols(
     sim_params,
     parallel_env=None,
-    nProc=None,
     folder_save=".",
     combined_sols_filename="sols.pkl",
     n_points_reduce: int | None = None,
@@ -1343,7 +1616,9 @@ def merge_combined_sols(
         logger.info("Merging all databases")
 
         sols = {}
-        offset_arr = np.zeros(parallel_env.nProc, dtype=int)
+        # Offset by the number of records actually merged so far, so a
+        # missing rank file cannot make later ranks overwrite earlier keys
+        offset = 0
 
         for rank in range(
             parallel_env.iroot, parallel_env.nProc + parallel_env.iroot
@@ -1352,21 +1627,18 @@ def merge_combined_sols(
             try:
                 db_ = PickleDB(filename=file_to_merge, read_from_existing=True)
                 records_ = db_.read(max_try=10)
-                offset_arr[rank - parallel_env.iroot] = db_.n_data
-                if rank == parallel_env.iroot:
-                    offset = 0
-                else:
-                    offset += offset_arr[rank - 1 - parallel_env.iroot]
-                if n_points_reduce is not None:
-                    records_ = reduce_npoints_records(
-                        records_, n_points_reduce=n_points_reduce
-                    )
-                for record_ in records_:
-                    sim_id = record_["sim_id"]
-                    del record_["sim_id"]
-                    sols[int(sim_id + offset - 1)] = record_
             except FileNotFoundError:
                 logger.warning(f"{file_to_merge} was not found")
+                continue
+            if n_points_reduce is not None:
+                records_ = reduce_npoints_records(
+                    records_, n_points_reduce=n_points_reduce
+                )
+            for record_ in records_:
+                sim_id = record_["sim_id"]
+                del record_["sim_id"]
+                sols[int(sim_id + offset - 1)] = record_
+            offset += len(records_)
 
         logger.info("Writing final database")
         for rank in range(
@@ -1380,37 +1652,48 @@ def merge_combined_sols(
             pickle.dump(sols, f)
     else:
 
-        assert nProc is not None
+        def list_sols_files(folder_save="."):
+            directory = Path(folder_save)
+            files = list(directory.glob("sols_*.pkl"))
+
+            def extract_rank(filepath):
+                match = re.search(r"sols_(\d+)\.pkl", filepath.name)
+                if match:
+                    return int(match.group(1))
+                return -1
+
+            sorted_files = sorted(files, key=extract_rank)
+            return sorted_files
+
         logger.info("Merging all databases")
-
         sols = {}
-        offset_arr = np.zeros(nProc, dtype=int)
+        sorted_files = list_sols_files(folder_save=folder_save)
+        # Offset by the number of records actually merged so far, so a
+        # missing rank file cannot make later ranks overwrite earlier keys
+        offset = 0
 
-        for rank in range(1, nProc + 1):
-            file_to_merge = os.path.join(folder_save, f"sols_{rank}.pkl")
+        for filename in sorted_files:
+            file_to_merge = os.path.join(folder_save, filename)
             logger.info(f"Treating {file_to_merge}")
             try:
                 db_ = PickleDB(filename=file_to_merge, read_from_existing=True)
                 records_ = db_.read(max_try=10)
-                offset_arr[rank - 1] = db_.n_data
-                if rank == 1:
-                    offset = 0
-                else:
-                    offset += offset_arr[rank - 1 - 1]
-                if n_points_reduce is not None:
-                    records_ = reduce_npoints_records(
-                        records_, n_points_reduce=n_points_reduce
-                    )
-                for record_ in records_:
-                    sim_id = record_["sim_id"]
-                    del record_["sim_id"]
-                    sols[int(sim_id + offset - 1)] = record_
             except FileNotFoundError:
                 logger.warning(f"{file_to_merge} was not found")
+                continue
+            if n_points_reduce is not None:
+                records_ = reduce_npoints_records(
+                    records_, n_points_reduce=n_points_reduce
+                )
+            for record_ in records_:
+                sim_id = record_["sim_id"]
+                del record_["sim_id"]
+                sols[int(sim_id + offset - 1)] = record_
+            offset += len(records_)
 
         logger.info("Writing final database")
-        for rank in range(1, nProc + 1):
-            remove_file(os.path.join(folder_save, f"sols_{rank}.pkl"))
+        for filename in sorted_files:
+            remove_file(os.path.join(folder_save, filename))
         remove_file(os.path.join(folder_save, combined_sols_filename))
         with open(
             os.path.join(folder_save, combined_sols_filename), "wb"
@@ -1421,14 +1704,15 @@ def merge_combined_sols(
 def multi_run(
     sim_params,
     param_list_file="parameter_list.txt",
-    sol_list_file="solution_list.txt",
     bad_par_file="bad_par.txt",
-    bad_sol_file="bad_sol.txt",
+    protocol_list_file="protocol_parameter_list.txt",
+    bad_protocol_file="bad_protocol.txt",
     save_separate_sols=False,
     save_combined_sols=True,
     folder_save=".",
     parallel_env=None,
     only_phi_CC=True,
+    store_current=False,
     n_points_reduce=512,
 ):
 
@@ -1438,11 +1722,15 @@ def multi_run(
         return multi_run_ser(
             sim_params=sim_params,
             param_list_file=param_list_file,
-            sol_list_file=sol_list_file,
             bad_par_file=bad_par_file,
-            bad_sol_file=bad_sol_file,
+            protocol_list_file=protocol_list_file,
+            bad_protocol_file=bad_protocol_file,
+            save_separate_sols=save_separate_sols,
+            save_combined_sols=save_combined_sols,
             folder_save=folder_save,
             n_points_reduce=n_points_reduce,
+            store_current=store_current,
+            only_phi_CC=only_phi_CC,
         )
     else:
 
@@ -1450,25 +1738,29 @@ def multi_run(
             log_dir = Path(folder_save)
             log_dir.mkdir(parents=True, exist_ok=True)
             remove_file(os.path.join(folder_save, bad_par_file))
-            remove_file(os.path.join(folder_save, bad_sol_file))
             for rank in range(
                 parallel_env.iroot, parallel_env.nProc + parallel_env.iroot
             ):
                 remove_file(
                     os.path.join(folder_save, f"bad_par_filename_{rank}.txt")
                 )
-                remove_file(
-                    os.path.join(folder_save, f"bad_sol_filename_{rank}.txt")
-                )
+                if cyc_mode.lower() in ["chirp"]:
+                    remove_file(
+                        os.path.join(
+                            folder_save, f"bad_prot_filename_{rank}.txt"
+                        )
+                    )
 
         parallel_env.comm.Barrier()
 
         deg_parameter_list = read_list_param(
             folder_save=folder_save, param_list_file=param_list_file
         )
-        solution_list = read_list_sol(
-            folder_save=folder_save, sol_list_file=sol_list_file
-        )
+        if cyc_mode.lower() in ["chirp"]:
+            prot_parameter_list = read_list_param(
+                folder_save=folder_save, param_list_file=protocol_list_file
+            )
+
         parallel_env.printRoot("INFO: partition data to simulate")
         nsim_, startSim_ = parallel_env.partitionData(len(deg_parameter_list))
 
@@ -1485,17 +1777,24 @@ def multi_run(
             )
         )
 
-        for count_, (deg_param_entry_, solution_entry_) in enumerate(
-            zip(
-                deg_parameter_list[startSim_ : startSim_ + nsim_],
-                solution_list[startSim_ : startSim_ + nsim_],
-            )
+        for count_, deg_param_entry_ in enumerate(
+            deg_parameter_list[startSim_ : startSim_ + nsim_]
         ):
-            if cyc_mode.lower() in ["discharge", "chargecc", "rh", "lh"]:
-                params_list, root_sol = single_run(
+            if cyc_mode.lower() in [
+                "discharge",
+                "chargecc",
+                "rh",
+                "lh",
+                "lh2",
+                "prehppc",
+                "hppc",
+                "posthppc",
+                "diffcap",
+            ]:
+                params_list, _, root_sol = single_run(
                     sim_params=sim_params,
                     deg_param_sample=from_degparamlist_to_degparamdict(
-                        deg_param_entry_, sim_params, parallel_env
+                        deg_param_entry_, sim_params, parallel_env=parallel_env
                     ),
                     count=count_,
                     nsim=nsim_,
@@ -1511,16 +1810,50 @@ def multi_run(
                     save_combined_sols=save_combined_sols,
                     db=db_,
                     bad_par_filename=f"bad_par_filename_{parallel_env.irank}.txt",
-                    bad_sol_filename=f"bad_sol_filename_{parallel_env.irank}.txt",
                     only_phi_CC=only_phi_CC,
+                    store_current=store_current,
                     cyc_mode=cyc_mode,
                     n_points_reduce=n_points_reduce,
+                )
+            elif cyc_mode.lower() in [
+                "chirp",
+            ]:
+                prot_param_entry = prot_parameter_list[startSim_ + count_]
+
+                params_list, prot_params_list, root_sol = single_run(
+                    sim_params=sim_params,
+                    deg_param_sample=from_degparamlist_to_degparamdict(
+                        deg_param_entry_, sim_params, parallel_env=parallel_env
+                    ),
+                    count=count_,
+                    nsim=nsim_,
+                    parallel_env=parallel_env,
+                    prot_param_sample=from_protparamlist_to_protparamdict(
+                        prot_param_entry, sim_params, parallel_env=parallel_env
+                    ),
+                )
+                save_datapoint(
+                    params_list,
+                    root_sol,
+                    phis_c_min=sim_params["vmin"],
+                    phis_c_max=sim_params["vmax"],
+                    folder_save=folder_save,
+                    save_separate_sols=save_separate_sols,
+                    save_combined_sols=save_combined_sols,
+                    db=db_,
+                    bad_par_filename=f"bad_par_filename_{parallel_env.irank}.txt",
+                    bad_prot_filename=f"bad_prot_filename_{parallel_env.irank}.txt",
+                    only_phi_CC=only_phi_CC,
+                    store_current=store_current,
+                    cyc_mode=cyc_mode,
+                    n_points_reduce=n_points_reduce,
+                    prot_params_list=prot_params_list,
                 )
             elif cyc_mode.lower() == "discharge-chargecc":
                 params_list = []
                 root_sol = []
                 for run_mode in ["discharge", "chargecc"]:
-                    params_list_i, root_sol_i = single_run(
+                    params_list_i, _, root_sol_i = single_run(
                         sim_params=sim_params,
                         deg_param_sample=from_degparamlist_to_degparamdict(
                             deg_param_entry_, sim_params, parallel_env=None
@@ -1543,8 +1876,8 @@ def multi_run(
                     save_combined_sols=save_combined_sols,
                     db=db_,
                     bad_par_filename=f"bad_par_filename_{parallel_env.irank}.txt",
-                    bad_sol_filename=f"bad_sol_filename_{parallel_env.irank}.txt",
                     only_phi_CC=only_phi_CC,
+                    store_current=store_current,
                     cyc_mode=cyc_mode,
                     n_points_reduce=n_points_reduce,
                 )
@@ -1554,7 +1887,6 @@ def multi_run(
             parallel_env=parallel_env,
             folder_save=folder_save,
             bad_par_file="bad_par.txt",
-            bad_sol_file="bad_sol.txt",
         )
         if save_combined_sols:
             merge_combined_sols(

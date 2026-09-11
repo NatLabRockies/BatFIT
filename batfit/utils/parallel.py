@@ -157,9 +157,9 @@ def gather_variable_numpy_arrays(array_, rootId):
     array_ = np.ascontiguousarray(array_)
 
     # Gather arrays as Python objects (works for variable sizes)
-    gathered = comm.gather(local_array, root=rootId)
+    gathered = comm.gather(array_, root=rootId)
 
-    if rank == 0:
+    if irank - 1 == rootId:
         # Concatenate along the first axis
         global_array = np.concatenate(gathered, axis=0)
         return global_array

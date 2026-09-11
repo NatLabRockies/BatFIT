@@ -1,0 +1,17 @@
+# Recipe for train_var_pred.py
+# Defines the variance predictor architecture and training settings.
+
+# DATA
+n_param_pred: 6
+n_prot_params: 3
+sim_config: /Users/mhassana/Desktop/GitHub/BatFIT_chirp/batfit/default_exps/spm_chirp.yaml
+var_pred_save_path: var_pred_data
+
+# ARCH
+hidden_list: [128]
+
+# TRAIN
+batch_size: 256
+epochs: 500
+lr: 0.0001
+models_dir: models

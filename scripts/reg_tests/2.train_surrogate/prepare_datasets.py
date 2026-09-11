@@ -1,6 +1,8 @@
 import os
 import sys
 
+import numpy as np
+
 from batfit import logger
 from batfit.basicutilityc import ReadInput as ri
 from batfit.utils.data_utils import *

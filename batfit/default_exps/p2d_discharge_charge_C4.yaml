@@ -1,11 +1,11 @@
 cycling mode: discharge-chargecc
-degradation parameter names: i0_a, ds_c, cs0_a, cs0_c, i0_c, eps_s_c_am
+degradation parameter names: i0_a, ds_c, x0_a, x0_c, i0_c, eps_s_c_am
 
 min degradation parameter:
     i0_a:       0.1
     ds_c:       0.2
-    cs0_a:      0.6
-    cs0_c:      0.88
+    x0_a:      0.6
+    x0_c:      0.88
     i0_c:       0.1
     eps_s_c_am:    0.7
 
@@ -13,19 +13,19 @@ min degradation parameter:
 max degradation parameter:
     i0_a:       4
     ds_c:       10
-    cs0_a:      1.0769
-    cs0_c:      1.6
+    x0_a:      1.0769
+    x0_c:      1.6
     i0_c:       1.6
     eps_s_c_am:    1.0
 
 min degradation parameter charge:
-    cs0_a:      0.3
-    cs0_c:      0.78
+    x0_a:      0.3
+    x0_c:      0.78
 
 
 max degradation parameter charge:
-    cs0_a:      2
-    cs0_c:      1.08
+    x0_a:      2
+    x0_c:      1.08
 
 
 macroscopic discharge:

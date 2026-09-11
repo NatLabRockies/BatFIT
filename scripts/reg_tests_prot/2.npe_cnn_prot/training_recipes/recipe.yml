@@ -1,0 +1,27 @@
+# DATA
+cyc_mode: chirp
+data_path: /Users/mhassana/Desktop/GitHub/BatFIT_chirpslow/scripts/reg_tests_prot/2.npe_cnn_prot/../1.gen_data/data_spm_chirp
+n_param_pred: 6
+n_points: 256
+n_prot_params: 3
+noise_factor: 1.0
+scaler_P_path: /Users/mhassana/Desktop/GitHub/BatFIT_chirpslow/scripts/reg_tests_prot/2.npe_cnn_prot/../1.gen_data/data_spm_chirp/scaler_P.pkl
+scaler_path: /Users/mhassana/Desktop/GitHub/BatFIT_chirpslow/scripts/reg_tests_prot/2.npe_cnn_prot/../1.gen_data/data_spm_chirp/scaler_X.pkl
+sim_config: /Users/mhassana/Desktop/GitHub/BatFIT_chirpslow/batfit/default_exps/spm_chirp.yaml
+target_mode: phi
+
+# ARCH
+num_channels: 64
+num_convs: 2
+num_fc_gamma_mu_hidden: 2
+num_fc_gamma_mu_units: 256
+num_fc_hidden: 1
+num_fc_prot_hidden: 1
+num_fc_prot_units: 256
+num_fc_units: 256
+
+# TRAIN
+batch_size: 32
+epochs: 20
+lr: 0.0001
+models_dir: /Users/mhassana/Desktop/GitHub/BatFIT_chirpslow/scripts/reg_tests_prot/2.npe_cnn_prot/../2.npe_cnn_prot/models

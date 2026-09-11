@@ -1,0 +1,27 @@
+# DATA
+cyc_mode: discharge
+data_path: /Users/mhassana/Desktop/GitHub/BatFIT_chirpslow/scripts/comparison_fm_cnn/1.gen_data/data_spm_discharge
+n_param_pred: 6
+n_points: 256
+noise_factor: 1.0
+sim_config: spm_discharge.yaml
+target_mode: phi
+
+# ARCH — CNN encoder
+num_channels: 128
+num_convs: 1
+num_fc_hidden: 1
+num_fc_units: 256
+
+# ARCH — velocity-field MLP
+num_vf_hidden: 2
+num_vf_units: 128
+
+# TRAIN
+batch_size: 512
+epochs: 1000
+lr: 0.01
+models_dir: models
+
+# FM SPECIFIC
+use_prior_matching: true

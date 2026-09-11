@@ -1,0 +1,27 @@
+# Uncertainty
+calibrate_sigma: true
+max_sigma: 0.003
+min_sigma: 0.0001
+
+# MCMC
+mcmc_method: hmc
+num_chains: 1
+num_samples: 10
+num_warmup: 10
+
+# DATA processing
+cyc_mode: discharge
+data_path_discharge: /Users/mhassana/Desktop/GitHub/BatFit/scripts/reg_tests/1.gen_data/data_spm_discharge_val
+noise_factor: 1.0
+step_size: 1e-6
+target_mode: phi
+
+# Surrogate Models
+model_discharge_recipe: /Users/mhassana/Desktop/GitHub/BatFit/scripts/reg_tests/2.train_surrogate/training_recipes/recipe.yml
+
+# DATA
+n_param_pred: 6
+n_points: 256
+
+# models
+models_dir: /Users/mhassana/Desktop/GitHub/BatFit/scripts/reg_tests/3.surrogate_mcmc/spm_discharge_surrogate_mcmc/models

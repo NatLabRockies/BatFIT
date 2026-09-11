@@ -1,0 +1,33 @@
+# Recipe for gen_var_dataset.py — FM variant
+# References the frozen ProbProtParamFM NPE (3.npe_fm_prot) instead of the
+# CNN NPE. gen_var_dataset.py dispatches on the NPE's type automatically.
+
+# NPE reference
+npe_models_dir: /Users/mhassana/Desktop/GitHub/BatFIT_chirpslow/scripts/reg_tests_prot/3.npe_fm_prot/models
+
+# DATA (same paths as the NPE recipe)
+cyc_mode: chirp
+data_path: /Users/mhassana/Desktop/GitHub/BatFIT_chirpslow/scripts/reg_tests_prot/1.gen_data/data_spm_chirp
+n_points: 256
+n_prot_params: 3
+noise_factor: 1.0
+scaler_path: /Users/mhassana/Desktop/GitHub/BatFIT_chirpslow/scripts/reg_tests_prot/1.gen_data/data_spm_chirp/scaler_X.pkl
+scaler_P_path: /Users/mhassana/Desktop/GitHub/BatFIT_chirpslow/scripts/reg_tests_prot/1.gen_data/data_spm_chirp/scaler_P.pkl
+target_mode: phi
+
+# FM sampling settings (used to compute per-noisy-copy mu/sigma via model.sample)
+n_samples: 1000
+n_ode_steps: 100
+
+# Dataset generation settings
+# gen_batch_size is smaller than the CNN recipe's (256) since each of the
+# B*n_noise inputs now spawns n_samples internal ODE particles.
+gen_batch_size: 64
+n_noise: 1
+scale_sigma: true
+# log_sigma: targets become z-scored log(sigma) (StandardScaler saved as
+# scaler_logsigma.pkl); mutually exclusive with scale_sigma. Use a fresh
+# var_pred_save_path so old scale_sigma artifacts are not mixed in.
+log_sigma: false
+use_true_y: false
+var_pred_save_path: var_pred_data_fm

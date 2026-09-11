@@ -9,6 +9,10 @@ class ConditionalFormatter(logging.Formatter):
             self._style._fmt = (
                 "%(asctime)s [%(levelname)s] batfit: %(message)s"
             )
+        else:
+            self._style._fmt = (
+                "%(asctime)s [%(levelname)s] batfit: %(message)s"
+            )
         return super().format(record)
 
 
