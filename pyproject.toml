@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "batfit"
 readme = "README.md"
 dynamic = ["version"]
-requires-python = ">=3.10,<3.15"
+requires-python = ">=3.11,<3.15"
 license = { file = "LICENSE" }
 description = "Battery Feature Inference Toolbox (BatFIT)"
 keywords = ["parameter inference", "Bayesian inference", "battery"]
@@ -21,7 +21,6 @@ maintainers = [
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -44,7 +43,7 @@ dependencies = [
     "torch2jax",
     "scikit-optimize",
     "flow_matching",
-    "batmods-lite @ git+https://github.com/NatLabRockies/batmods-lite.git@stop_cap",
+    "batmods-lite @ git+https://github.com/NatLabRockies/batmods-lite.git@main",
 ]
 
 [tool.setuptools.dynamic]

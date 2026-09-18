@@ -1,17 +1,22 @@
 # <ins>Bat</ins>tery <ins>F</ins>eature <ins>I</ins>nference <ins>T</ins>oolbox (BatFIT)
 
+[![batfit-CI](https://github.com/NatLabRockies/BatFIT/actions/workflows/ci.yml/badge.svg)](https://github.com/NatLabRockies/BatFIT/actions/workflows/ci.yml)
+[![python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://www.python.org)
+[![codecov](https://codecov.io/gh/NatLabRockies/BatFIT/graph/badge.svg)](https://app.codecov.io/gh/NatLabRockies/BatFIT)
+[![Documentation Status](https://readthedocs.org/projects/batfit/badge/?version=latest)](https://batfit.readthedocs.io/en/latest/?badge=latest)
+
 ## Summary
 
 This package implements several data-based techniques for parameter fitting in Li-ion battery models. It uses [BATMODS-lite](https://github.com/NatLabRockies/batmods-lite) to generate the data. 
 
-The repository contains the code that is used for the paper "Neural posterior estimation is accurate, tractable and scalable for inverse parameter inference in Li-ion batteries", M. Hassanaly, C. R. Randall, P. J.  Weddle, P. J. Gasper, C. Kelly, T. R. Tanim, K. Smith.
+The repository contains the code that is used for the paper "Neural posterior estimation for scalable and accurate inverse parameter inference in Li-ion batteries", M. Hassanaly, C. R. Randall, P. J. Weddle, P. J. Gasper, C. Kelly, T. R. Tanim, K. Smith.
 
 ## Installation
 
 We recommend using a conda environment
 
 ```
-conda create -n batfit python=3.12
+conda create -n batfit python=3.14
 conda activate batfit
 ```
 
@@ -54,10 +59,19 @@ bash run.sh
 
 ## Citing this Work
 
-```
-SWR-26-034
+This software is registered as [SWR-26-034](https://www.osti.gov/doecode/biblio/178417) ([doi:10.11578/dc.20260401.2](https://doi.org/10.11578/dc.20260401.2)).
 
-arxiv citation
+If you use BatFIT, please cite the accompanying paper, "Neural posterior estimation for scalable and accurate inverse parameter inference in Li-ion batteries" ([journal](https://doi.org/10.1016/j.est.2026.123823) | [arXiv](https://arxiv.org/abs/2604.02520)):
+
+```bibtex
+@article{hassanaly2026npe,
+  title   = {Neural posterior estimation for scalable and accurate inverse parameter inference in Li-ion batteries},
+  author  = {Hassanaly, Malik and Randall, Corey R. and Weddle, Peter J. and Gasper, Paul J. and Kelly, Conlain and Tanim, Tanvir R. and Smith, Kandler},
+  journal = {Journal of Energy Storage},
+  year    = {2026},
+  pages   = {123823},
+  doi     = {10.1016/j.est.2026.123823},
+}
 ```
 
 ## Acknowledgements
