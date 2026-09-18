@@ -9,27 +9,20 @@ from batfit.preprocess.sim_setup import make_params
 class VariancePredFCNN(nn.Module):
     """Deterministic MLP predicting NPE sigma given scaled (prot_params, deg_mean).
 
-    The output uses a Sigmoid activation and is rescaled by the degradation
-    parameter amplitude (amp_par = max_par - min_par from sim_config), mirroring
-    the constrained-output approach of ProbProtParamCNN. The sigma in physical
-    space is recovered via inv_transform_gamma(sigmoid_out, amp_par).
-
-    Inputs are expected to be pre-scaled (MinMax) before being passed to forward.
-    Use the scalers saved by gen_var_dataset.py for this.
-
-    With output_activation="linear" (used when training on z-scored log sigma,
-    see gen_var_dataset.py log_sigma option), the final Sigmoid is omitted and
-    the raw output is the prediction target; physical sigma is then recovered
-    by inverting the log-sigma StandardScaler and exponentiating (see
-    optim_utils.sigma_physical), not by inv_transform_gamma.
-
-    :param n_prot: number of protocol parameters
-    :param n_deg: number of degradation parameters
-    :param hidden_list: widths of the hidden FC layers
-    :param sim_config: path to the simulation YAML config; required to build
-        min_par and amp_par for sigma rescaling
-    :param output_activation: "sigmoid" (default, historical behaviour) or
-        "linear" (unbounded output for z-scored log-sigma targets)
+    Parameters
+    ----------
+    n_prot: int
+        Number of protocol parameters
+    n_deg: int
+        Number of degradation parameters
+    hidden_list: list[int]
+        Widths of the hidden FC layers
+    sim_config: str
+        Path to the simulation YAML config; required to build min_par and
+        amp_par for sigma rescaling
+    output_activation: str
+        ``"sigmoid"`` (default, historical behaviour) or ``"linear"``
+        (unbounded output for z-scored log-sigma targets)
     """
 
     def __init__(
@@ -91,12 +84,20 @@ class VariancePredFCNN(nn.Module):
     ) -> torch.Tensor:
         """Return the sigma prediction in the network's trained target space.
 
-        :param prot_params: MinMax-scaled protocol params, shape (batch, n_prot)
-        :param mu: MinMax-scaled degradation param mean, shape (batch, n_deg)
-        :return: shape (batch, n_deg). With output_activation="sigmoid",
+        Parameters
+        ----------
+        prot_params: torch.Tensor
+            MinMax-scaled protocol params, shape ``(batch, n_prot)``
+        mu: torch.Tensor
+            MinMax-scaled degradation param mean, shape ``(batch, n_deg)``
+
+        Returns
+        -------
+        torch.Tensor
+            Shape ``(batch, n_deg)``. With ``output_activation="sigmoid"``,
             values in (0, 1); multiply by amp_par via inv_transform_gamma
             (or invert the sigma MinMaxScaler when trained with scale_sigma)
-            to obtain physical sigma. With output_activation="linear",
+            to obtain physical sigma. With ``output_activation="linear"``,
             z-scored log sigma; invert with scaler_logsigma and exponentiate.
         """
         x = torch.cat([prot_params, mu], dim=-1)
@@ -109,9 +110,17 @@ class VariancePredFCNN(nn.Module):
     ) -> torch.Tensor:
         """Convert sigmoid output to physical sigma (mirrors _ProbParamBase).
 
-        :param gamma_sigmoid: Sigmoid output of forward(), shape (batch, n_deg)
-        :param amp_par: parameter amplitude tensor, shape (n_deg,)
-        :return: physical sigma, shape (batch, n_deg)
+        Parameters
+        ----------
+        gamma_sigmoid: torch.Tensor
+            Sigmoid output of ``forward()``, shape ``(batch, n_deg)``
+        amp_par: torch.Tensor
+            Parameter amplitude tensor, shape ``(n_deg,)``
+
+        Returns
+        -------
+        torch.Tensor
+            Physical sigma, shape ``(batch, n_deg)``
         """
         return gamma_sigmoid * amp_par
 
@@ -122,9 +131,17 @@ class VariancePredFCNN(nn.Module):
     ) -> torch.Tensor:
         """Convert physical sigma to sigmoid-space target for loss computation.
 
-        :param gamma_physical: physical sigma values, shape (batch, n_deg)
-        :param amp_par: parameter amplitude tensor, shape (n_deg,)
-        :return: normalised sigma in (0, 1), shape (batch, n_deg)
+        Parameters
+        ----------
+        gamma_physical: torch.Tensor
+            Physical sigma values, shape ``(batch, n_deg)``
+        amp_par: torch.Tensor
+            Parameter amplitude tensor, shape ``(n_deg,)``
+
+        Returns
+        -------
+        torch.Tensor
+            Normalised sigma in (0, 1), shape ``(batch, n_deg)``
         """
         return gamma_physical / amp_par
 
@@ -132,19 +149,15 @@ class VariancePredFCNN(nn.Module):
 class VariancePredNoProtFCNN(nn.Module):
     """Deterministic MLP predicting NPE sigma given scaled (deg_mean).
 
-    The output uses a Sigmoid activation and is rescaled by the degradation
-    parameter amplitude (amp_par = max_par - min_par from sim_config), mirroring
-    the constrained-output approach of ProbParamCNN. The sigma in physical
-    space is recovered via inv_transform_gamma(sigmoid_out, amp_par).
-
-    Inputs are expected to be pre-scaled (MinMax) before being passed to forward.
-    Use the scalers saved by gen_var_dataset.py for this.
-
-    :param n_prot: number of protocol parameters
-    :param n_deg: number of degradation parameters
-    :param hidden_list: widths of the hidden FC layers
-    :param sim_config: path to the simulation YAML config; required to build
-        min_par and amp_par for sigma rescaling
+    Parameters
+    ----------
+    n_deg: int
+        Number of degradation parameters
+    hidden_list: list[int]
+        Widths of the hidden FC layers
+    sim_config: str
+        Path to the simulation YAML config; required to build min_par and
+        amp_par for sigma rescaling
     """
 
     def __init__(
@@ -196,8 +209,15 @@ class VariancePredNoProtFCNN(nn.Module):
     ) -> torch.Tensor:
         """Return sigmoid-scaled sigma given scaled protocol and deg-param mean.
 
-        :param mu: MinMax-scaled degradation param mean, shape (batch, n_deg)
-        :return: sigmoid output in (0, 1), shape (batch, n_deg); multiply by
+        Parameters
+        ----------
+        mu: torch.Tensor
+            MinMax-scaled degradation param mean, shape ``(batch, n_deg)``
+
+        Returns
+        -------
+        torch.Tensor
+            Sigmoid output in (0, 1), shape ``(batch, n_deg)``; multiply by
             amp_par via inv_transform_gamma to obtain physical sigma
         """
         return self.layers(mu)
@@ -209,9 +229,17 @@ class VariancePredNoProtFCNN(nn.Module):
     ) -> torch.Tensor:
         """Convert sigmoid output to physical sigma (mirrors _ProbParamBase).
 
-        :param gamma_sigmoid: Sigmoid output of forward(), shape (batch, n_deg)
-        :param amp_par: parameter amplitude tensor, shape (n_deg,)
-        :return: physical sigma, shape (batch, n_deg)
+        Parameters
+        ----------
+        gamma_sigmoid: torch.Tensor
+            Sigmoid output of ``forward()``, shape ``(batch, n_deg)``
+        amp_par: torch.Tensor
+            Parameter amplitude tensor, shape ``(n_deg,)``
+
+        Returns
+        -------
+        torch.Tensor
+            Physical sigma, shape ``(batch, n_deg)``
         """
         return gamma_sigmoid * amp_par
 
@@ -222,8 +250,16 @@ class VariancePredNoProtFCNN(nn.Module):
     ) -> torch.Tensor:
         """Convert physical sigma to sigmoid-space target for loss computation.
 
-        :param gamma_physical: physical sigma values, shape (batch, n_deg)
-        :param amp_par: parameter amplitude tensor, shape (n_deg,)
-        :return: normalised sigma in (0, 1), shape (batch, n_deg)
+        Parameters
+        ----------
+        gamma_physical: torch.Tensor
+            Physical sigma values, shape ``(batch, n_deg)``
+        amp_par: torch.Tensor
+            Parameter amplitude tensor, shape ``(n_deg,)``
+
+        Returns
+        -------
+        torch.Tensor
+            Normalised sigma in (0, 1), shape ``(batch, n_deg)``
         """
         return gamma_physical / amp_par

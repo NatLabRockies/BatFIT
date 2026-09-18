@@ -1,12 +1,4 @@
 """Training utilities for conditional flow matching models.
-
-Covers :class:`~batfit.model.paramNN.ProbParamFM` and
-:class:`~batfit.model.paramNN.ProbProtParamFM`.
-Main differences with train_utils.py:
-
-- We predict a velocity, not (mu, gamma)
-- The loss is flow_matching_loss not a log-likelihood.
-- Sampling is depends on whether we do prior matching or no
 """
 
 import numpy as np
@@ -58,15 +50,7 @@ def _forward_fm(
     t: torch.Tensor,
     device: torch.device,
 ) -> torch.Tensor:
-    """Call the correct FM forward signature depending on model type.
-
-    :param model: a :class:`_ProbParamFMBase` instance
-    :param x_signal: pre-processed signal tensor, shape (batch, channels, time)
-    :param batch: full DataLoader batch (used to extract prot_params if needed)
-    :param x_t: interpolated particle positions, shape (batch, n_params)
-    :param t: flow times in [0, 1], shape (batch,)
-    :param device: computation device
-    :return: predicted velocity, shape (batch, n_params)
+    """Call correct FM forward signature depending on model type.
     """
     if isinstance(model, ProbProtParamFM):
         return model(x_signal, batch[1].to(device), x_t, t)
@@ -85,8 +69,6 @@ def _sample_fm(
     device: torch.device,
 ) -> torch.Tensor:
     """Draw posterior samples from an FM model.
-
-    :return: samples, shape (batch, n_samples, n_params)
     """
     if isinstance(model, ProbProtParamFM):
         return model.sample(x_signal, batch[1].to(device), n_samples, n_steps)
@@ -143,28 +125,53 @@ def train_fm_model(
     - ``ProbParamFM``: ``(X, Y)``
     - ``ProbProtParamFM``: ``(X, P, Y)``
 
-    :param model: FM model to train
-    :param train_data_loader: yields mini-batches
-    :param learning_rate: initial learning rate for Adamax
-    :param num_epochs: number of training epochs (mutually exclusive with
-                       ``num_steps``)
-    :param learning_rate_end: final LR; defaults to ``learning_rate / 100``
-    :param test_data_loader: optional held-out set for per-epoch test loss
-    :param num_steps: total gradient steps (overrides ``num_epochs``)
-    :param num_steps_test: maximum test steps per epoch evaluation
-    :param log_folder: directory for loss CSV and model checkpoints
-    :param log_freq: log loss every N steps
-    :param save_freq: save checkpoint every N steps
-    :param optimizer_state_dict_filename: path to resume optimizer state
-    :param enable_cuda: allow CUDA device
-    :param enable_mps: allow Apple MPS device
-    :param trial: Optuna trial for hyperparameter search pruning
-    :param noise_levels: measurement noise levels passed to ``apply_noise``
-    :param bias_tensor: measurement bias passed to ``apply_noise``
-    :param scaler_X: signal scaler (needed by ``apply_noise``)
-    :param a_min: lower clip for signal channels after noise injection
-    :param a_max: upper clip for signal channels after noise injection
-    :return: ``(trained_model, loss_history)``
+    Parameters
+    ----------
+    model: torch.nn.Module
+        FM model to train
+    train_data_loader: torch.utils.data.DataLoader
+        Yields mini-batches
+    learning_rate: float
+        Initial learning rate for Adamax
+    num_epochs: int, optional
+        Number of training epochs (mutually exclusive with ``num_steps``)
+    learning_rate_end: float, optional
+        Final LR; defaults to ``learning_rate / 100``
+    test_data_loader: torch.utils.data.DataLoader, optional
+        Held-out set for per-epoch test loss
+    num_steps: int, optional
+        Total gradient steps (overrides ``num_epochs``)
+    num_steps_test: int, optional
+        Maximum test steps per epoch evaluation
+    log_folder: str
+        Directory for loss CSV and model checkpoints
+    log_freq: int
+        Log loss every N steps
+    save_freq: int
+        Save checkpoint every N steps
+    optimizer_state_dict_filename: str, optional
+        Path to resume optimizer state
+    enable_cuda: bool
+        Allow CUDA device
+    enable_mps: bool
+        Allow Apple MPS device
+    trial: optuna.trial.Trial, optional
+        Optuna trial for hyperparameter search pruning
+    noise_levels: torch.Tensor, optional
+        Measurement noise levels passed to ``apply_noise``
+    bias_tensor: torch.Tensor, optional
+        Measurement bias passed to ``apply_noise``
+    scaler_X: CustomScaler, optional
+        Signal scaler (needed by ``apply_noise``)
+    a_min: torch.Tensor, optional
+        Lower clip for signal channels after noise injection
+    a_max: torch.Tensor, optional
+        Upper clip for signal channels after noise injection
+
+    Returns
+    -------
+    tuple[torch.nn.Module, np.ndarray]
+        ``(trained_model, loss_history)``
     """
     device_type = get_device_type(
         enable_cuda=enable_cuda, enable_mps=enable_mps
@@ -364,21 +371,35 @@ def compute_test_loss_fm(
 ) -> float:
     """Evaluate the velocity-MSE loss on a held-out set.
 
-    Uses the same probability path sampling as ``train_fm_model``, so the
-    returned value is directly comparable to the training loss.
+    Parameters
+    ----------
+    model: torch.nn.Module
+        Trained FM model
+    test_data_loader: torch.utils.data.DataLoader
+        Held-out DataLoader
+    num_steps: int, optional
+        Cap the number of evaluated batches (None = all)
+    enable_cuda: bool
+        Allow CUDA
+    enable_mps: bool
+        Allow MPS
+    verbose: bool
+        Print a progress bar
+    noise_levels: torch.Tensor, optional
+        Measurement noise levels
+    bias_tensor: torch.Tensor, optional
+        Measurement bias
+    scaler_X: CustomScaler, optional
+        Signal scaler
+    a_min: torch.Tensor, optional
+        Lower clip for noisy signal
+    a_max: torch.Tensor, optional
+        Upper clip for noisy signal
 
-    :param model: trained FM model
-    :param test_data_loader: held-out DataLoader
-    :param num_steps: cap the number of evaluated batches (None = all)
-    :param enable_cuda: allow CUDA
-    :param enable_mps: allow MPS
-    :param verbose: print a progress bar
-    :param noise_levels: measurement noise levels
-    :param bias_tensor: measurement bias
-    :param scaler_X: signal scaler
-    :param a_min: lower clip for noisy signal
-    :param a_max: upper clip for noisy signal
-    :return: mean velocity MSE over the evaluated batches
+    Returns
+    -------
+    float
+        Mean velocity MSE over the evaluated batches
     """
     device_type = get_device_type(
         enable_cuda=enable_cuda, enable_mps=enable_mps
@@ -478,24 +499,41 @@ def compute_post_sample_based(
 ) -> torch.Tensor:
     """Sample-based accuracy metric
 
-    Estimates the posterior mean from samples and computes ``post_fn`` against
-    ground-truth labels.
+    Parameters
+    ----------
+    model: torch.nn.Module
+        CNN or FM model
+    test_data_loader: torch.utils.data.DataLoader
+        Held-out DataLoader
+    n_samples: int
+        Posterior samples per observation
+    n_ode_steps: int
+        ODE integration steps (FM only)
+    num_steps: int, optional
+        Cap the number of evaluated batches (None = all)
+    enable_cuda: bool
+        Allow CUDA
+    enable_mps: bool
+        Allow MPS
+    verbose: bool
+        Print a progress bar
+    noise_levels: torch.Tensor, optional
+        Measurement noise levels
+    bias_tensor: torch.Tensor, optional
+        Measurement bias
+    scaler_X: CustomScaler, optional
+        Signal scaler
+    a_min: torch.Tensor, optional
+        Lower clip for noisy signal
+    a_max: torch.Tensor, optional
+        Upper clip for noisy signal
+    post_fn: Callable
+        Metric function, one of :func:`accuracy` or :func:`rel_accuracy`
 
-    :param model: CNN or FM model
-    :param test_data_loader: held-out DataLoader
-    :param n_samples: posterior samples per observation
-    :param n_ode_steps: ODE integration steps (FM only)
-    :param num_steps: cap the number of evaluated batches (None = all)
-    :param enable_cuda: allow CUDA
-    :param enable_mps: allow MPS
-    :param verbose: print a progress bar
-    :param noise_levels: measurement noise levels
-    :param bias_tensor: measurement bias
-    :param scaler_X: signal scaler
-    :param a_min: lower clip for noisy signal
-    :param a_max: upper clip for noisy signal
-    :param post_fn: metric function, one of ``accuracy`` or ``rel_accuracy``
-    :return: per-parameter metric, shape (n_params,)
+    Returns
+    -------
+    torch.Tensor
+        Per-parameter metric, shape ``(n_params,)``
     """
     device_type = get_device_type(
         enable_cuda=enable_cuda, enable_mps=enable_mps

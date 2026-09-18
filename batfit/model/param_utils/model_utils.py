@@ -79,18 +79,6 @@ def _build_conv_fc_layers(
 
 class _SelfAttentionBlock(nn.Module):
     """Multi-head self-attention block inserted after the CNN conv stack.
-
-    Applies pre-norm self-attention along the time dimension of a
-    ``(batch, channels, time)`` feature map, treating each time step as a
-    token of dimension ``channels``.  The residual connection preserves the
-    input statistics so the block can be toggled off (``num_attn_heads=0``)
-    to recover the plain-CNN behaviour without any weight surgery.
-
-    :param embed_dim: token dimension (= output channels of the last Conv1d);
-                      must be divisible by ``num_heads``
-    :param num_heads: number of attention heads
-    :param dropout: attention weight dropout probability
-    :raises ValueError: if ``embed_dim`` is not divisible by ``num_heads``
     """
 
     def __init__(
@@ -113,8 +101,15 @@ class _SelfAttentionBlock(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Apply pre-norm self-attention with residual connection.
 
-        :param x: CNN feature map, shape ``(batch, channels, time)``
-        :return: attended feature map, shape ``(batch, channels, time)``
+        Parameters
+        ----------
+        x: torch.Tensor
+            CNN feature map, shape ``(batch, channels, time)``
+
+        Returns
+        -------
+        torch.Tensor
+            Attended feature map, shape ``(batch, channels, time)``
         """
         x_t = x.transpose(1, 2)  # (batch, time, channels)
         normed = self.norm(x_t)
@@ -142,12 +137,20 @@ def _build_cnn_encoder(
     The block operates on the ``(batch, chan_list[-1], time_reduced)`` feature
     map, so ``chan_list[-1]`` must be divisible by ``num_attn_heads``.
 
-    :param num_attn_heads: number of attention heads; 0 disables attention
-    :param attn_dropout: dropout inside MultiheadAttention (only used when
-                         ``num_attn_heads > 0``)
-    :return: ``(cnn_layers, cnn_layers_aux, embedding_dim)``
-             ``cnn_layers_aux`` is ``None`` unless ``cyc_mode`` is
-             ``"discharge-chargecc"``.
+    Parameters
+    ----------
+    num_attn_heads: int
+        Number of attention heads; 0 disables attention
+    attn_dropout: float
+        Dropout inside MultiheadAttention (only used when
+        ``num_attn_heads > 0``)
+
+    Returns
+    -------
+    tuple
+        ``(cnn_layers, cnn_layers_aux, embedding_dim)``.
+        ``cnn_layers_aux`` is ``None`` unless ``cyc_mode`` is
+        ``"discharge-chargecc"``.
     """
     conv, pool = _build_conv_layers(input_shape_0, chan_list)
     fc = _build_conv_fc_layers(input_shape_1, chan_list, fc_list)
@@ -204,7 +207,10 @@ def _build_output_heads(
 ) -> tuple[nn.Sequential, nn.Sequential]:
     """Build the mu and gamma output heads for Gaussian parameter models.
 
-    :return: (model_mu_layers, model_gamma_layers)
+    Returns
+    -------
+    tuple
+        ``(model_mu_layers, model_gamma_layers)``
     """
     fc_mu = _build_hidden_fcnn_layers(fc_list_end, fc_mu_list)
     fc_otpt_mu = nn.Linear(fc_mu_list[-1], output_dim)
@@ -240,19 +246,18 @@ def _build_output_heads(
 
 
 class _ParamScalingMixin:
-    """Mixin providing physical parameter space scaling/unscaling utilities.
+    """Physical parameter space scaling/unscaling utilities.
 
-    Both Gaussian and flow matching base classes inherit from this mixin to
-    share the sim_config initialisation logic and transform methods.
+    Both Gaussian and flow matching base classes inherit from this
     """
 
     def _init_scaling(self, sim_config: str | None) -> None:
-        """Initialise physical parameter bounds from a sim_config YAML path.
+        """Initialise physical parameter bounds from a sim_config
 
-        Sets self.sim_config, self.sim_params, self.max_par, self.min_par,
-        and self.amp_par when sim_config is provided.
-
-        :param sim_config: path to a YAML experiment configuration file, or None
+        Parameters
+        ----------
+        sim_config: str | None
+            Path to a YAML experiment configuration file, or None
         """
         self.sim_config = sim_config
         if self.sim_config is not None:
@@ -359,8 +364,15 @@ class _ProbParamBase(nn.Module, ABC, _ParamScalingMixin):
     def _cholesky_cov(self, gamma: torch.Tensor) -> torch.Tensor:
         """Build a positive-definite covariance matrix via Cholesky decomposition.
 
-        :param gamma: flattened lower-triangular entries, shape (batch, n*(n+1)//2)
-        :return: covariance matrices, shape (batch, n, n)
+        Parameters
+        ----------
+        gamma: torch.Tensor
+            Flattened lower-triangular entries, shape ``(batch, n*(n+1)//2)``
+
+        Returns
+        -------
+        torch.Tensor
+            Covariance matrices, shape ``(batch, n, n)``
         """
         # Create covariance matrix
         L = torch.zeros(
@@ -445,10 +457,19 @@ class _ProbParamFMBase(nn.Module, ABC, _ParamScalingMixin):
     ) -> torch.Tensor:
         """Evaluate the velocity field given a pre-computed context embedding.
 
-        :param z_t: particle positions in parameter space, shape (batch, n_param_pred)
-        :param t: flow time in [0, 1], shape (batch,)
-        :param context: conditioning embedding, shape (batch, context_dim)
-        :return: velocity vectors, shape (batch, n_param_pred)
+        Parameters
+        ----------
+        z_t: torch.Tensor
+            Particle positions in parameter space, shape ``(batch, n_param_pred)``
+        t: torch.Tensor
+            Flow time in [0, 1], shape ``(batch,)``
+        context: torch.Tensor
+            Conditioning embedding, shape ``(batch, context_dim)``
+
+        Returns
+        -------
+        torch.Tensor
+            Velocity vectors, shape ``(batch, n_param_pred)``
         """
         # torchdiffeq passes t as a 0-dim scalar; training code passes (batch,)
         if t.dim() == 0:
@@ -462,32 +483,41 @@ class _ProbParamFMBase(nn.Module, ABC, _ParamScalingMixin):
         """Register scaled training labels as the empirical base distribution.
 
         Once set, :meth:`sample_prior` draws random rows from this buffer
-        instead of the parametric U(min_par, max_par) prior.  The buffer is
-        persisted in both ``model.pkl`` (full pickle) and every ``.pt``
+        instead of the parametric U(min_par, max_par) prior.  
+        The buffer is persisted in both ``model.pkl`` (full pickle) and every ``.pt``
         checkpoint (state dict), so it is automatically available at inference
-        time without any extra files.
+        time without any extra files. **This might create memory issues though**
 
         Call this after constructing the model but before training, passing the
         **scaled** Y_train that matches the DataLoader label space (e.g.
         z-scored when ``scale_y=True``).
 
-        :param Y_train: scaled training labels, shape (n_train, n_param_pred)
+        Parameters
+        ----------
+        Y_train: torch.Tensor
+            Scaled training labels, shape ``(n_train, n_param_pred)``
         """
         self.register_buffer("Y_prior", Y_train.float())
 
     def sample_prior(self, n: int, device: torch.device) -> torch.Tensor:
         """Sample n points from the empirical base distribution.
 
-        Draws n rows uniformly at random from the training labels registered
-        via :meth:`set_prior_data`.  Raises :exc:`RuntimeError` if
-        :meth:`set_prior_data` has not been called — the physical-space
-        parametric fallback was removed because it is inconsistent with
-        z-scored training labels.
+        Parameters
+        ----------
+        n: int
+            Number of samples
+        device: torch.device
+            Target torch device
 
-        :param n: number of samples
-        :param device: target torch device
-        :return: prior samples, shape (n, n_param_pred)
-        :raises RuntimeError: if :meth:`set_prior_data` was not called first
+        Returns
+        -------
+        torch.Tensor
+            Prior samples, shape ``(n, n_param_pred)``
+
+        Raises
+        ------
+        RuntimeError
+            If :meth:`set_prior_data` was not called first
         """
         if not (hasattr(self, "Y_prior") and self.Y_prior is not None):
             raise RuntimeError(
@@ -508,18 +538,6 @@ class _ProbParamFMBase(nn.Module, ABC, _ParamScalingMixin):
         device: torch.device,
     ) -> torch.Tensor:
         """Integrate the learned ODE from N(0, I) to the posterior.
-
-        Shared sampling logic used by all FM subclasses. Repeats the context
-        for each sample, draws initial noise, and runs the midpoint ODE solver.
-        The context is forwarded to the velocity model at every ODE step via
-        ODESolver's model_extras mechanism.
-
-        :param context: conditioning embedding, shape (batch, context_dim)
-        :param batch_size: number of observations in the batch
-        :param n_samples: number of posterior samples per observation
-        :param n_steps: number of ODE integration steps
-        :param device: target torch device
-        :return: posterior samples of shape (batch, n_samples, n_param_pred)
         """
         context_rep = context.repeat_interleave(n_samples, dim=0)
         n_particles = batch_size * n_samples
@@ -556,9 +574,7 @@ class _ProbParamFMBase(nn.Module, ABC, _ParamScalingMixin):
 class _VFWrapper(ModelWrapper):
     """Stateless adapter so ODESolver can call our velocity field method.
 
-    The ODESolver requires a ModelWrapper subclass. This adapter delegates to
-    _velocity_forward, extracting the conditioning context from the keyword
-    arguments that ODESolver passes at each integration step via model_extras.
+    This is because ODESolver requires a ModelWrapper subclass. 
     """
 
     def __init__(self, velocity_fn):
