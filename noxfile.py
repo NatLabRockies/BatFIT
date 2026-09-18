@@ -121,6 +121,11 @@ def run_pytest(session: nox.Session) -> None:
     a flag, the number of workers will be determined automatically. Otherwise,
     you can specify the number of workers using an int, e.g., parallel=4.
 
+    Use 'no-reports' to skip the html/xml/junit reports. Use 'no-cleanup' to
+    keep the generated files (e.g. reports/coverage.xml) instead of removing
+    them at the end, which is needed when a later step consumes the report
+    (e.g. uploading coverage to Codecov in CI).
+
     """
 
     package = importlib.util.find_spec("batfit")
@@ -148,7 +153,8 @@ def run_pytest(session: nox.Session) -> None:
         elif arg.startswith("parallel"):
             command[1:1] = ["-n", "auto"]
     session.run(*command)
-    run_cleanup(session)
+    if "no-cleanup" not in session.posargs:
+        run_cleanup(session)
 
 
 def run_pre_commit(session: nox.Session) -> None:
