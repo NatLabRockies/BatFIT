@@ -7,7 +7,7 @@ from sklearn.preprocessing import StandardScaler
 class CustomScaler:
     """Per-channel z-score scaler for 3D signal arrays ``(N, channels, time)``.
 
-    Falls back to the channel-1 statistics for  single-channel array 
+    Falls back to the channel-1 statistics for  single-channel array
     """
 
     def __init__(self, means: np.ndarray, stds: np.ndarray) -> None:
@@ -160,8 +160,7 @@ def unscale_pred_std_from_scaler(
     Y_std: np.ndarray[np.float32],
     scaler_Y_file: str | None = None,
 ) -> np.ndarray:
-    """Inverse-scale a predicted standard deviation array.
-    """
+    """Inverse-scale a predicted standard deviation array."""
     assert len(Y_std.shape) == 2
     if scaler_Y_file is None:
         return Y_std

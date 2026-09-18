@@ -1,5 +1,4 @@
-"""Training utilities for conditional flow matching models.
-"""
+"""Training utilities for conditional flow matching models."""
 
 import numpy as np
 import optuna
@@ -50,8 +49,7 @@ def _forward_fm(
     t: torch.Tensor,
     device: torch.device,
 ) -> torch.Tensor:
-    """Call correct FM forward signature depending on model type.
-    """
+    """Call correct FM forward signature depending on model type."""
     if isinstance(model, ProbProtParamFM):
         return model(x_signal, batch[1].to(device), x_t, t)
     elif isinstance(model, ProbParamFM):
@@ -68,8 +66,7 @@ def _sample_fm(
     n_steps: int,
     device: torch.device,
 ) -> torch.Tensor:
-    """Draw posterior samples from an FM model.
-    """
+    """Draw posterior samples from an FM model."""
     if isinstance(model, ProbProtParamFM):
         return model.sample(x_signal, batch[1].to(device), n_samples, n_steps)
     elif isinstance(model, ProbParamFM):

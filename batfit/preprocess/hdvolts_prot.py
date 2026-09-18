@@ -72,7 +72,9 @@ def define_post_hppc_experiment(
         # max_num_steps is the IDA internal step-count budget between
         # outputs (default 500); stiff rests need more headroom
         expr = Experiment(
-            atol=atol, max_step=max_step, rtol=1e-6,
+            atol=atol,
+            max_step=max_step,
+            rtol=1e-6,
             max_num_steps=int(1e4),
         )
     expr.add_step(
@@ -151,7 +153,8 @@ def define_post_hppc_experiment(
         )
         expr.add_step("current_A", 0.0, (40, 0.4), reset_capacity=False)
         expr.add_step(
-            "current_A", -step21_current[pulse + 1],
+            "current_A",
+            -step21_current[pulse + 1],
             (10.0, 0.1),
             reset_capacity=False,
             limits=(
@@ -160,14 +163,12 @@ def define_post_hppc_experiment(
             ),
         )
         expr.add_step(
-            "voltage_V", sim_params["vmax"],
+            "voltage_V",
+            sim_params["vmax"],
             (10.0, 0.1),
             reset_capacity=False,
             reset_timer=False,
-            limits=(
-                "phase_time_s",
-                10.0
-            ),
+            limits=("phase_time_s", 10.0),
         )
         expr.add_step(
             "current_A",
@@ -188,7 +189,9 @@ def define_post_hppc_experiment(
 def define_hppc_experiment(sim_params, expr=None, atol=1e-9, max_step=1000):
     if expr is None:
         expr = Experiment(
-            atol=atol, max_step=max_step, rtol=1e-6,
+            atol=atol,
+            max_step=max_step,
+            rtol=1e-6,
             max_num_steps=int(1e4),
         )
     expr = define_pre_hppc_experiment(

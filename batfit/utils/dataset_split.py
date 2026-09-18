@@ -1,4 +1,5 @@
 """Train/test/val splitting of assembled numpy datasets, with npz caching."""
+
 import os
 
 import numpy as np
@@ -17,7 +18,7 @@ def split_arrays(
     """Train/test split any number of named arrays jointly, with npz caching.
 
     Arrays are split together (same shuffle)
-    If that cache file already exists, it is loaded instead of re-splitting 
+    If that cache file already exists, it is loaded instead of re-splitting
 
     Parameters
     ----------

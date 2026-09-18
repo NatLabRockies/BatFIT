@@ -25,8 +25,8 @@ from .param_utils.model_utils import (
 
 
 class ProbParamCNN(_ProbParamBase):
-    """CNN encoder for electrochemical signal.
-    """
+    """CNN encoder for electrochemical signal."""
+
     def __init__(
         self,
         input_shape,
@@ -113,8 +113,8 @@ class ProbParamCNN(_ProbParamBase):
 
 
 class ProbParamFCNN(_ProbParamBase):
-    """FCNN encoder for electrochemical signal
-    """
+    """FCNN encoder for electrochemical signal"""
+
     def __init__(
         self,
         input_shape,
@@ -197,8 +197,7 @@ class ProbParamFCNN(_ProbParamBase):
 
 
 class ProbProtParamCNN(_ProbParamBase):
-    """CNN encoder for electrochemical signal with protocol parameter fusion.
-    """
+    """CNN encoder for electrochemical signal with protocol parameter fusion."""
 
     def __init__(
         self,
@@ -315,12 +314,12 @@ class ProbParamFM(_ProbParamFMBase):
     Two encoder modes are supported:
 
     **CNN mode** (default): a 1-D CNN is trained jointly with the velocity
-    field MLP end-to-end.  
+    field MLP end-to-end.
     Requires ``input_shape``, ``chan_list``, ``fc_list``
     ``cyc_mode="discharge-chargecc"`` is supported and uses
     two independent CNN encoders whose embeddings are concatenated.
 
-    **External encoder mode**: a pre-trained encoder 
+    **External encoder mode**: a pre-trained encoder
     passed via ``encoder_model``, parameters are **frozen**
     The encoder must expose a ``latent_dim: int``
     Pass ``vae_model.encoder``, not the full ``VAECNN``.
@@ -455,8 +454,7 @@ class ProbParamFM(_ProbParamFMBase):
         self.vf_layers = nn.Sequential(*_vf)
 
     def _encode(self, x: torch.Tensor) -> torch.Tensor:
-        """Encode signal into an embedding vector.
-        """
+        """Encode signal into an embedding vector."""
         if self.encoder_model is not None:
             out = self.encoder_model(x)
             return out[0] if isinstance(out, (tuple, list)) else out
@@ -654,8 +652,7 @@ class ProbProtParamFM(_ProbParamFMBase):
     def _encode_context(
         self, x: torch.Tensor, prot_params: torch.Tensor
     ) -> torch.Tensor:
-        """Encode signal and protocol parameters into a context vector.
-        """
+        """Encode signal and protocol parameters into a context vector."""
         cnn_emb = self.cnn_layers(x)
         fused = torch.cat((cnn_emb, prot_params), dim=1)
         return self.prot_layers(fused)

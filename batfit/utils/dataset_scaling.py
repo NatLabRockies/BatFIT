@@ -14,8 +14,7 @@ def _fit_or_reuse_zscore_scaler(
     stat_axis: int | tuple[int, ...],
     reuse_if_exists: bool,
 ) -> CustomScaler:
-    """Fit a :class:`CustomScaler` on ``train_array``, or reuse a cached one.
-    """
+    """Fit a :class:`CustomScaler` on ``train_array``, or reuse a cached one."""
     if reuse_if_exists and os.path.isfile(scaler_file):
         # cache-hit: reuse the previously fitted scaler
         logger.warning(f"Reusing existing signal scaler from {scaler_file}")
@@ -73,7 +72,7 @@ def scale_dataset_from_np(
     If ``scale_y=True`` the result is written to ``data_scaled_y.npz``
     ``scaler_X.pkl`` is shared and reused rather than re-fitted.
 
-    Protocol parameters live in a separate tensor and are scaled 
+    Protocol parameters live in a separate tensor and are scaled
     separately.
     """
 
@@ -247,8 +246,7 @@ def scale_surrogate_dataset_from_np(
     save_scaled: bool = True,
     scale_y: bool = False,
 ):
-    """Scale a surrogate dataset's signal X and, optionally, labels Y.
-    """
+    """Scale a surrogate dataset's signal X and, optionally, labels Y."""
     scaler_x_filename = os.path.join(save_path, "scaler_surrogate_X.pkl")
     data_scaled_filename = os.path.join(save_path, "data_surrogate_scaled.npz")
     scaler_y_filename = os.path.join(save_path, "scaler_surrogate_Y.pkl")

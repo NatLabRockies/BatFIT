@@ -78,8 +78,7 @@ def _build_conv_fc_layers(
 
 
 class _SelfAttentionBlock(nn.Module):
-    """Multi-head self-attention block inserted after the CNN conv stack.
-    """
+    """Multi-head self-attention block inserted after the CNN conv stack."""
 
     def __init__(
         self, embed_dim: int, num_heads: int, dropout: float = 0.0
@@ -483,7 +482,7 @@ class _ProbParamFMBase(nn.Module, ABC, _ParamScalingMixin):
         """Register scaled training labels as the empirical base distribution.
 
         Once set, :meth:`sample_prior` draws random rows from this buffer
-        instead of the parametric U(min_par, max_par) prior.  
+        instead of the parametric U(min_par, max_par) prior.
         The buffer is persisted in both ``model.pkl`` (full pickle) and every ``.pt``
         checkpoint (state dict), so it is automatically available at inference
         time without any extra files. **This might create memory issues though**
@@ -537,8 +536,7 @@ class _ProbParamFMBase(nn.Module, ABC, _ParamScalingMixin):
         n_steps: int,
         device: torch.device,
     ) -> torch.Tensor:
-        """Integrate the learned ODE from N(0, I) to the posterior.
-        """
+        """Integrate the learned ODE from N(0, I) to the posterior."""
         context_rep = context.repeat_interleave(n_samples, dim=0)
         n_particles = batch_size * n_samples
         if self.use_prior_matching:
@@ -574,7 +572,7 @@ class _ProbParamFMBase(nn.Module, ABC, _ParamScalingMixin):
 class _VFWrapper(ModelWrapper):
     """Stateless adapter so ODESolver can call our velocity field method.
 
-    This is because ODESolver requires a ModelWrapper subclass. 
+    This is because ODESolver requires a ModelWrapper subclass.
     """
 
     def __init__(self, velocity_fn):

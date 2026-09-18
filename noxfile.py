@@ -57,10 +57,6 @@ def run_lint(session: nox.Session) -> None:
 
     black_command = [
         "black",
-        "--line-length",
-        "79",
-        "--target-version",
-        "py310",
         "--exclude",
         "BATMODS-lite",
         ".",

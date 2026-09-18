@@ -28,25 +28,25 @@ def independent_gumbel_loss(
 ) -> torch.Tensor:
     r"""Negative log-likelihood under an independent Gumbel distribution.
 
-    The Gumbel scale ``beta = sqrt(6) * sigma / pi`` is chosen so that the
-    distribution's standard deviation equals ``sigma``.
+        The Gumbel scale ``beta = sqrt(6) * sigma / pi`` is chosen so that the
+        distribution's standard deviation equals ``sigma``.
 
-    Implemented following Getter et al. "Statistical Treatment of Convolutional Neural Network Superresolution of Inland
-Surface Wind for Subgrid-Scale Variability Quantification", AIES, 2024.
+        Implemented following Getter et al. "Statistical Treatment of Convolutional Neural Network Superresolution of Inland
+    Surface Wind for Subgrid-Scale Variability Quantification", AIES, 2024.
 
-    Parameters
-    ----------
-    mu: torch.Tensor
-        Predicted location per parameter, shape (batch, n_params)
-    sigma: torch.Tensor
-        Predicted standard deviation per parameter, shape (batch, n_params)
-    target: torch.Tensor
-        Ground-truth values, shape (batch, n_params)
+        Parameters
+        ----------
+        mu: torch.Tensor
+            Predicted location per parameter, shape (batch, n_params)
+        sigma: torch.Tensor
+            Predicted standard deviation per parameter, shape (batch, n_params)
+        target: torch.Tensor
+            Ground-truth values, shape (batch, n_params)
 
-    Returns
-    -------
-    torch.Tensor
-        Scalar mean negative log-likelihood
+        Returns
+        -------
+        torch.Tensor
+            Scalar mean negative log-likelihood
     """
     epsilon = 1e-6
     sigma = torch.clamp(sigma, min=epsilon)

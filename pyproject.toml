@@ -55,6 +55,10 @@ where = ["."]
 [tool.setuptools.package-data]
 "*" = ["*.yaml", "*.csv"]
 
+[tool.black]
+line-length = 79
+target-version = ["py314"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 import-mode = "importlib"

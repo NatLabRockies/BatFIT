@@ -28,8 +28,8 @@ def predict_mu_sigma(
 ) -> tuple:
     """Run a frozen NPE with noise averaging and return physical (mu, sigma).
 
-    Each curve is tiled n_noise times 
-    (mu, sigma) are averaged over noise realisations. 
+    Each curve is tiled n_noise times
+    (mu, sigma) are averaged over noise realisations.
     Dispatches on the NPE architecture and conditioning:
 
     - CNN-style NPE (``ProbParamCNN`` / ``ProbProtParamCNN``): one forward

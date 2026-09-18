@@ -220,9 +220,7 @@ def robust_HPPC(sim, sim_params, force_fail=False, skip_degenerate_cv=True):
 
     def _run(exp, reset_state):
         if skip_degenerate_cv:
-            return run_steps_skip_degenerate_cv(
-                sim, exp, sim_params["vmax"]
-            )
+            return run_steps_skip_degenerate_cv(sim, exp, sim_params["vmax"])
         return sim.run(exp, reset_state=reset_state, bar=False)
 
     sol = None
@@ -264,6 +262,7 @@ def robust_HPPC(sim, sim_params, force_fail=False, skip_degenerate_cv=True):
                 pass
         pass
     return sol
+
 
 def run_steps_skip_degenerate_cv(
     sim: bm.SPM._simulation.Simulation | bm.P2D._simulation.Simulation,
@@ -340,9 +339,7 @@ def robust_postHPPC(
 
     def _run(exp, reset_state):
         if skip_degenerate_cv:
-            return run_steps_skip_degenerate_cv(
-                sim, exp, sim_params["vmax"]
-            )
+            return run_steps_skip_degenerate_cv(sim, exp, sim_params["vmax"])
         return sim.run(exp, reset_state=reset_state, bar=False)
 
     sol = None
@@ -647,9 +644,7 @@ def single_run(
                 sim=sim,
                 sim_params=sim_params,
                 force_fail=force_fail,
-                skip_degenerate_cv=sim_params.get(
-                    "skip_degenerate_cv", True
-                ),
+                skip_degenerate_cv=sim_params.get("skip_degenerate_cv", True),
             )
             if rootsol is None:
                 print(f"All sim failed for {deg_param_sample}")
@@ -660,9 +655,7 @@ def single_run(
                 sim=sim,
                 sim_params=sim_params,
                 force_fail=force_fail,
-                skip_degenerate_cv=sim_params.get(
-                    "skip_degenerate_cv", True
-                ),
+                skip_degenerate_cv=sim_params.get("skip_degenerate_cv", True),
             )
             if rootsol is None:
                 print(f"All sim failed for {deg_param_sample}")
