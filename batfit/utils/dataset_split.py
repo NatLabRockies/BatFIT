@@ -1,13 +1,4 @@
-"""Train/test splitting of assembled numpy datasets, with npz caching.
-
-A single generic :func:`split_arrays` performs the actual split (and cache
-load/save) for any number of jointly-shuffled named arrays; the
-``split_*_from_np`` functions below are thin, backward-compatible wrappers
-around it for the three dataset shapes used across the codebase (plain
-signal/label, protocol-conditioned signal/protocol/label, and surrogate
-signal/label).
-"""
-
+"""Train/test/val splitting of assembled numpy datasets, with npz caching."""
 import os
 
 import numpy as np
@@ -25,15 +16,19 @@ def split_arrays(
 ) -> dict[str, np.ndarray]:
     """Train/test split any number of named arrays jointly, with npz caching.
 
-    All arrays in ``arrays`` are split together (same shuffle) via
-    :func:`sklearn.model_selection.train_test_split` and cached to
-    ``<save_path>/<cache_filename>``. If that cache file already exists, it
-    is loaded instead of re-splitting (``arrays`` values may be ``None`` in
-    that case).
+    Arrays are split together (same shuffle)
+    If that cache file already exists, it is loaded instead of re-splitting 
 
-    :param arrays: mapping of array name to array, e.g. ``{"X": X, "Y": Y}``.
-    :return: dict with ``"{name}_train"``/``"{name}_test"`` keys for every
-        name in ``arrays``, arrays cast to float32.
+    Parameters
+    ----------
+    arrays: dict[str, np.ndarray]
+        Mapping of array name to array, e.g. ``{"X": X, "Y": Y}``.
+
+    Returns
+    -------
+    dict[str, np.ndarray]
+        Dict with ``"{name}_train"``/``"{name}_test"`` keys for every name in
+        ``arrays``, arrays cast to float32.
     """
     cache_file = os.path.join(save_path, cache_filename)
     if os.path.isfile(cache_file):
@@ -80,7 +75,10 @@ def split_dataset_from_np(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Train/test split a signal array ``X`` and label array ``Y`` jointly.
 
-    :return: ``X_train, Y_train, X_test, Y_test``.
+    Returns
+    -------
+    tuple
+        ``X_train, Y_train, X_test, Y_test``.
     """
     result = split_arrays(
         {"X": np_data, "Y": np_data_label},
@@ -107,10 +105,19 @@ def split_protocol_dataset_from_np(
 ) -> tuple:
     """Train/test split ``(X_signal, prot_params, Y_labels)`` jointly.
 
-    :param np_data: electrochemical signal array of shape ``(N, channels, time)``
-    :param np_prot_params: protocol parameter array of shape ``(N, n_prot)``
-    :param np_data_label: degradation parameter array of shape ``(N, n_deg)``
-    :return: ``X_train, P_train, Y_train, X_test, P_test, Y_test``
+    Parameters
+    ----------
+    np_data: np.ndarray[np.float32]
+        Electrochemical signal array of shape ``(N, channels, time)``
+    np_prot_params: np.ndarray[np.float32]
+        Protocol parameter array of shape ``(N, n_prot)``
+    np_data_label: np.ndarray[np.float32]
+        Degradation parameter array of shape ``(N, n_deg)``
+
+    Returns
+    -------
+    tuple
+        ``X_train, P_train, Y_train, X_test, P_test, Y_test``
     """
     result = split_arrays(
         {"X": np_data, "P": np_prot_params, "Y": np_data_label},
@@ -138,7 +145,10 @@ def split_surrogate_dataset_from_np(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Train/test split a surrogate signal array ``X`` and label array ``Y`` jointly.
 
-    :return: ``X_train, Y_train, X_test, Y_test``.
+    Returns
+    -------
+    tuple
+        ``X_train, Y_train, X_test, Y_test``.
     """
     # We don't use data_split.npz here because we may construct both a
     # surrogate dataset and an NPE dataset from the same raw data.

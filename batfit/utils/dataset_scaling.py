@@ -1,13 +1,3 @@
-"""Fit/apply/cache scalers for train-test-split numpy datasets.
-
-The three dataset shapes used across the codebase (plain signal/label,
-protocol-conditioned signal/protocol/label, surrogate signal/label) each get
-their own top-level function below, since they genuinely differ in on-disk
-cache-file naming and scaler-reuse behavior. Internally they all share the
-same small set of private helpers so the fit/transform/persist logic for a
-given scaler kind is implemented exactly once.
-"""
-
 import os
 import pickle
 
@@ -25,10 +15,6 @@ def _fit_or_reuse_zscore_scaler(
     reuse_if_exists: bool,
 ) -> CustomScaler:
     """Fit a :class:`CustomScaler` on ``train_array``, or reuse a cached one.
-
-    When ``reuse_if_exists`` and ``scaler_file`` already exists, the pickled
-    scaler is loaded instead of re-fitting (cache-hit). Otherwise a new
-    scaler is fit on ``train_array`` and persisted to ``scaler_file``.
     """
     if reuse_if_exists and os.path.isfile(scaler_file):
         # cache-hit: reuse the previously fitted scaler
@@ -81,18 +67,16 @@ def scale_dataset_from_np(
     save_scaled: bool = True,
     scale_y: bool = False,
 ):
-    """Scale the signal X and, optionally, the degradation parameter labels Y.
+    """Scale the signal X and, optionally, parameter labels Y.
 
-    When ``scale_y=False`` the result is written to ``data_scaled.npz``.
-    When ``scale_y=True`` (StandardScaler on Y) the result is written to the
-    separate ``data_scaled_y.npz`` so that the two variants can coexist in the
-    same directory without overwriting each other. ``scaler_X.pkl`` is shared:
-    if it already exists (e.g. from a prior ``scale_y=False`` run) it is
-    reused rather than re-fitted.
+    If ``scale_y=False`` the result is written to ``data_scaled.npz``.
+    If ``scale_y=True`` the result is written to ``data_scaled_y.npz``
+    ``scaler_X.pkl`` is shared and reused rather than re-fitted.
 
-    Only the degradation parameter array (Y) is affected by ``scale_y``; protocol
-    parameters live in a separate tensor and are scaled by their own pipeline.
+    Protocol parameters live in a separate tensor and are scaled 
+    separately.
     """
+
     scaler_x_filename = os.path.join(save_path, "scaler_X.pkl")
     scaler_y_filename = os.path.join(save_path, "scaler_Y.pkl")
     data_scaled_filename = os.path.join(save_path, "data_scaled.npz")
@@ -174,9 +158,11 @@ def scale_protocol_dataset_from_np(
     (containing ``X_train``, ``P_train``, ``Y_train``, ``X_test``, ``P_test``,
     ``Y_test``) to ``save_path``.
 
-    :return: ``X_train_scaled, P_train_scaled, Y_train_scaled,
-        X_test_scaled, P_test_scaled, Y_test_scaled``.
-        Y is unscaled when ``scale_y=False``.
+    Returns
+    -------
+    tuple
+        ``X_train_scaled, P_train_scaled, Y_train_scaled, X_test_scaled,
+        P_test_scaled, Y_test_scaled``. Y is unscaled when ``scale_y=False``.
     """
     scaler_x_filename = os.path.join(save_path, "scaler_X.pkl")
     scaler_p_filename = os.path.join(save_path, "scaler_P.pkl")
@@ -262,10 +248,6 @@ def scale_surrogate_dataset_from_np(
     scale_y: bool = False,
 ):
     """Scale a surrogate dataset's signal X and, optionally, labels Y.
-
-    Unlike :func:`scale_dataset_from_np`, the cached ``.npz`` filename does
-    not vary with ``scale_y`` (always ``data_surrogate_scaled.npz``), and the
-    X scaler is always re-fit rather than reused across calls.
     """
     scaler_x_filename = os.path.join(save_path, "scaler_surrogate_X.pkl")
     data_scaled_filename = os.path.join(save_path, "data_surrogate_scaled.npz")

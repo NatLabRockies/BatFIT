@@ -1,10 +1,3 @@
-"""Model/training infrastructure: device selection, checkpointing, and logging.
-
-Dataset/DataLoader construction (``make_*_dataset_from_np``) now lives in
-:mod:`batfit.utils.torch_dataset_builder`; the names are re-exported here so
-existing ``from batfit.utils.torch_utils import ...`` call sites keep working.
-"""
-
 import os
 import pickle
 from pathlib import Path
@@ -35,10 +28,17 @@ __all__ = [
 
 
 def get_num_parameters(model: torch.nn.Module):
-    """
-    Returns the number of trainable parameters in a model of type nn.Module
-    :param model: nn.Module containing trainable parameters
-    :return: number of trainable parameters in model
+    """Return the number of trainable parameters in a model of type nn.Module.
+
+    Parameters
+    ----------
+    model: torch.nn.Module
+        Model containing trainable parameters
+
+    Returns
+    -------
+    int
+        Number of trainable parameters in model
     """
     num_parameters = 0
     for parameter in model.parameters():
@@ -46,7 +46,23 @@ def get_num_parameters(model: torch.nn.Module):
     return num_parameters
 
 
-def get_device_type(enable_cuda=True, enable_mps=True):
+def get_device_type(enable_cuda: bool = True, enable_mps: bool = True) -> str:
+    """Return the best available torch device type.
+
+    Prefers CUDA, then MPS, then CPU, subject to the enable flags.
+
+    Parameters
+    ----------
+    enable_cuda: bool
+        Allow selecting a CUDA device when available
+    enable_mps: bool
+        Allow selecting an MPS device when available
+
+    Returns
+    -------
+    str
+        One of ``"cuda"``, ``"mps"`` or ``"cpu"``
+    """
     # Move model on GPU if available. Otherwise MPS if possible. Otherwise CPU
     if torch.cuda.is_available() and enable_cuda:
         device_type = "cuda"
@@ -57,7 +73,21 @@ def get_device_type(enable_cuda=True, enable_mps=True):
     return device_type
 
 
-def prepare_log(log_folder):
+def prepare_log(log_folder: str) -> None:
+    """Create the log folder and (re)initialise the loss CSV files.
+
+    Removes any existing ``train_loss.csv``/``test_loss.csv`` in
+    ``log_folder`` and writes a fresh ``step;loss`` header to each.
+
+    Parameters
+    ----------
+    log_folder: str
+        Directory where the loss CSV files are written
+
+    Returns
+    -------
+    None
+    """
     log_dir = Path(log_folder)
     log_dir.mkdir(parents=True, exist_ok=True)
     # os.makedirs(log_folder, exist_ok=True)
@@ -80,7 +110,33 @@ def prepare_log(log_folder):
     return
 
 
-def log_training(step, loss, log_folder, filename="loss.csv"):
+def log_training(
+    step: int,
+    loss: torch.Tensor | float | list,
+    log_folder: str,
+    filename: str = "loss.csv",
+) -> None:
+    """Append a training/test loss record to a CSV file.
+
+    Writes a semicolon-separated ``step;loss`` row to
+    ``log_folder/filename``. When ``loss`` is a list, each element is written
+    as an additional semicolon-separated column.
+
+    Parameters
+    ----------
+    step: int
+        Current training step
+    loss: torch.Tensor or float or list
+        Loss value(s) to record; tensors are converted via ``.item()``
+    log_folder: str
+        Directory containing the target CSV file
+    filename: str
+        Name of the CSV file to append to
+
+    Returns
+    -------
+    None
+    """
     filename = os.path.join(log_folder, filename)
     f = open(filename, "a+")
     if not isinstance(loss, list):
@@ -106,19 +162,56 @@ def log_training(step, loss, log_folder, filename="loss.csv"):
 
 
 def save_model(
-    step,
-    model,
-    optimizer=None,
-    device_type=None,
-    enable_cuda=True,
-    enable_mps=True,
-    log_folder=None,
-    bypass=None,
-    save_model_obj=False,
-    save_model_weights=True,
-    save_model_opt=True,
-    autoencoder=False,
-):
+    step: int,
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer | None = None,
+    device_type: str | None = None,
+    enable_cuda: bool = True,
+    enable_mps: bool = True,
+    log_folder: str | None = None,
+    bypass: int | str | None = None,
+    save_model_obj: bool = False,
+    save_model_weights: bool = True,
+    save_model_opt: bool = False,
+    autoencoder: bool = False,
+) -> None:
+    """Save a model's weights, optimizer state, and/or pickled object.
+
+    The model is temporarily moved to CPU for saving (then back to its
+    original device). Files are written to ``log_folder`` with a ``step``
+    (or ``bypass``) suffix.
+
+    Parameters
+    ----------
+    step: int
+        Current training step, used as the filename suffix
+    model: torch.nn.Module
+        Model to save
+    optimizer: torch.optim.Optimizer or None
+        Optimizer whose state dict is saved when ``save_model_opt`` is True
+    device_type: str or None
+        Target device type; inferred via :func:`get_device_type` when None
+    enable_cuda: bool
+        Passed to :func:`get_device_type` when inferring the device
+    enable_mps: bool
+        Passed to :func:`get_device_type` when inferring the device
+    log_folder: str
+        Directory the files are written to
+    bypass: int or str or None
+        When not None, replaces ``step`` in the filename suffix
+    save_model_obj: bool
+        Also pickle the full model object to ``model.pkl``
+    save_model_weights: bool
+        Save the model state dict
+    save_model_opt: bool
+        Save the optimizer state dict (requires ``optimizer``)
+    autoencoder: bool
+        Save encoder/decoder/autoencoder state dicts separately
+
+    Returns
+    -------
+    None
+    """
     # Get current model device
     current_device = next(model.parameters()).device
 
@@ -167,15 +260,38 @@ def save_model(
             pickle.dump(model, f)
 
     model = model.to(current_device)
-    # if device_type == "cuda":
-    #    model = model.to(torch.device("cuda"))
-    # elif device_type == "mps":
-    #    model = model.to(torch.device("mps"))
 
 
 def load_model(
-    model, state_dict_file, device_type=None, enable_cuda=True, enable_mps=True
-):
+    model: torch.nn.Module,
+    state_dict_file: str,
+    device_type: str | None = None,
+    enable_cuda: bool = True,
+    enable_mps: bool = True,
+) -> torch.nn.Module:
+    """Load a saved state dict into ``model`` and move it to a device.
+
+    Logs a warning and returns ``model`` unchanged when ``state_dict_file``
+    does not exist.
+
+    Parameters
+    ----------
+    model: torch.nn.Module
+        Model instance to load the weights into
+    state_dict_file: str
+        Path to the saved ``.pt`` state dict
+    device_type: str or None
+        Target device type; inferred via :func:`get_device_type` when None
+    enable_cuda: bool
+        Passed to :func:`get_device_type` when inferring the device
+    enable_mps: bool
+        Passed to :func:`get_device_type` when inferring the device
+
+    Returns
+    -------
+    torch.nn.Module
+        The model with weights loaded, moved to the target device
+    """
     if not os.path.exists(state_dict_file):
         logger.warning(
             f"Tried to load model {state_dict_file}, but could not find it"
@@ -201,13 +317,19 @@ def load_model(
 def find_best_model_file(model_dir: str) -> str:
     """Return the checkpoint path with the lowest recorded test loss.
 
-    Reads ``test_loss.csv`` in model_dir, finds the iteration with minimum
+    Reads ``test_loss.csv`` and finds the iteration with minimum
     test loss, and returns the closest saved ``model_<iter>.pt`` checkpoint
-    (or ``model_final.pt`` when the best iteration is the last one or no
-    intermediate checkpoints exist).
+    (or ``model_final.pt``)
 
-    :param model_dir: directory containing ``test_loss.csv`` and checkpoints
-    :return: path to the best checkpoint file
+    Parameters
+    ----------
+    model_dir: str
+        Directory containing ``test_loss.csv`` and checkpoints
+
+    Returns
+    -------
+    str
+        Path to the best checkpoint file
     """
     vals = np.loadtxt(
         os.path.join(model_dir, "test_loss.csv"), delimiter=";", skiprows=1
@@ -240,10 +362,18 @@ def load_frozen_model(
 ) -> torch.nn.Module:
     """Load the best checkpoint of a trained model in eval mode.
 
-    :param models_dir: directory containing ``model.pkl``, ``test_loss.csv``
-        and the ``model_*.pt`` checkpoints
-    :param device: device the model is moved to
-    :return: frozen model in eval mode
+    Parameters
+    ----------
+    models_dir: str
+        Directory containing ``model.pkl``, ``test_loss.csv`` and the
+        ``model_*.pt`` checkpoints
+    device: torch.device
+        Device the model is moved to
+
+    Returns
+    -------
+    torch.nn.Module
+        Frozen model in eval mode
     """
     best_pt = find_best_model_file(models_dir)
     logger.info(f"Loading model from {best_pt}")
