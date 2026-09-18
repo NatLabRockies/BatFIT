@@ -583,8 +583,6 @@ def single_run(
         prot_params_list = [
             prot_param_sample[key] for key in sim_params["prot_param_names"]
         ]
-    param_string = from_param_list_to_str(params_list)
-
     bat_model = None
     if sim_params["model"] == "SPM":
         bat_model = "SPM"
@@ -908,7 +906,6 @@ def single_run_save(
                 if store_current:
                     save_dict["i"] = sol_dict["i"][:ind_t_max, -1]
 
-        t = sol_dict["t"]
         phis_c = sol_dict["phis_c"]
         assert np.amax(phis_c) - np.amin(phis_c) > 0.1
 
@@ -1907,7 +1904,6 @@ if __name__ == "__main__":
     import argparse
 
     import batfit.utils.parallel as parallel_env
-    from batfit.preprocess.sim_setup import make_params
 
     parser = argparse.ArgumentParser(description="dataset generator")
     parser.add_argument(

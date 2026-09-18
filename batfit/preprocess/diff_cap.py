@@ -8,8 +8,6 @@ def grad_hand(x, y, winsize=35, poly=1, t_tmp=None):
         winsize = max(len(x) // 25, 25)
     else:
         winsize = max(len(x) // 40, 7)
-    xold = x
-    yold = y
     x = scipy.signal.savgol_filter(x, winsize, poly)
     y = scipy.signal.savgol_filter(y, winsize, poly)
     assert len(x) == len(y)

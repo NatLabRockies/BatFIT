@@ -54,6 +54,7 @@ def run_lint(session: nox.Session) -> None:
 
     session.run("pip", "install", "--upgrade", "--quiet", "black")
     session.run("pip", "install", "--upgrade", "--quiet", "isort")
+    session.run("pip", "install", "--upgrade", "--quiet", "pyflakes")
 
     black_command = [
         "black",
@@ -85,6 +86,19 @@ def run_lint(session: nox.Session) -> None:
 
     session.run(*black_command)
     session.run(*isort_command)
+    # batfit/calibration/ is excluded: pre-existing undefined names require
+    # design-level fixes before the check can pass there.
+    session.run(
+        "python",
+        "-m",
+        "pyflakes",
+        "batfit/model/",
+        "batfit/postprocess/",
+        "batfit/preprocess/",
+        "batfit/utils/",
+        "tests/",
+        external=True,
+    )
 
 
 @nox.session(name="spell", python=False)

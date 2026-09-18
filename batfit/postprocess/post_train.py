@@ -16,7 +16,7 @@ from batfit.utils.data_utils import (
 
 def plot_loss(loss_hist_file, figure_folder="Figures", fig_name="loss.png"):
     loss_data = np.genfromtxt(loss_hist_file, delimiter=";", skip_header=1)
-    fig = plt.figure()
+    plt.figure()
     plt.plot(loss_data[:, 0], loss_data[:, 1], color="k")
     pretty_labels("# Step", "Loss", fontsize=16, fontname="Times")
     # os.makedirs(figure_folder, exist_ok=True)
