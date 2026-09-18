@@ -55,6 +55,10 @@ where = ["."]
 [tool.setuptools.package-data]
 "*" = ["*.yaml", "*.csv"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+import-mode = "importlib"
+
 [project.optional-dependencies]
 docs = [
     "sphinx",
