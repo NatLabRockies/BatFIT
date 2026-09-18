@@ -1,11 +1,3 @@
-"""Scaler class and helpers to apply/invert a persisted (pickled) scaler.
-
-All public functions here operate on a *path* to a pickled scaler object
-(one with ``.transform``/``.inverse_transform`` methods, e.g. :class:`CustomScaler`
-or a scikit-learn scaler) rather than the scaler object itself, so callers at
-inference/test time don't need to keep the fitted scaler around in memory.
-"""
-
 import pickle
 
 import numpy as np
@@ -15,13 +7,11 @@ from sklearn.preprocessing import StandardScaler
 class CustomScaler:
     """Per-channel z-score scaler for 3D signal arrays ``(N, channels, time)``.
 
-    Falls back to the channel-1 statistics when asked to transform a
-    single-channel array against means/stds fitted on a 2-channel array
-    (used when a downstream model only consumes the voltage channel).
+    Falls back to the channel-1 statistics for  single-channel array 
     """
 
     def __init__(self, means: np.ndarray, stds: np.ndarray) -> None:
-        """Store the per-channel means and standard deviations used for scaling."""
+        """Store per-channel means and standard deviations"""
         self.means = means
         self.stds = stds
 
@@ -29,10 +19,8 @@ class CustomScaler:
     def fit(
         cls, data: np.ndarray, axis: int | tuple[int, ...]
     ) -> "CustomScaler":
-        """Fit a scaler from ``data``, reducing over ``axis`` with dims kept.
-
-        Mirrors the ``.fit()`` interface of scikit-learn scalers so callers
-        can treat :class:`CustomScaler` uniformly alongside them.
+        """Fit scaler from ``data``
+        Mirrors the ``.fit()`` interface of scikit-learn scalers
         """
         means = np.mean(data, axis=axis, keepdims=True)
         stds = np.std(data, axis=axis, keepdims=True)
@@ -76,11 +64,7 @@ def _apply_scaler(
     allow_missing: bool,
 ) -> np.ndarray:
     """Load the scaler at ``scaler_file`` and transform or inverse-transform ``data``.
-
-    :param inverse: apply ``inverse_transform`` instead of ``transform``.
-    :param allow_missing: when True, a ``None`` path or a missing file
-        means "no scaling configured" and ``data`` is returned unchanged
-        instead of raising.
+    If inverse is True, apply inverse_transform instead of transform
     """
     if allow_missing:
         if scaler_file is None:
@@ -177,17 +161,6 @@ def unscale_pred_std_from_scaler(
     scaler_Y_file: str | None = None,
 ) -> np.ndarray:
     """Inverse-scale a predicted standard deviation array.
-
-    A standard deviation transforms with the scaler's scale only, never its
-    mean shift: for a ``(x - mu) / sigma``-type scaler (e.g.
-    ``StandardScaler``) the physical std is ``std_scaled * sigma``, whereas
-    ``inverse_transform`` would wrongly add the mean back. Passes through if
-    no scaler is configured (mirroring :func:`unscale_pred_from_scaler`).
-
-    :param Y_std: predicted std array of shape ``(N, n_params)``
-    :param scaler_Y_file: path to the pickled Y scaler, or ``None``
-    :raises NotImplementedError: if the pickled scaler is not a
-        ``(x - mu) / sigma``-type scaler
     """
     assert len(Y_std.shape) == 2
     if scaler_Y_file is None:
