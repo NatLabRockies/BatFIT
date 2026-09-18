@@ -1,5 +1,6 @@
 import pickle
 import sys
+from typing import Callable
 
 import numpy as np
 import optuna
@@ -15,6 +16,7 @@ from batfit.utils.data_utils import (
     scale_input_from_scaler,
     unscale_dataset_from_scaler,
 )
+from batfit.utils.scalers import CustomScaler
 from batfit.utils.torch_utils import (
     get_device_type,
     get_num_parameters,
@@ -29,7 +31,31 @@ from .metrics import *
 from .noise_utils import apply_noise
 
 
-def create_model_from_log(model_obj_file, model_state_dict_file, verbose=True):
+def create_model_from_log(
+    model_obj_file: str,
+    model_state_dict_file: str | None,
+    verbose: bool = True,
+) -> torch.nn.Module:
+    """Reconstruct a model from a pickled object and optional weights.
+
+    Loads the pickled model architecture from ``model_obj_file`` and, when
+    ``model_state_dict_file`` is not None, loads that state dict
+
+    Parameters
+    ----------
+    model_obj_file: str
+        Path to the pickled model object (``model.pkl``)
+    model_state_dict_file: str | None
+        Path to the ``.pt`` weights to load, or None to return the
+        freshly-unpickled model
+    verbose: bool
+        Log the loaded files and parameter count
+
+    Returns
+    -------
+    torch.nn.Module
+        The reconstructed model
+    """
     if verbose:
         logger.info(
             f"loading model from \n\t{model_obj_file} and {model_state_dict_file}"
@@ -49,17 +75,20 @@ def create_model_from_log(model_obj_file, model_state_dict_file, verbose=True):
 
 
 def forward_pass(
-    model,
-    np_data_in,
-    scaler_X_file,
-    scaler_Y_file,
-    scale_y,
-    np_prot_params=None,
-):
+    model: torch.nn.Module,
+    np_data_in: np.ndarray,
+    scaler_X_file: str,
+    scaler_Y_file: str,
+    scale_y: bool,
+    np_prot_params: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
     """Run a forward pass and return unscaled (mu, gamma).
 
-    :param np_prot_params: required when ``model`` is :class:`ProbProtParamCNN`;
-        protocol parameter array of shape ``(N, n_prot)``.
+    Parameters
+    ----------
+    np_prot_params: np.ndarray | None
+        Required when ``model`` is :class:`ProbProtParamCNN`; protocol
+        parameter array of shape ``(N, n_prot)``.
     """
     model.eval()
     model.to("cpu")
@@ -145,7 +174,30 @@ def forward_pass(
         return pred_unscaled
 
 
-def learning_rate_schedule(epoch, epoch_end, lr_beg, lr_end):
+def learning_rate_schedule(
+    epoch: int, epoch_end: int, lr_beg: float, lr_end: float
+) -> float:
+    """Piecewise learning-rate schedule.
+
+    Use ``lr_beg`` for the first ``epoch_end // 10`` epochs
+    Decays geometrically from ``lr_beg`` toward ``lr_end``
+
+    Parameters
+    ----------
+    epoch: int
+        Current epoch
+    epoch_end: int
+        Epoch at which the decay reaches ``lr_end``
+    lr_beg: float
+        Initial learning rate
+    lr_end: float
+        Final learning rate
+
+    Returns
+    -------
+    float
+        Learning rate for ``epoch``
+    """
     epoch_delay = epoch_end // 10
     if epoch < epoch_delay:
         return lr_beg
@@ -155,7 +207,36 @@ def learning_rate_schedule(epoch, epoch_end, lr_beg, lr_end):
         )
 
 
-def temp_schedule(epoch, epoch_beg, epoch_end, val_beg, val_end):
+def temp_schedule(
+    epoch: int,
+    epoch_beg: int,
+    epoch_end: int,
+    val_beg: float,
+    val_end: float,
+) -> float:
+    """Schedule of tempering value (for vae)
+
+    The ramp runs between ``epoch_beg`` and ``epoch_end`` and is clamped to
+    ``val_end`` afterwards.
+
+    Parameters
+    ----------
+    epoch: int
+        Current epoch
+    epoch_beg: int
+        Epoch at which the ramp starts
+    epoch_end: int
+        Epoch at which the ramp reaches ``val_end``
+    val_beg: float
+        Initial value
+    val_end: float
+        Final value
+
+    Returns
+    -------
+    float
+        Interpolated value for ``epoch``
+    """
     return val_beg + min(
         (epoch - epoch_beg) / (epoch_end - epoch_beg), 1.0
     ) * (val_end - val_beg)
@@ -176,17 +257,71 @@ def train_model(
     optimizer_state_dict_filename: str | None = None,
     enable_cuda: bool = True,
     enable_mps: bool = True,
-    trial=None,
+    trial: optuna.trial.Trial | None = None,
     noise_levels: torch.Tensor | None = torch.tensor([0, 0.010, 0.04, 1]),
     bias_tensor: torch.Tensor | None = None,
-    scaler_X=None,
+    scaler_X: CustomScaler | None = None,
     a_min: torch.Tensor | None = torch.tensor(
         [-torch.inf, 3, -torch.inf, -torch.inf]
     ),
     a_max: torch.Tensor | None = torch.tensor([torch.inf, 4.1, 0, 0]),
     target_mode: None | str = None,
     prior=None,
-):
+) -> tuple[torch.nn.Module, np.ndarray]:
+    """Train NPE with noise augmentation.
+
+    Parameters
+    ----------
+    model: torch.nn.Module
+        Probabilistic model (e.g. :class:`ProbParamCNN`,
+        :class:`ProbProtParamCNN`) trained in place
+    train_data_loader: torch.utils.data.DataLoader
+        Training batches
+    learning_rate: float
+        Initial learning rate
+    num_epochs: int | None
+        Number of epochs; ignored when ``num_steps`` is set
+    learning_rate_end: float | None
+        Final learning rate (defaults to ``learning_rate / 100``)
+    test_data_loader: torch.utils.data.DataLoader | None
+        Optional loader for per-epoch test-loss evaluation
+    num_steps: int | None
+        Total training steps; overrides ``num_epochs`` when set
+    num_steps_test: int | None
+        Steps used when evaluating the test loss
+    log_folder: str
+        Directory for loss CSVs and checkpoints
+    log_freq: int
+        Step interval for logging the training loss
+    save_freq: int
+        Step interval for checkpointing the model
+    optimizer_state_dict_filename: str | None
+        Path to an optimizer state dict to resume from
+    enable_cuda: bool
+        Allow training on CUDA when available
+    enable_mps: bool
+        Allow training on MPS when available
+    trial: optuna.trial.Trial | None
+        Optuna trial enabling hyperparameter-tuning pruning
+    noise_levels: torch.Tensor | None
+        Per-channel noise levels for :func:`apply_noise`
+    bias_tensor: torch.Tensor | None
+        Optional per-channel bias added during augmentation
+    scaler_X: CustomScaler | None
+        Signal scaler used to apply noise in physical space
+    a_min: torch.Tensor | None
+        Per-channel lower clip applied after adding noise
+    a_max: torch.Tensor | None
+        Per-channel upper clip applied after adding noise
+    target_mode: str | None
+        When ``"encoded"``, skip signal-space noise augmentation
+
+    Returns
+    -------
+    tuple
+        ``(model, loss_hist)`` — the trained model and the training-loss
+        history array
+    """
 
     # Device set up
     device_type = get_device_type(
@@ -230,9 +365,6 @@ def train_model(
         optimizer.load_state_dict(
             torch.load(optimizer_state_dict_filename, weights_only=True)
         )
-    # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-    #    optimizer, num_epochs, 0
-    # )
 
     num_batch = len(train_data_loader)
     model.train()
@@ -419,22 +551,57 @@ def train_model(
 
 
 def compute_test_loss(
-    model: ProbParamCNN,
+    model: torch.nn.Module,
     test_data_loader: torch.utils.data.DataLoader,
     num_steps: int | None = None,
     enable_cuda: bool = True,
     enable_mps: bool = True,
-    verbose=True,
+    verbose: bool = True,
     noise_levels: torch.Tensor | None = torch.tensor([0, 0.010, 0.04, 1]),
     bias_tensor: torch.Tensor | None = None,
-    scaler_X=None,
+    scaler_X: CustomScaler | None = None,
     a_min: torch.Tensor | None = torch.tensor(
         [-torch.inf, 3, -torch.inf, -torch.inf]
     ),
     a_max: torch.Tensor | None = torch.tensor([torch.inf, 4.1, 0, 0]),
     target_mode: None | str = None,
     prior=None,
-):
+) -> float:
+    """Compute mean test loss.
+    Use same input-noise augmentation as training
+
+    Parameters
+    ----------
+    model: torch.nn.Module
+        Probabilistic model to evaluate
+    test_data_loader: torch.utils.data.DataLoader
+        Test batches
+    num_steps: int | None
+        Cap on the number of batches evaluated; all batches when None
+    enable_cuda: bool
+        Allow evaluating on CUDA when available
+    enable_mps: bool
+        Allow evaluating on MPS when available
+    verbose: bool
+        Display a progress bar
+    noise_levels: torch.Tensor | None
+        Per-channel noise levels for :func:`apply_noise`
+    bias_tensor: torch.Tensor | None
+        Optional per-channel bias added during augmentation
+    scaler_X: CustomScaler | None
+        Signal scaler used to apply noise in physical space
+    a_min: torch.Tensor | None
+        Per-channel lower clip applied after adding noise
+    a_max: torch.Tensor | None
+        Per-channel upper clip applied after adding noise
+    target_mode: str | None
+        When ``"encoded"``, skip signal-space noise augmentation
+
+    Returns
+    -------
+    float
+        Sample-weighted average loss over the evaluated batches
+    """
     # Device set up
     device_type = get_device_type(
         enable_cuda=enable_cuda, enable_mps=enable_mps
@@ -549,21 +716,62 @@ def compute_test_loss(
 
 
 def compute_post(
-    model: ProbParamCNN,
+    model: torch.nn.Module,
     test_data_loader: torch.utils.data.DataLoader,
     num_steps: int | None = None,
     enable_cuda: bool = True,
     enable_mps: bool = True,
-    verbose=True,
+    verbose: bool = True,
     noise_levels: torch.Tensor | None = torch.tensor([0, 0.010, 0.04, 1]),
-    scaler_X=None,
+    scaler_X: CustomScaler | None = None,
     a_min: torch.Tensor | None = torch.tensor(
         [-torch.inf, 3, -torch.inf, -torch.inf]
     ),
     a_max: torch.Tensor | None = torch.tensor([torch.inf, 4.1, 0, 0]),
-    post_fn=rel_accuracy,
+    post_fn: Callable = rel_accuracy,
     target_mode: str | None = None,
-):
+) -> float:
+    """Compute posterior diagnostic metrics.
+
+    The metric is given by ``post_fn``, one of:
+
+    - :func:`accuracy` — mean absolute error between the predicted mean and
+      the target
+    - :func:`rel_accuracy` — mean relative absolute error
+    - :func:`identifiability` — mean ``1 / std`` of the predicted marginals
+
+    Parameters
+    ----------
+    model: torch.nn.Module
+        Probabilistic model to evaluate
+    test_data_loader: torch.utils.data.DataLoader
+        Test batches
+    num_steps: int | None
+        Cap on the number of batches evaluated; all batches when None
+    enable_cuda: bool
+        Allow evaluating on CUDA when available
+    enable_mps: bool
+        Allow evaluating on MPS when available
+    verbose: bool
+        Display a progress bar
+    noise_levels: torch.Tensor | None
+        Per-channel noise levels for :func:`apply_noise`
+    scaler_X: CustomScaler | None
+        Signal scaler used to apply noise in physical space
+    a_min: torch.Tensor | None
+        Per-channel lower clip applied after adding noise
+    a_max: torch.Tensor | None
+        Per-channel upper clip applied after adding noise
+    post_fn: Callable
+        The metric to compute
+    target_mode: str | None
+        When ``"encoded"``, skip signal-space noise augmentation
+
+    Returns
+    -------
+    float
+        Sample-weighted aggregate of ``post_fn`` over the evaluated batches
+    """
     # Device set up
     device_type = get_device_type(
         enable_cuda=enable_cuda, enable_mps=enable_mps
