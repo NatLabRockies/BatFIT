@@ -120,9 +120,14 @@ def make_protocol_dataset_from_np(
     MinMax-scaled to ``[0, 1]``; the fitted scalers are saved alongside the
     data split.
 
-    :param np_data: electrochemical signal of shape ``(N, channels, time)``
-    :param np_prot_params: protocol parameters of shape ``(N, n_prot)``
-    :param np_data_label: degradation parameters of shape ``(N, n_deg)``
+    Parameters
+    ----------
+    np_data: np.ndarray[np.float32] | None
+        Electrochemical signal of shape ``(N, channels, time)``
+    np_prot_params: np.ndarray[np.float32] | None
+        Protocol parameters of shape ``(N, n_prot)``
+    np_data_label: np.ndarray[np.float32] | None
+        Degradation parameters of shape ``(N, n_deg)``
     """
     X_train, P_train, Y_train, X_test, P_test, Y_test = (
         split_protocol_dataset_from_np(
