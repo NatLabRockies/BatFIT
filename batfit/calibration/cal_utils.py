@@ -6,17 +6,12 @@ import jax.numpy as jnp
 import numpy as np
 import numpyro
 import numpyro.distributions as dist
-import pandas as pd
-import scipy
 from numpyro.infer import MCMC, NUTS, SA, init_to_value
 from prettyPlot.plotting import *
 
 from batfit import logger
-from batfit.utils.text_utils import shuffle_substrings
 
 from .data_utils import (
-    get_nchan,
-    make_data_in,
     make_error_data,
     make_target_data,
     perturb_val_dict,

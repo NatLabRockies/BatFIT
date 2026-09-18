@@ -1,11 +1,9 @@
 import pickle
-import sys
 from typing import Callable
 
 import numpy as np
 import optuna
 import torch
-import torch.distributions as dist
 from prettyPlot.progressBar import print_progress_bar
 
 from batfit import logger
@@ -26,8 +24,7 @@ from batfit.utils.torch_utils import (
     save_model,
 )
 
-from .losses import mse_loss
-from .metrics import *
+from .metrics import *  # noqa: F401,F403
 from .noise_utils import apply_noise
 
 

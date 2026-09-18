@@ -1,26 +1,15 @@
 import os
-import pickle
 from pathlib import Path
 
 import numpy as np
 import torch
-from prettyPlot.plotting import *
+from prettyPlot.plotting import *  # noqa: F401,F403
 
-from batfit.model.paramNN import ProbParamCNN, ProbParamFCNN
+from batfit.model.paramNN import ProbParamCNN
 from batfit.utils.data_utils import (
-    scale_dataset_from_scaler,
-    scale_input_from_scaler,
-    scale_output_from_scaler,
     unscale_dataset_from_scaler,
-    unscale_input_from_scaler,
-    unscale_output_from_scaler,
     unscale_pred_from_scaler,
     unscale_pred_std_from_scaler,
-)
-from batfit.utils.torch_utils import (
-    get_num_parameters,
-    load_model,
-    make_dataset_from_np,
 )
 
 

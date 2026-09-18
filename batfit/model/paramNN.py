@@ -3,24 +3,12 @@ import torch
 import torch.nn as nn
 
 from batfit import logger
-from batfit.utils.torch_utils import (
-    get_device_type,
-    get_num_parameters,
-    load_model,
-    log_training,
-    make_dataset_from_np,
-    prepare_log,
-    save_model,
-)
-
 from .param_utils.model_utils import (
     _build_cnn_encoder,
     _build_hidden_fcnn_layers,
     _build_output_heads,
-    _ParamScalingMixin,
     _ProbParamBase,
     _ProbParamFMBase,
-    _VFWrapper,
 )
 
 

@@ -20,8 +20,6 @@ from batfit.utils.torch_utils import (
     save_model,
 )
 
-from .losses import mse_loss
-
 
 def create_model_from_log(model_obj_file, model_state_dict_file, verbose=True):
     if verbose:

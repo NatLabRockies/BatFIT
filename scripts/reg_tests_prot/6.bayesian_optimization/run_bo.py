@@ -87,7 +87,7 @@ def _sol_to_signal(
             phi_grid = np.interp(t_grid, t, phis_c)
             x = np.vstack((x, phi_grid.reshape(1, -1)))
         return x.astype("float32")
-    except (AssertionError, AttributeError, TypeError, KeyError):
+    except AssertionError, AttributeError, TypeError, KeyError:
         return None
 
 

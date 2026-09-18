@@ -1,10 +1,8 @@
 import copy
 import os
-import sys
 from pathlib import Path
 
 import numpy as np
-from ruamel.yaml import YAML
 from scipy.stats import qmc
 
 from batfit import logger

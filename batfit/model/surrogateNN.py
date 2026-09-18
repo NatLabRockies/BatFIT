@@ -1,21 +1,8 @@
-import pickle
-
 import numpy as np
-import torch
 import torch.nn as nn
-from prettyPlot.progressBar import print_progress_bar
 
 from batfit import logger
 from batfit.preprocess.sim_setup import make_params
-from batfit.utils.torch_utils import (
-    get_device_type,
-    get_num_parameters,
-    load_model,
-    log_training,
-    make_dataset_from_np,
-    prepare_log,
-    save_model,
-)
 
 from .surrogate_utils.losses import mae_loss, mse_loss
 

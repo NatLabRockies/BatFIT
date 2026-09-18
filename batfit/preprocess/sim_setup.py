@@ -1,9 +1,7 @@
 import os
-import sys
 
 import numpy as np
 from ruamel.yaml import YAML
-from scipy.stats import qmc
 
 from batfit import logger
 
@@ -715,7 +713,7 @@ if __name__ == "__main__":
     import argparse
 
     from batfit import BATFIT_EXP
-    from batfit.preprocess.param_sampling import *
+    from batfit.preprocess.param_sampling import *  # noqa: F401,F403
 
     parser = argparse.ArgumentParser(description="Parameter sampling")
     parser.add_argument(

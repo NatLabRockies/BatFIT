@@ -18,7 +18,7 @@ from batfit.utils.torch_utils import (
 )
 
 from .losses import flow_matching_loss
-from .metrics import accuracy, rel_accuracy
+from .metrics import rel_accuracy
 from .noise_utils import apply_noise
 from .train_utils import learning_rate_schedule
 

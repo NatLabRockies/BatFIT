@@ -1,6 +1,5 @@
 import os
 import pickle
-import random
 import re
 import sys
 import time
@@ -11,7 +10,6 @@ import numpy as np
 import pandas as pd
 
 from batfit import BATFIT_EXP, logger
-from batfit.preprocess.diff_cap import calc_dqdv_dvdq
 from batfit.preprocess.pickledb import PickleDB
 
 from .hdvolts_prot import (
@@ -23,8 +21,8 @@ from .hdvolts_prot import (
 from .mppoc_prot import (
     define_chirp_experiment,
 )
-from .sim_setup import *
-from .utils import *
+from .sim_setup import *  # noqa: F401,F403
+from .utils import *  # noqa: F401,F403
 
 
 def mod_sim(
@@ -1894,7 +1892,6 @@ if __name__ == "__main__":
     import argparse
 
     import batfit.utils.parallel as parallel_env
-    from batfit import BATFIT_EXP
     from batfit.preprocess.sim_setup import make_params
 
     parser = argparse.ArgumentParser(description="dataset generator")
