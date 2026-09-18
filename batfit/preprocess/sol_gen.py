@@ -21,8 +21,23 @@ from .hdvolts_prot import (
 from .mppoc_prot import (
     define_chirp_experiment,
 )
-from .sim_setup import *  # noqa: F401,F403
-from .utils import *  # noqa: F401,F403
+from .sim_setup import (
+    make_params,
+    set_battery,
+    set_discretization,
+    set_electrodes,
+    set_electrolyte,
+    set_interc,
+    set_separator,
+)
+from .utils import (
+    from_degparamlist_to_degparamdict,
+    from_param_list_to_str,
+    from_prot_param_list_to_str,
+    from_protparamlist_to_protparamdict,
+    reduce_npoints_records,
+    remove_file,
+)
 
 
 def mod_sim(

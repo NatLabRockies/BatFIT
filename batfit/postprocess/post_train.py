@@ -1,9 +1,10 @@
 import os
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from prettyPlot.plotting import *  # noqa: F401,F403
+from prettyPlot.plotting import pretty_labels
 
 from batfit.model.paramNN import ProbParamCNN
 from batfit.utils.data_utils import (

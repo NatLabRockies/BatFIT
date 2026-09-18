@@ -24,7 +24,7 @@ from batfit.utils.torch_utils import (
     save_model,
 )
 
-from .metrics import *  # noqa: F401,F403
+from .metrics import accuracy, identifiability, rel_accuracy
 from .noise_utils import apply_noise
 
 

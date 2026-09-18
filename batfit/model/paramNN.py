@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 
 from batfit import logger
+
 from .param_utils.model_utils import (
     _build_cnn_encoder,
     _build_hidden_fcnn_layers,

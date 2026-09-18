@@ -3,11 +3,12 @@ from pathlib import Path
 
 import jax
 import jax.numpy as jnp
+import matplotlib.pyplot as plt
 import numpy as np
 import numpyro
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS, SA, init_to_value
-from prettyPlot.plotting import *
+from prettyPlot.plotting import pretty_labels, pretty_legend
 
 from batfit import logger
 

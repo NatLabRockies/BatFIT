@@ -258,8 +258,6 @@ def test_ProbParamFM():
         ProbParamFM(vf_hidden_list=[32], n_param_pred=n_param_pred)
 
     # --- External encoder mode ---
-    latent_dim = 8
-
     class _DummyEncoder(nn.Module):
         """Minimal stand-in for ConvEncoder1D."""
 

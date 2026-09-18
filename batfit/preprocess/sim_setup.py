@@ -713,7 +713,11 @@ if __name__ == "__main__":
     import argparse
 
     from batfit import BATFIT_EXP
-    from batfit.preprocess.param_sampling import *  # noqa: F401,F403
+    from batfit.preprocess.param_sampling import (
+        get_bounding_samples,
+        get_samples,
+        write_exec,
+    )
 
     parser = argparse.ArgumentParser(description="Parameter sampling")
     parser.add_argument(
