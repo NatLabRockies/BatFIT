@@ -22,7 +22,14 @@ def _make_loader(
     shuffle: bool,
     drop_last: bool,
 ) -> torch.utils.data.DataLoader:
-    """Build a ``DataLoader`` over a ``TensorDataset`` of N aligned arrays."""
+    """Build a ``DataLoader`` over a ``TensorDataset`` of N aligned arrays.
+
+    ``batch_size`` is clamped to the number of samples so that a batch never
+    exceeds the dataset; this keeps ``drop_last=True`` from discarding the only
+    (partial) batch on small datasets.
+    """
+    n_samples = arrays[0].shape[0]
+    batch_size = max(1, min(batch_size, n_samples))
     tensors = [torch.from_numpy(a) for a in arrays]
     dataset = torch.utils.data.TensorDataset(*tensors)
     return torch.utils.data.DataLoader(
