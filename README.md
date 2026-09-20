@@ -30,30 +30,29 @@ pip install -e .[dev]     (editable installation with developer options)
 ## Get Started
 
 The regression tests (run as part of the CI) show how to use the basic capabilities of the code.
-1. Data generation with BATMODS-lite (``scripts/reg_tests/1.gen_data``). This demonstrates how to generate data from a single particle model in parallel. This has been tested with up to 1200 workers but uses 4 workers here. 
+1. Data generation with BATMODS-lite (``scripts/reg_tests/1.gen_data``). This demonstrates how to generate data from a single particle model in parallel. This has been tested with up to 3328 workers but uses 4 workers here. A single ``run.sh`` also assembles the data and writes the train/test/validation split reused by every later step.
 Once BatFIT is installed
 ```
 bash run.sh
 ``` 
 
-2. Train a surrogate of the physics-based model (``scripts/reg_tests/2.surrogate``). This demonstrate how to preprocess the data and train a surrogate model of the single particle model that can be used for simulation-based inference.
-Once BatFIT is installed, and ``run_change_recipe_local.sh`` has been changed to used your path.
+2. Train a surrogate of the physics-based model (``scripts/reg_tests/2.surrogate``). This demonstrates how to preprocess the data and train a surrogate model of the single particle model that can be used for simulation-based inference.
 ```
-bash run_change_recipe_local.sh 
 bash run.sh
 ```
 
 3. Run MCMC to identify parameters with the trained surrogate (``scripts/reg_tests/3.surrogate_mcmc``). This demonstrates how to run MCMC with a data-based surrogate instead of a physics-based model.
-Once BatFIT is installed, and ``run_change_recipe_local.sh`` has been changed to used your path.
 ```
-bash run_change_recipe_local.sh 
 bash run.sh
 ```
 
-4. Use Neural Posterior Estimation to approximate the parameter posterior PDF (``scripts/reg_tests/4.npe``)
-Once BatFIT is installed, and ``run_change_recipe_local.sh`` has been changed to used your path.
+4. Use Gaussian Neural Posterior Estimation to approximate the parameter posterior PDF (``scripts/reg_tests/4.npe_gaussian``).
 ```
-bash run_change_recipe_local.sh
+bash run.sh
+```
+
+5. Use flow-matching Neural Posterior Estimation to approximate the parameter posterior PDF (``scripts/reg_tests/5.npe_fm``).
+```
 bash run.sh
 ```
 
