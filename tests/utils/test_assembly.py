@@ -7,10 +7,8 @@ import pytest
 
 from batfit.utils.assembly import (
     assemble_all_data,
-    assemble_surrogate_data,
     augment_data,
     check_assembled_data_shape,
-    check_assembled_surrogate_data_shape,
     from_combined_sols_to_data,
     from_param_to_surrogate_data,
     from_sol_dict_to_xy,
@@ -283,56 +281,6 @@ def test_assemble_all_data():
         # leaving 3 of the 4 good solutions
         assert X_data.shape == (3, 2, n_points)
         assert Y_data.shape == (3, n_params)
-
-
-def test_check_assembled_surrogate_data_shape():
-    n_points, n_param_pred, N = 10, 3, 50
-    X_data = np.random.randn(N, n_param_pred + 1).astype("float32")
-    Y_data = np.random.randn(N, 1).astype("float32")
-
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        np.savez(
-            os.path.join(tmp_dir, "assembled_surrogate_data.npz"),
-            X_data=X_data,
-            Y_data=Y_data,
-        )
-        tmp = check_assembled_surrogate_data_shape(
-            data_root_folder=tmp_dir,
-            n_points=n_points,
-            n_param_pred=n_param_pred,
-            save_path=tmp_dir,
-        )
-        assert tmp["X_data"].shape == X_data.shape
-
-
-def test_assemble_surrogate_data():
-    n_points, n_param_pred = 5, 2
-    combined_sols = {
-        f"solution_{i}.npz": {
-            "sol": _make_sol(n_t=20, t_max=10.0),
-            "params": [float(i), float(i) + 0.5],
-        }
-        for i in range(3)
-    }
-
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        with open(os.path.join(tmp_dir, "sols.pkl"), "wb") as f:
-            pickle.dump(combined_sols, f)
-
-        X_data, Y_data = assemble_surrogate_data(
-            tmp_dir,
-            n_points=n_points,
-            n_param_pred=n_param_pred,
-            combined_pickle_file="sols.pkl",
-            cyc_mode="discharge",
-            save_data=True,
-            save_path=tmp_dir,
-        )
-        assert X_data.shape == (3 * n_points, n_param_pred + 1)
-        assert Y_data.shape == (3 * n_points, 1)
-        assert os.path.isfile(
-            os.path.join(tmp_dir, "assembled_surrogate_data.npz")
-        )
 
 
 def test_from_param_to_surrogate_data():

@@ -1,13 +1,3 @@
-"""Build train/test ``DataLoader`` pairs from assembled numpy datasets.
-
-Each ``make_*_dataset_from_np`` wires together the split step
-(:mod:`batfit.utils.dataset_split`), the scaling step
-(:mod:`batfit.utils.dataset_scaling`), and a shared DataLoader-construction
-helper. The three wrappers keep separate top-level functions (rather than one
-fully generic builder) because they genuinely differ in batch shape (2-tensor
-vs. 3-tensor) and, for the surrogate case, in how the split is obtained.
-"""
-
 import os
 
 import numpy as np
@@ -23,7 +13,6 @@ from batfit.utils.dataset_scaling import (
 from batfit.utils.dataset_split import (
     split_dataset_from_np,
     split_protocol_dataset_from_np,
-    split_surrogate_dataset_from_np,
 )
 
 
@@ -47,24 +36,36 @@ def make_dataset_from_np(
     np_data: np.ndarray[np.float32] | None = None,
     np_data_label: np.ndarray[np.float32] | None = None,
     test_split: float = 0.1,
+    val_split: float = 0.1,
     np_data_train: np.ndarray[np.float32] | None = None,
     np_data_test: np.ndarray[np.float32] | None = None,
     np_data_label_train: np.ndarray[np.float32] | None = None,
     np_data_label_test: np.ndarray[np.float32] | None = None,
+    np_data_val: np.ndarray[np.float32] | None = None,
+    np_data_label_val: np.ndarray[np.float32] | None = None,
     save_path: str = ".",
     scale: bool = True,
     scale_y: bool = False,
-) -> tuple[torch.utils.data.DataLoader, torch.utils.data.DataLoader]:
-    """Create train/test DataLoaders for a plain ``(X, Y)`` NPE dataset."""
+    random_state: int | None = None,
+) -> dict[str, torch.utils.data.DataLoader | None]:
+    """Create ``{"train","test","val"}`` DataLoaders for a plain ``(X, Y)`` dataset.
+
+    The ``"val"`` entry is ``None`` when ``val_split == 0`` and no pre-split
+    validation arrays are supplied.
+    """
     if np_data_train is None:
         assert np_data is not None
         assert np_data_label is not None
-        X_train, Y_train, X_test, Y_test = split_dataset_from_np(
-            np_data, np_data_label, test_split=test_split, save_path=save_path
+        X_train, Y_train, X_test, Y_test, X_val, Y_val = split_dataset_from_np(
+            np_data,
+            np_data_label,
+            test_split=test_split,
+            val_split=val_split,
+            save_path=save_path,
+            random_state=random_state,
         )
     else:
         logger.warning("Data provided is already split")
-        assert np_data_train is not None
         assert np_data_test is not None
         assert np_data_label_train is not None
         assert np_data_label_test is not None
@@ -74,13 +75,16 @@ def make_dataset_from_np(
             np_data_test,
             np_data_label_test,
         )
+        X_val, Y_val = np_data_val, np_data_label_val
 
     if scale:
-        X_train, Y_train, X_test, Y_test = scale_dataset_from_np(
+        X_train, Y_train, X_test, Y_test, X_val, Y_val = scale_dataset_from_np(
             X_train=X_train,
             X_test=X_test,
             Y_train=Y_train,
             Y_test=Y_test,
+            X_val=X_val,
+            Y_val=Y_val,
             save_path=save_path,
             scale_y=scale_y,
         )
@@ -88,18 +92,34 @@ def make_dataset_from_np(
     logger.info(f"Train on {X_train.shape[0]} samples")
     logger.info(f"Test on {X_test.shape[0]} samples")
 
-    train_data_loader = _make_loader(
-        X_train,
-        Y_train,
-        batch_size=batch_size,
-        shuffle=shuffle,
-        drop_last=True,
-    )
-    test_data_loader = _make_loader(
-        X_test, Y_test, batch_size=batch_size, shuffle=shuffle, drop_last=False
-    )
+    loaders: dict[str, torch.utils.data.DataLoader | None] = {
+        "train": _make_loader(
+            X_train,
+            Y_train,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            drop_last=True,
+        ),
+        "test": _make_loader(
+            X_test,
+            Y_test,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            drop_last=False,
+        ),
+        "val": None,
+    }
+    if X_val is not None:
+        logger.info(f"Validate on {X_val.shape[0]} samples")
+        loaders["val"] = _make_loader(
+            X_val,
+            Y_val,
+            batch_size=batch_size,
+            shuffle=False,
+            drop_last=False,
+        )
 
-    return train_data_loader, test_data_loader
+    return loaders
 
 
 def make_protocol_dataset_from_np(
@@ -109,16 +129,18 @@ def make_protocol_dataset_from_np(
     np_prot_params: np.ndarray[np.float32] | None = None,
     np_data_label: np.ndarray[np.float32] | None = None,
     test_split: float = 0.1,
+    val_split: float = 0.1,
     save_path: str = ".",
     scale: bool = True,
     scale_y: bool = False,
-) -> tuple[torch.utils.data.DataLoader, torch.utils.data.DataLoader]:
-    """Create train/test DataLoaders for :class:`ProbProtParamCNN`.
+    random_state: int | None = None,
+) -> dict[str, torch.utils.data.DataLoader | None]:
+    """Create ``{"train","test","val"}`` DataLoaders for protocol-conditioned NPE.
 
     Each batch contains three tensors: ``(X_signal, prot_params, Y_labels)``.
-    The signal ``X`` is standardized and protocol parameters ``P`` are
-    MinMax-scaled to ``[0, 1]``; the fitted scalers are saved alongside the
-    data split.
+    The signal ``X`` is standardized and
+    protocol parameters ``P`` are MinMax-scaled to ``[0, 1]``
+    The fitted scalers are saved alongside the data split. 
 
     Parameters
     ----------
@@ -129,51 +151,85 @@ def make_protocol_dataset_from_np(
     np_data_label: np.ndarray[np.float32] | None
         Degradation parameters of shape ``(N, n_deg)``
     """
-    X_train, P_train, Y_train, X_test, P_test, Y_test = (
-        split_protocol_dataset_from_np(
-            np_data=np_data,
-            np_prot_params=np_prot_params,
-            np_data_label=np_data_label,
-            test_split=test_split,
-            save_path=save_path,
-        )
+    (
+        X_train,
+        P_train,
+        Y_train,
+        X_test,
+        P_test,
+        Y_test,
+        X_val,
+        P_val,
+        Y_val,
+    ) = split_protocol_dataset_from_np(
+        np_data=np_data,
+        np_prot_params=np_prot_params,
+        np_data_label=np_data_label,
+        test_split=test_split,
+        val_split=val_split,
+        save_path=save_path,
+        random_state=random_state,
     )
 
     if scale:
-        X_train, P_train, Y_train, X_test, P_test, Y_test = (
-            scale_protocol_dataset_from_np(
-                X_train=X_train,
-                P_train=P_train,
-                X_test=X_test,
-                P_test=P_test,
-                Y_train=Y_train,
-                Y_test=Y_test,
-                save_path=save_path,
-                scale_y=scale_y,
-            )
+        (
+            X_train,
+            P_train,
+            Y_train,
+            X_test,
+            P_test,
+            Y_test,
+            X_val,
+            P_val,
+            Y_val,
+        ) = scale_protocol_dataset_from_np(
+            X_train=X_train,
+            P_train=P_train,
+            X_test=X_test,
+            P_test=P_test,
+            Y_train=Y_train,
+            Y_test=Y_test,
+            X_val=X_val,
+            P_val=P_val,
+            Y_val=Y_val,
+            save_path=save_path,
+            scale_y=scale_y,
         )
 
     logger.info(f"Train on {X_train.shape[0]} samples")
     logger.info(f"Test on {X_test.shape[0]} samples")
 
-    train_data_loader = _make_loader(
-        X_train,
-        P_train,
-        Y_train,
-        batch_size=batch_size,
-        shuffle=shuffle,
-        drop_last=True,
-    )
-    test_data_loader = _make_loader(
-        X_test,
-        P_test,
-        Y_test,
-        batch_size=batch_size,
-        shuffle=shuffle,
-        drop_last=False,
-    )
+    loaders: dict[str, torch.utils.data.DataLoader | None] = {
+        "train": _make_loader(
+            X_train,
+            P_train,
+            Y_train,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            drop_last=True,
+        ),
+        "test": _make_loader(
+            X_test,
+            P_test,
+            Y_test,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            drop_last=False,
+        ),
+        "val": None,
+    }
+    if X_val is not None:
+        logger.info(f"Validate on {X_val.shape[0]} samples")
+        loaders["val"] = _make_loader(
+            X_val,
+            P_val,
+            Y_val,
+            batch_size=batch_size,
+            shuffle=False,
+            drop_last=False,
+        )
 
-    return train_data_loader, test_data_loader
+    return loaders
 
 
 def make_surrogate_dataset_from_np(
@@ -182,95 +238,111 @@ def make_surrogate_dataset_from_np(
     np_data: np.ndarray[np.float32] | None = None,
     np_data_label: np.ndarray[np.float32] | None = None,
     test_split: float = 0.1,
-    np_data_train: np.ndarray[np.float32] | None = None,
-    np_data_test: np.ndarray[np.float32] | None = None,
-    np_data_label_train: np.ndarray[np.float32] | None = None,
-    np_data_label_test: np.ndarray[np.float32] | None = None,
+    val_split: float = 0.1,
     save_path: str = ".",
     scale: bool = True,
     scale_y: bool = False,
-) -> tuple[torch.utils.data.DataLoader, torch.utils.data.DataLoader]:
-    """Create train/test DataLoaders for the surrogate ``(time+params -> voltage)`` dataset.
-
-    When a ``data_split.npz`` from a prior NPE run already exists at
-    ``save_path``, that split is reused (via :func:`from_param_to_surrogate_data`)
-    so the surrogate and NPE models train/test on matching batteries.
+    random_state: int | None = None,
+) -> dict[str, torch.utils.data.DataLoader | None]:
+    """Create ``{"train","test","val"}`` DataLoaders for the surrogate dataset.
     """
-    data_split_filename = os.path.join(save_path, "data_surrogate_split.npz")
-    if os.path.isfile(data_split_filename):
-        logger.warning("Data surrogate already splitted, loading it only")
-        tmp = np.load(data_split_filename)
-        X_train, Y_train, X_test, Y_test = (
-            tmp["X_train"],
-            tmp["Y_train"],
-            tmp["X_test"],
-            tmp["Y_test"],
-        )
-    elif np_data_train is None:
-        assert np_data is not None
-        assert np_data_label is not None
-        npe_split_filename = os.path.join(save_path, "data_split.npz")
-        if os.path.isfile(npe_split_filename):
-            logger.info("Matching NPE split")
-            tmp = np.load(npe_split_filename)
-            X_train, Y_train = from_param_to_surrogate_data(
-                tmp["X_train"], tmp["Y_train"]
-            )
-            X_test, Y_test = from_param_to_surrogate_data(
-                tmp["X_test"], tmp["Y_test"]
-            )
-            logger.info(
-                f"Saving splitted surrogate data at {data_split_filename}"
-            )
-            np.savez(
-                data_split_filename,
-                X_train=X_train.astype("float32"),
-                Y_train=Y_train.astype("float32"),
-                X_test=X_test.astype("float32"),
-                Y_test=Y_test.astype("float32"),
+    surrogate_split_filename = os.path.join(
+        save_path, "data_surrogate_split.npz"
+    )
+    X_val = Y_val = None
+
+    surrogate_cache_ok = False
+    if os.path.isfile(surrogate_split_filename):
+        tmp = np.load(surrogate_split_filename)
+        if val_split > 0 and "X_val" not in tmp.files:
+            logger.warning(
+                "Surrogate split cache lacks validation slice, re-deriving"
             )
         else:
-            X_train, Y_train, X_test, Y_test = split_surrogate_dataset_from_np(
-                np_data,
-                np_data_label,
-                test_split=test_split,
-                save_path=save_path,
+            logger.warning("Data surrogate already splitted, loading it only")
+            X_train, Y_train, X_test, Y_test = (
+                tmp["X_train"],
+                tmp["Y_train"],
+                tmp["X_test"],
+                tmp["Y_test"],
             )
-    else:
-        logger.warning("Data provided is already split")
-        assert np_data_train is not None
-        assert np_data_test is not None
-        assert np_data_label_train is not None
-        assert np_data_label_test is not None
-        X_train, Y_train, X_test, Y_test = (
-            np_data_train,
-            np_data_label_train,
-            np_data_test,
-            np_data_label_test,
+            X_val = tmp["X_val"] if "X_val" in tmp.files else None
+            Y_val = tmp["Y_val"] if "Y_val" in tmp.files else None
+            surrogate_cache_ok = True
+
+    if not surrogate_cache_ok:
+        assert np_data is not None
+        assert np_data_label is not None
+        # battery-level split (reuses data_split.npz if present, else creates it)
+        X_tr, Y_tr, X_te, Y_te, X_va, Y_va = split_dataset_from_np(
+            np_data,
+            np_data_label,
+            test_split=test_split,
+            val_split=val_split,
+            save_path=save_path,
+            random_state=random_state,
         )
+        # split-then-slice: explode each battery-level split into per-step rows
+        X_train, Y_train = from_param_to_surrogate_data(X_tr, Y_tr)
+        X_test, Y_test = from_param_to_surrogate_data(X_te, Y_te)
+        if X_va is not None:
+            X_val, Y_val = from_param_to_surrogate_data(X_va, Y_va)
+        logger.info(
+            f"Saving splitted surrogate data at {surrogate_split_filename}"
+        )
+        to_save = {
+            "X_train": X_train.astype("float32"),
+            "Y_train": Y_train.astype("float32"),
+            "X_test": X_test.astype("float32"),
+            "Y_test": Y_test.astype("float32"),
+        }
+        if X_val is not None:
+            to_save["X_val"] = X_val.astype("float32")
+            to_save["Y_val"] = Y_val.astype("float32")
+        np.savez(surrogate_split_filename, **to_save)
 
     if scale:
-        X_train, Y_train, X_test, Y_test = scale_surrogate_dataset_from_np(
-            X_train=X_train,
-            X_test=X_test,
-            Y_train=Y_train,
-            Y_test=Y_test,
-            save_path=save_path,
-            scale_y=scale_y,
+        X_train, Y_train, X_test, Y_test, X_val, Y_val = (
+            scale_surrogate_dataset_from_np(
+                X_train=X_train,
+                X_test=X_test,
+                Y_train=Y_train,
+                Y_test=Y_test,
+                X_val=X_val,
+                Y_val=Y_val,
+                save_path=save_path,
+                scale_y=scale_y,
+            )
         )
 
     logger.info(f"Train on {X_train.shape[0]} samples")
     logger.info(f"Test on {X_test.shape[0]} samples")
 
-    train_data_loader = _make_loader(
-        X_train,
-        Y_train,
-        batch_size=batch_size,
-        shuffle=shuffle,
-        drop_last=True,
-    )
-    test_data_loader = _make_loader(
-        X_test, Y_test, batch_size=batch_size, shuffle=shuffle, drop_last=False
-    )
+    loaders: dict[str, torch.utils.data.DataLoader | None] = {
+        "train": _make_loader(
+            X_train,
+            Y_train,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            drop_last=True,
+        ),
+        "test": _make_loader(
+            X_test,
+            Y_test,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            drop_last=False,
+        ),
+        "val": None,
+    }
+    if X_val is not None:
+        logger.info(f"Validate on {X_val.shape[0]} samples")
+        loaders["val"] = _make_loader(
+            X_val,
+            Y_val,
+            batch_size=batch_size,
+            shuffle=False,
+            drop_last=False,
+        )
 
-    return train_data_loader, test_data_loader
+    return loaders
