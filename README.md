@@ -30,30 +30,30 @@ pip install -e .[dev]     (editable installation with developer options)
 ## Get Started
 
 The regression tests (run as part of the CI) show how to use the basic capabilities of the code.
-1. Data generation with BATMODS-lite (``scripts/reg_tests/1.gen_data``). This demonstrates how to generate data from a single particle model in parallel. This has been tested with up to 3328 workers but uses 4 workers here. A single ``run.sh`` also assembles the data and writes the train/test/validation split reused by every later step.
+1. Data generation with BATMODS-lite (``scripts/reg_tests/1.gen_data``). This demonstrates how to generate data from a single particle model in parallel. This has been tested with up to 3328 workers but uses 4 workers here. A single ``run_spm.sh`` also assembles the data and writes the train/test/validation split reused by every later step.
 Once BatFIT is installed
 ```
-bash run.sh
+bash run_spm.sh
 ``` 
 
 2. Train a surrogate of the physics-based model (``scripts/reg_tests/2.surrogate``). This demonstrates how to preprocess the data and train a surrogate model of the single particle model that can be used for simulation-based inference.
 ```
-bash run.sh
+bash run_spm.sh
 ```
 
 3. Run MCMC to identify parameters with the trained surrogate (``scripts/reg_tests/3.surrogate_mcmc``). This demonstrates how to run MCMC with a data-based surrogate instead of a physics-based model.
 ```
-bash run.sh
+bash run_spm.sh
 ```
 
 4. Use Gaussian Neural Posterior Estimation to approximate the parameter posterior PDF (``scripts/reg_tests/4.npe_gaussian``).
 ```
-bash run.sh
+bash run_spm.sh
 ```
 
 5. Use flow-matching Neural Posterior Estimation to approximate the parameter posterior PDF (``scripts/reg_tests/5.npe_fm``).
 ```
-bash run.sh
+bash run_spm.sh
 ```
 
 ## Citing this Work
