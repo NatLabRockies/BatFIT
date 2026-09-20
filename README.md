@@ -36,7 +36,7 @@ Once BatFIT is installed
 bash run.sh
 ``` 
 
-2. Train a surrogate of the physics-based model (``scripts/reg_tests/2.train_surrogate``). This demonstrate how to preprocess the data and train a surrogate model of the single particle model that can be used for simulation-based inference.
+2. Train a surrogate of the physics-based model (``scripts/reg_tests/2.surrogate``). This demonstrate how to preprocess the data and train a surrogate model of the single particle model that can be used for simulation-based inference.
 Once BatFIT is installed, and ``run_change_recipe_local.sh`` has been changed to used your path.
 ```
 bash run_change_recipe_local.sh 
