@@ -1,5 +1,5 @@
 # Local Run
 
 ```
-bash run.sh
+bash run_spm.sh
 ```

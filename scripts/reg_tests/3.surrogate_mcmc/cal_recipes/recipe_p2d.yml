@@ -11,7 +11,7 @@ num_samples: 10
 
 # DATA processing
 noise_factor: 1.0
-data_path_discharge: ../1.gen_data/data_spm_discharge
+data_path_discharge: ../1.gen_data/data_p2d_discharge
 step_size: 1e-6
 cyc_mode: "discharge"
 target_mode: "phi"
@@ -21,11 +21,11 @@ target_mode: "phi"
 n_val_mcmc: 4
 
 # Surrogate Models
-model_discharge_recipe: ../2.surrogate/training_recipes/recipe_spm.yml
+model_discharge_recipe: ../2.surrogate/training_recipes/recipe_p2d.yml
 
 # DATA
 n_param_pred: 6
 n_points: 256
 
 # models
-models_dir: spm_discharge_surrogate_mcmc/models
+models_dir: p2d_discharge_surrogate_mcmc/models

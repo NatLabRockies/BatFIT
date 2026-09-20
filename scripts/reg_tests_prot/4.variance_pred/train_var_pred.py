@@ -11,7 +11,7 @@ parameterisation chosen at dataset generation (see detect_sigma_mode):
   log_sigma   — z-scored log sigma; linear output is the direct target
 
 Outputs written to inp.models_dir:
-  model.pkl, model_<step>.pt, optimizer_<step>.pt
+  model.pkl, model_best.pt, model_final.pt, model_<step>.pt
   train_loss.csv, test_loss.csv
   recipe.yml  (copy of the recipe used)
 """
@@ -34,9 +34,13 @@ from batfit.model.varianceNN import VariancePredFCNN
 from batfit.utils.torch_utils import (
     get_device_type,
     get_num_parameters,
+    load_model,
     log_training,
     prepare_log,
+    read_restart_position,
+    restart_requested,
     save_model,
+    update_best_model,
 )
 
 
@@ -181,7 +185,7 @@ def train_model(
         model.parameters(), lr=inp.lr, weight_decay=1e-5
     )
 
-    prepare_log(inp.models_dir)
+    # Save the model config (architecture) before training.
     save_model(
         step=0,
         model=model,
@@ -191,10 +195,51 @@ def train_model(
         save_model_opt=False,
     )
 
+    def _eval_test_loss() -> float:
+        """Return the mean test-set MSE in the current sigma mode."""
+        model.eval()
+        test_loss_acc, n_test = 0.0, 0
+        with torch.no_grad():
+            for p_batch, mu_batch, sigma_batch in test_loader:
+                sigma_out = model(p_batch.to(device), mu_batch.to(device))
+                if sigma_mode == "amp_par":
+                    sigma_pred = model.inv_transform_gamma(sigma_out, amp_par)
+                else:
+                    sigma_pred = sigma_out
+                b = p_batch.shape[0]
+                test_loss_acc += (
+                    mse(sigma_pred, sigma_batch.to(device)).item() * b
+                )
+                n_test += b
+        model.train()
+        return test_loss_acc / n_test
+
     num_batch = len(train_loader)
-    total_steps = num_batch * inp.epochs
+    save_freq = 1_000_000  # periodic checkpoints effectively disabled
+
+    # Optionally restart from a checkpoint (weights only; the optimizer and LR
+    # schedule start fresh). Epoch/step counters resume from an existing loss
+    # CSV so the appended log stays monotonic, and the best test loss is seeded
+    # by re-evaluating the loaded checkpoint.
+    restart_from = getattr(inp, "restart_from", None) or None
+    best_test_loss = float("inf")
+    if restart_requested(restart_from):
+        model = load_model(model, restart_from, device_type=device_type)
+        start_epoch, start_step = read_restart_position(inp.models_dir)
+        prepare_log(inp.models_dir, append=start_epoch > 0)
+        best_test_loss = update_best_model(
+            _eval_test_loss(),
+            best_test_loss,
+            model,
+            device_type=device_type,
+            log_folder=inp.models_dir,
+        )
+    else:
+        start_epoch, start_step = 0, 0
+        prepare_log(inp.models_dir)
+
+    total_steps = start_step + num_batch * inp.epochs
     log_freq = max(total_steps // 1000, 1)
-    save_freq = max(total_steps // 70, 1)  # ~70 checkpoints like the NPE
 
     print_progress_bar(
         0,
@@ -204,12 +249,14 @@ def train_model(
         length=50,
     )
 
-    current_step = 0
+    current_step = start_step
     model.train()
-    for epoch in range(inp.epochs):
+    for epoch in range(start_epoch, start_epoch + inp.epochs):
+        # On a restart the LR schedule restarts from inp.lr and decays over the
+        # additional run, keyed on the local index ``epoch - start_epoch``.
         for param_group in optimizer.param_groups:
             param_group["lr"] = _lr_schedule(
-                epoch, inp.epochs * 3 // 4, inp.lr, lr_end
+                epoch - start_epoch, inp.epochs * 3 // 4, inp.lr, lr_end
             )
 
         for p_batch, mu_batch, sigma_batch in train_loader:
@@ -239,7 +286,6 @@ def train_model(
                 save_model(
                     step=current_step,
                     model=model,
-                    optimizer=optimizer,
                     device_type=device_type,
                     log_folder=inp.models_dir,
                 )
@@ -260,32 +306,24 @@ def train_model(
             )
 
         # Test loss at end of each epoch
-        model.eval()
-        test_loss_acc, n_test = 0.0, 0
-        with torch.no_grad():
-            for p_batch, mu_batch, sigma_batch in test_loader:
-                sigma_out = model(p_batch.to(device), mu_batch.to(device))
-                if sigma_mode == "amp_par":
-                    sigma_pred = model.inv_transform_gamma(sigma_out, amp_par)
-                else:
-                    sigma_pred = sigma_out
-                b = p_batch.shape[0]
-                test_loss_acc += (
-                    mse(sigma_pred, sigma_batch.to(device)).item() * b
-                )
-                n_test += b
+        test_loss = _eval_test_loss()
         log_training(
             current_step,
-            test_loss_acc / n_test,
+            test_loss,
             inp.models_dir,
             filename="test_loss.csv",
         )
-        model.train()
+        best_test_loss = update_best_model(
+            test_loss,
+            best_test_loss,
+            model,
+            device_type=device_type,
+            log_folder=inp.models_dir,
+        )
 
     save_model(
         step=total_steps,
         model=model,
-        optimizer=optimizer,
         device_type=device_type,
         log_folder=inp.models_dir,
         bypass="final",

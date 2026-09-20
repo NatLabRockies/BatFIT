@@ -85,6 +85,7 @@ def do_training(inp, model, train_data_loader, test_data_loader):
         enable_cuda=True,
         enable_mps=True,
         log_folder=inp.models_dir,
+        restart_from=getattr(inp, "restart_from", None) or None,
     )
 
 

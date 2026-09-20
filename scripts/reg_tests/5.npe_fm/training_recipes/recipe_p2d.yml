@@ -1,10 +1,10 @@
 # DATA
 cyc_mode: discharge
-data_path: ../1.gen_data/data_spm_discharge
+data_path: ../1.gen_data/data_p2d_discharge
 n_param_pred: 6
 n_points: 256
 noise_factor: 1.0
-sim_config: spm_discharge.yaml
+sim_config: p2d_discharge_6par.yaml
 target_mode: phi
 
 # ARCH - CNN encoder
@@ -21,7 +21,7 @@ num_vf_units: 128
 batch_size: 256
 epochs: 20
 lr: 0.001
-models_dir: models_spm
+models_dir: models_p2d
 # Path to a checkpoint to restart from (weights only); empty = train from scratch.
 restart_from:
 
@@ -33,4 +33,4 @@ n_samples: 1000
 n_ode_steps: 100
 
 # SURROGATE
-surrogate_model_recipe: ../2.surrogate/training_recipes/recipe_spm.yml
+surrogate_model_recipe: ../2.surrogate/training_recipes/recipe_p2d.yml
