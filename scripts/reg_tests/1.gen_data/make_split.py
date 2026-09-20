@@ -22,7 +22,7 @@ def main():
     X_data, Y_data = assemble_all_data(
         args.folder_save,
         n_points=args.n_points,
-        combined_pickle_file=os.path.join(args.folder_save, "sols.pkl"),
+        combined_pickle_file="sols.pkl",
         target_mode=args.target_mode,
         save_data=True,
         cyc_mode=args.cyc_mode,

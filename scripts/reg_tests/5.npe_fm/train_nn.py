@@ -31,7 +31,7 @@ def make_data_loaders(
     assemble_all_data(
         inp.data_path,
         n_points=inp.n_points,
-        combined_pickle_file=os.path.join(inp.data_path, "sols.pkl"),
+        combined_pickle_file="sols.pkl",
         target_mode=inp.target_mode,
         save_data=True,
         cyc_mode=inp.cyc_mode,
