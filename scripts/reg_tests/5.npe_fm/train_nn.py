@@ -41,7 +41,7 @@ def make_data_loaders(
     X_data = tmp["X_data"]
     Y_data = tmp["Y_data"]
 
-    batch_size = min(inp.batch_size, int(Y_data.shape[0] * 0.9))
+    batch_size = min(inp.batch_size, int(Y_data.shape[0] * 0.8))
     return make_dataset_from_np(
         batch_size=batch_size,
         np_data=X_data,
@@ -112,7 +112,8 @@ def do_training(inp, model, train_data_loader, test_data_loader, scaler_X):
 
 if __name__ == "__main__":
     inp = ri.basic_input(sys.argv[1])
-    train_dl, test_dl = make_data_loaders(inp)
+    loaders = make_data_loaders(inp)
+    train_dl, test_dl = loaders["train"], loaders["test"]
     model, scaler_X = define_model(inp)
 
     # Register scaled training labels as the empirical prior for prior matching.

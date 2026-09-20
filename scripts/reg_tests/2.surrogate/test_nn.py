@@ -14,26 +14,26 @@ from batfit.utils.data_utils import *
 from batfit.utils.torch_utils import *
 
 
-def test_perf(inp, mode="test"):
+def test_perf(inp):
     data_path = inp.data_path
     if not os.path.isfile(os.path.join(data_path, "data_surrogate_split.npz")):
         if os.path.isfile(os.path.join(data_path, "data_split.npz")):
             tmp = np.load(os.path.join(data_path, "data_split.npz"))
-            X_test, Y_test = from_param_to_surrogate_data(
-                tmp["X_test"], tmp["Y_test"]
+            X_val, Y_val = from_param_to_surrogate_data(
+                tmp["X_val"], tmp["Y_val"]
             )
         else:
             return
     else:
         # Make dataset
         A_split = np.load(os.path.join(data_path, "data_surrogate_split.npz"))
-        X_test = A_split["X_test"]
-        Y_test = A_split["Y_test"]
+        X_val = A_split["X_val"]
+        Y_val = A_split["Y_val"]
     X_scaled = scale_input_from_scaler(
-        X_test, os.path.join(inp.data_path, "scaler_surrogate_X.pkl")
+        X_val, os.path.join(inp.data_path, "scaler_surrogate_X.pkl")
     )
     input_data = torch.Tensor(X_scaled)
-    output_data = torch.Tensor(Y_test)
+    output_data = torch.Tensor(Y_val)
     shape_in = input_data[0].shape
     test_data_loader = torch.utils.data.DataLoader(
         torch.utils.data.TensorDataset(input_data, output_data),
@@ -78,7 +78,7 @@ def test_perf(inp, mode="test"):
                 truth = np.vstack((truth, tmptruth))
     mean_err = np.mean(err, axis=0)
     rmse = np.sqrt(np.mean(err**2, axis=0))
-    post_file = "post_surrogate"
+    post_file = "post_val"
 
     with open(os.path.join(inp.models_dir, f"{post_file}.txt"), "w+") as f:
         f.write(f"MAE: {mean_err*1000} mV\n")
@@ -86,15 +86,15 @@ def test_perf(inp, mode="test"):
     np.savez(os.path.join(inp.models_dir, f"{post_file}.npz"), err=err)
 
 
-def plot_perf(inp, mode="test"):
+def plot_perf(inp):
     data_path = inp.data_path
     if not os.path.isfile(os.path.join(data_path, "data_split.npz")):
         return
 
     # Make dataset
     A_split = np.load(os.path.join(data_path, "data_split.npz"))
-    X_data = A_split["X_test"]
-    Y_data = A_split["Y_test"]
+    X_data = A_split["X_val"]
+    Y_data = A_split["Y_val"]
     n_param_pred = Y_data.shape[1]
     Y_data = Y_data[:, np.newaxis, :]
     Y_data = np.repeat(Y_data, X_data.shape[2], axis=1)
@@ -149,16 +149,16 @@ def plot_perf(inp, mode="test"):
     os.makedirs(figure_folder, exist_ok=True)
 
     fig, axs = plt.subplots(3, 3, figsize=(8, 8))
-    for i in range(min(9, A_split["X_test"].shape[0])):
+    for i in range(min(9, A_split["X_val"].shape[0])):
         ix = i // 3
         iy = i % 3
         axs[ix, iy].plot(
-            A_split["X_test"][i, 0, :],
-            A_split["X_test"][i, 1, :],
+            A_split["X_val"][i, 0, :],
+            A_split["X_val"][i, 1, :],
             label="True",
         )
         axs[ix, iy].plot(
-            A_split["X_test"][i, 0, :], mu_preds[i, :], label="pred"
+            A_split["X_val"][i, 0, :], mu_preds[i, :], label="pred"
         )
     plt.tight_layout()
     fig_file = "surr_preds"
@@ -171,5 +171,5 @@ if __name__ == "__main__":
     import sys
 
     inp = ri.basic_input(sys.argv[1])
-    test_perf(inp, mode="normal")
-    plot_perf(inp, mode="normal")
+    test_perf(inp)
+    plot_perf(inp)

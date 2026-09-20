@@ -119,29 +119,17 @@ def load_synthetic_data(inp):
     )
 
 
-def test_perf(inp, mode="test"):
-    if mode.lower() == "test":
-        data_path = inp.data_path
-        if not os.path.isfile(os.path.join(data_path, "data_split.npz")):
-            return
-        # Make dataset
-        A = np.load(os.path.join(data_path, "data_split.npz"))
-        X_scaled = scale_input_from_scaler(
-            A["X_test"],
-            os.path.join(data_path, "scaler_X.pkl"),
-        )
-        Y_test = A["Y_test"]
-    if mode.lower() == "val":
-        data_path = inp.data_val_path
-        if not os.path.isfile(os.path.join(data_path, "assembled_data.npz")):
-            return
-        # Make dataset
-        A = np.load(os.path.join(data_path, "assembled_data.npz"))
-        X_scaled = scale_input_from_scaler(
-            A["X_data"],
-            os.path.join(data_path, "scaler_X.pkl"),
-        )
-        Y_test = A["Y_data"]
+def test_perf(inp, mode="val"):
+    # Metrics are reported on the held-out validation slice of data_split.npz.
+    data_path = inp.data_path
+    if not os.path.isfile(os.path.join(data_path, "data_split.npz")):
+        return
+    A = np.load(os.path.join(data_path, "data_split.npz"))
+    X_scaled = scale_input_from_scaler(
+        A["X_val"],
+        os.path.join(data_path, "scaler_X.pkl"),
+    )
+    Y_test = A["Y_val"]
 
     input_data = torch.Tensor(X_scaled)
     output_data = torch.Tensor(Y_test)
@@ -374,5 +362,4 @@ if __name__ == "__main__":
     # from postproc import plot_forw,plot_dist,plot_samples, plot_repeated_samples
     # from prettyPlot.plotting import *
     inp = ri.basic_input(sys.argv[1])
-    test_perf(inp, mode="test")
-    test_perf(inp, mode="val")
+    test_perf(inp)

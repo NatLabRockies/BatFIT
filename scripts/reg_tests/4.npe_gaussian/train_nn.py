@@ -44,8 +44,8 @@ def make_data_loaders(inp):
     X_data = tmp["X_data"]
     Y_data = tmp["Y_data"]
 
-    BATCH_SIZE = min(inp.batch_size, int(Y_data.shape[0] * 0.9))
-    train_data_loader, test_data_loader = make_dataset_from_np(
+    BATCH_SIZE = min(inp.batch_size, int(Y_data.shape[0] * 0.8))
+    loaders = make_dataset_from_np(
         batch_size=BATCH_SIZE,
         np_data=X_data,
         np_data_label=Y_data,
@@ -54,7 +54,7 @@ def make_data_loaders(inp):
         save_path=data_root_folder,
     )
 
-    return train_data_loader, test_data_loader
+    return loaders
 
 
 def define_surrogate_model(inp):
@@ -146,7 +146,7 @@ if __name__ == "__main__":
     import sys
 
     inp = ri.basic_input(sys.argv[1])
-    train_data_loader, test_data_loader = make_data_loaders(inp)
+    loaders = make_data_loaders(inp)
     model, scaler_X = define_model(inp)
-    do_training(inp, model, train_data_loader, test_data_loader, scaler_X)
+    do_training(inp, model, loaders["train"], loaders["test"], scaler_X)
     shutil.copy(sys.argv[1], os.path.join(inp.models_dir, "recipe.yml"))

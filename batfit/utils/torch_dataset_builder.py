@@ -140,7 +140,7 @@ def make_protocol_dataset_from_np(
     Each batch contains three tensors: ``(X_signal, prot_params, Y_labels)``.
     The signal ``X`` is standardized and
     protocol parameters ``P`` are MinMax-scaled to ``[0, 1]``
-    The fitted scalers are saved alongside the data split. 
+    The fitted scalers are saved alongside the data split.
 
     Parameters
     ----------
@@ -244,8 +244,7 @@ def make_surrogate_dataset_from_np(
     scale_y: bool = False,
     random_state: int | None = None,
 ) -> dict[str, torch.utils.data.DataLoader | None]:
-    """Create ``{"train","test","val"}`` DataLoaders for the surrogate dataset.
-    """
+    """Create ``{"train","test","val"}`` DataLoaders for the surrogate dataset."""
     surrogate_split_filename = os.path.join(
         save_path, "data_surrogate_split.npz"
     )

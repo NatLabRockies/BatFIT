@@ -8,11 +8,12 @@ from batfit.utils.torch_utils import *
 
 def pre_proc_data(data_root_folder, cyc_mode, n_points):
     """
-    Build the NPE and surrogate train/test/val splits for a data folder.
+    Fit the NPE and surrogate scaled datasets for a data folder.
 
-    Both datasets are built from the same whole-curve data so they share the
-    battery-level split (``data_split.npz``); the surrogate then explodes each
-    split into per-timestep rows (split-then-slice).
+    The battery-level train/test/val split (``data_split.npz``) is created once
+    by ``1.gen_data`` and reused here (cache hit); this only fits the scalers
+    and, for the surrogate, explodes each split into per-timestep rows
+    (split-then-slice).
     """
     X_npe_data, Y_npe_data = assemble_all_data(
         data_root_folder,
@@ -48,8 +49,6 @@ def pre_proc_data(data_root_folder, cyc_mode, n_points):
 if __name__ == "__main__":
     inp = ri.basic_input(sys.argv[1])
     data_root_folder = inp.data_path
-    data_root_folder_val = inp.data_val_path
     n_points = inp.n_points
     cyc_mode = inp.cyc_mode
     pre_proc_data(data_root_folder, cyc_mode, n_points)
-    pre_proc_data(data_root_folder_val, cyc_mode, n_points)
