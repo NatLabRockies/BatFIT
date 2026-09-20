@@ -22,27 +22,22 @@ from batfit.utils.torch_utils import *
 
 def make_data_loaders(inp):
     data_root_folder = inp.data_path
-    data_root_folder_val = inp.data_val_path
     n_points = inp.n_points
-    n_param_pred = inp.n_param_pred
     cyc_mode = inp.cyc_mode
 
-    # This will just load a numpy file if preproc was called before
-    X_data, Y_data = assemble_surrogate_data(
+    # Whole-curve data; the surrogate builder splits batteries then explodes.
+    # This just loads a numpy file if preproc was called before.
+    X_data, Y_data = assemble_all_data(
         data_root_folder,
         n_points=n_points,
-        n_param_pred=n_param_pred,
         combined_pickle_file=os.path.join(data_root_folder, "sols.pkl"),
-        cyc_mode=cyc_mode,
+        target_mode="phi",
         save_data=True,
+        cyc_mode=cyc_mode,
         save_path=data_root_folder,
     )
-    tmp = np.load(
-        os.path.join(data_root_folder, "assembled_surrogate_data.npz")
-    )
-    BATCH_SIZE = min(inp.batch_size, int(Y_data.shape[0] * 0.9))
-    train_data_loader, test_data_loader = make_surrogate_dataset_from_np(
-        batch_size=BATCH_SIZE,
+    loaders = make_surrogate_dataset_from_np(
+        batch_size=inp.batch_size,
         np_data=X_data,
         np_data_label=Y_data,
         scale=True,
@@ -50,7 +45,7 @@ def make_data_loaders(inp):
         save_path=data_root_folder,
     )
 
-    return train_data_loader, test_data_loader
+    return loaders
 
 
 def define_model(inp):
@@ -98,7 +93,7 @@ if __name__ == "__main__":
     import sys
 
     inp = ri.basic_input(sys.argv[1])
-    train_data_loader, test_data_loader = make_data_loaders(inp)
+    loaders = make_data_loaders(inp)
     model, scaler_X = define_model(inp)
-    do_training(inp, model, train_data_loader, test_data_loader)
+    do_training(inp, model, loaders["train"], loaders["test"])
     shutil.copy(sys.argv[1], os.path.join(inp.models_dir, "recipe.yml"))

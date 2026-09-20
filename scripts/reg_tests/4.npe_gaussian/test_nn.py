@@ -296,9 +296,13 @@ def test_perf(inp, mode="test"):
     )
 
     # Compute voltage ierror
-    surrogate, surrogate_scaler = load_surrogate_model(
-        ri.basic_input(inp.surrogate_model_recipe)
-    )
+    surr_inp = ri.basic_input(inp.surrogate_model_recipe)
+    # The surrogate recipe's models_dir/data_path are relative to the surrogate
+    # step dir; rebase them onto that dir so they resolve from our CWD.
+    surr_base = os.path.dirname(os.path.dirname(inp.surrogate_model_recipe))
+    surr_inp.models_dir = os.path.join(surr_base, surr_inp.models_dir)
+    surr_inp.data_path = os.path.join(surr_base, surr_inp.data_path)
+    surrogate, surrogate_scaler = load_surrogate_model(surr_inp)
     forward_model = ForwardModel(surrogate, surrogate_scaler)
     voltage_error = np.zeros(samples_pred_params.shape[:2])
     logger.info("Voltage error")

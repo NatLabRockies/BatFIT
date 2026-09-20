@@ -1,27 +1,31 @@
 # Uncertainty
+min_sigma : 0.0001
+max_sigma : 0.003
 calibrate_sigma: true
-max_sigma: 0.003
-min_sigma: 0.0001
 
 # MCMC
-mcmc_method: hmc
+mcmc_method: "hmc"
 num_chains: 1
-num_samples: 10
 num_warmup: 10
+num_samples: 10
 
 # DATA processing
-cyc_mode: discharge
-data_path_discharge: /Users/mhassana/Desktop/GitHub/BatFit/scripts/reg_tests/1.gen_data/data_spm_discharge_val
 noise_factor: 1.0
+data_path_discharge: ../1.gen_data/data_spm_discharge
 step_size: 1e-6
-target_mode: phi
+cyc_mode: "discharge"
+target_mode: "phi"
+# Number of validation curves to run MCMC on. MCMC is far more expensive than
+# NPE, so we cap how many of the val batteries get inverted (min with the
+# available val count). Regression uses 4 (= cores); an HPC run can raise it.
+n_val_mcmc: 4
 
 # Surrogate Models
-model_discharge_recipe: /Users/mhassana/Desktop/GitHub/BatFit/scripts/reg_tests/2.train_surrogate/training_recipes/recipe.yml
+model_discharge_recipe: ../2.surrogate/training_recipes/recipe.yml
 
 # DATA
 n_param_pred: 6
 n_points: 256
 
 # models
-models_dir: /Users/mhassana/Desktop/GitHub/BatFit/scripts/reg_tests/3.surrogate_mcmc/spm_discharge_surrogate_mcmc/models
+models_dir: spm_discharge_surrogate_mcmc/models
