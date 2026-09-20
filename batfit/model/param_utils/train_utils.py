@@ -21,7 +21,10 @@ from batfit.utils.torch_utils import (
     load_model,
     log_training,
     prepare_log,
+    read_restart_position,
+    restart_requested,
     save_model,
+    update_best_model,
 )
 
 from .metrics import accuracy, identifiability, rel_accuracy
@@ -250,8 +253,8 @@ def train_model(
     num_steps_test: int | None = None,
     log_folder: str = "train_log",
     log_freq: int = 100,
-    save_freq: int = 1000,
-    optimizer_state_dict_filename: str | None = None,
+    save_freq: int = 1_000_000,
+    restart_from: str | None = None,
     enable_cuda: bool = True,
     enable_mps: bool = True,
     trial: optuna.trial.Trial | None = None,
@@ -292,8 +295,9 @@ def train_model(
         Step interval for logging the training loss
     save_freq: int
         Step interval for checkpointing the model
-    optimizer_state_dict_filename: str | None
-        Path to an optimizer state dict to resume from
+    restart_from: str | None
+        Path to a model state dict to restart training from (weights only).
+        When set, epoch/step counters resume from the existing loss CSVs.
     enable_cuda: bool
         Allow training on CUDA when available
     enable_mps: bool
@@ -358,20 +362,53 @@ def train_model(
     optimizer = torch.optim.Adamax(
         model.parameters(), lr=learning_rate, weight_decay=1e-5
     )
-    if optimizer_state_dict_filename is not None:
-        optimizer.load_state_dict(
-            torch.load(optimizer_state_dict_filename, weights_only=True)
-        )
 
     num_batch = len(train_data_loader)
+
+    # Optionally restart from a checkpoint (weights only; the optimizer and LR
+    # schedule start fresh). Epoch/step counters resume from an existing loss
+    # CSV so the appended log stays monotonic, and the best test loss is seeded
+    # by re-evaluating the loaded checkpoint so a worse epoch cannot overwrite a
+    # good ``model_best.pt``.
+    best_test_loss = float("inf")
+    if restart_requested(restart_from):
+        model = load_model(model, restart_from, device_type=device_type)
+        start_epoch, start_step = read_restart_position(log_folder)
+        prepare_log(log_folder, append=start_epoch > 0)
+        if test_data_loader is not None:
+            seed_loss = compute_test_loss(
+                model=model,
+                test_data_loader=test_data_loader,
+                num_steps=num_steps_test,
+                enable_cuda=enable_cuda,
+                enable_mps=enable_mps,
+                verbose=False,
+                noise_levels=noise_levels,
+                scaler_X=scaler_X,
+                a_min=a_min,
+                a_max=a_max,
+                target_mode=target_mode,
+                prior=prior,
+            )
+            best_test_loss = update_best_model(
+                seed_loss,
+                best_test_loss,
+                model,
+                device_type=device_type,
+                log_folder=log_folder,
+            )
+    else:
+        start_epoch, start_step = 0, 0
+        prepare_log(log_folder)
+
     model.train()
 
-    prepare_log(log_folder)
     if num_steps is not None:
-        total_steps = num_steps
         num_epochs = num_steps // num_batch + 1
+        total_steps = start_epoch * num_batch + num_steps
     else:
-        total_steps = num_batch * num_epochs
+        total_steps = (start_epoch + num_epochs) * num_batch
+    end_epoch = start_epoch + num_epochs
     # train
     print_progress_bar(
         0,
@@ -381,12 +418,17 @@ def train_model(
         length=50,
     )
 
-    current_step = 0
-    for epoch in range(num_epochs):
-        # Set LR for this epoch
+    current_step = start_step
+    for epoch in range(start_epoch, end_epoch):
+        # Set LR for this epoch. On a restart the schedule restarts from
+        # ``learning_rate`` and decays over the additional run, keyed on the
+        # local index ``epoch - start_epoch``.
         for param_group in optimizer.param_groups:
             param_group["lr"] = learning_rate_schedule(
-                epoch, num_epochs * 3 // 4, learning_rate, learning_rate_end
+                epoch - start_epoch,
+                num_epochs * 3 // 4,
+                learning_rate,
+                learning_rate_end,
             )
 
         for step, batch in enumerate(train_data_loader):
@@ -476,7 +518,6 @@ def train_model(
                 save_model(
                     step=current_step,
                     model=model,
-                    optimizer=optimizer,
                     device_type=device_type,
                     log_folder=log_folder,
                 )
@@ -526,6 +567,13 @@ def train_model(
                 log_folder,
                 filename="test_loss.csv",
             )
+            best_test_loss = update_best_model(
+                test_loss,
+                best_test_loss,
+                model,
+                device_type=device_type,
+                log_folder=log_folder,
+            )
             model.train()
         else:
             test_loss = None
@@ -539,7 +587,6 @@ def train_model(
     save_model(
         step=total_steps,
         model=model,
-        optimizer=optimizer,
         device_type=device_type,
         log_folder=log_folder,
         bypass="final",
