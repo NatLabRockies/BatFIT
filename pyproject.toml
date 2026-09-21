@@ -61,7 +61,7 @@ target-version = ["py311"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-import-mode = "importlib"
+addopts = ["--import-mode=importlib"]
 
 [project.optional-dependencies]
 docs = [

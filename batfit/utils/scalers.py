@@ -1,13 +1,41 @@
 import pickle
 
 import numpy as np
+import torch
 from sklearn.preprocessing import StandardScaler
+
+
+def _match_array(stat: np.ndarray, data):
+    """Cast a numpy statistic to match ``data``'s array type.
+
+    Parameters
+    ----------
+    stat : numpy.ndarray
+        A ``means``/``stds`` array (or slice thereof) to broadcast against
+        ``data``.
+    data : numpy.ndarray or torch.Tensor
+        The array the statistic will be combined with.
+
+    Returns
+    -------
+    numpy.ndarray or torch.Tensor
+        ``stat`` unchanged when ``data`` is a numpy array; otherwise a
+        ``torch.Tensor`` on ``data``'s device and dtype. The returned tensor
+        is a non-leaf constant (``requires_grad=False``), so gradients flow
+        through ``data`` only and no reference to it is retained on the
+        scaler.
+    """
+    if isinstance(data, torch.Tensor):
+        return torch.as_tensor(stat, dtype=data.dtype, device=data.device)
+    return stat
 
 
 class CustomScaler:
     """Per-channel z-score scaler for 3D signal arrays ``(N, channels, time)``.
 
-    Falls back to the channel-1 statistics for  single-channel array
+    Falls back to the channel-1 statistics for  single-channel array.
+    Accepts numpy arrays or torch tensors and returns the same type,
+    propagating gradients when the input is a tensor.
     """
 
     def __init__(self, means: np.ndarray, stds: np.ndarray) -> None:
@@ -31,11 +59,14 @@ class CustomScaler:
         assert len(data.shape) == len(self.means.shape)
         assert len(data.shape) == len(self.stds.shape)
         if self.stds.shape[1] == 2 and data.shape[1] == 1:
-            transformed_data = (data - self.means[:, 1, :]) / self.stds[
-                :, 1, :
-            ]
+            means = self.means[:, 1, :]
+            stds = self.stds[:, 1, :]
         else:
-            transformed_data = (data - self.means) / self.stds
+            means = self.means
+            stds = self.stds
+        means = _match_array(means, data)
+        stds = _match_array(stds, data)
+        transformed_data = (data - means) / stds
         assert transformed_data.shape == data.shape
         return transformed_data
 
@@ -44,9 +75,14 @@ class CustomScaler:
         assert len(transformed_data.shape) == len(self.means.shape)
         assert len(transformed_data.shape) == len(self.stds.shape)
         if self.stds.shape[1] == 2 and transformed_data.shape[1] == 1:
-            data = transformed_data * self.stds[:, 1, :] + self.means[:, 1, :]
+            means = self.means[:, 1, :]
+            stds = self.stds[:, 1, :]
         else:
-            data = transformed_data * self.stds + self.means
+            means = self.means
+            stds = self.stds
+        means = _match_array(means, transformed_data)
+        stds = _match_array(stds, transformed_data)
+        data = transformed_data * stds + means
         assert transformed_data.shape == data.shape
         return data
 
