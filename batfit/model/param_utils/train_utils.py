@@ -1,10 +1,9 @@
 import pickle
-import sys
+from typing import Callable
 
 import numpy as np
 import optuna
 import torch
-import torch.distributions as dist
 from prettyPlot.progressBar import print_progress_bar
 
 from batfit import logger
@@ -15,21 +14,48 @@ from batfit.utils.data_utils import (
     scale_input_from_scaler,
     unscale_dataset_from_scaler,
 )
+from batfit.utils.scalers import CustomScaler
 from batfit.utils.torch_utils import (
     get_device_type,
     get_num_parameters,
     load_model,
     log_training,
     prepare_log,
+    read_restart_position,
+    restart_requested,
     save_model,
+    update_best_model,
 )
 
-from .losses import mse_loss
-from .metrics import *
+from .metrics import accuracy, identifiability, rel_accuracy
 from .noise_utils import apply_noise
 
 
-def create_model_from_log(model_obj_file, model_state_dict_file, verbose=True):
+def create_model_from_log(
+    model_obj_file: str,
+    model_state_dict_file: str | None,
+    verbose: bool = True,
+) -> torch.nn.Module:
+    """Reconstruct a model from a pickled object and optional weights.
+
+    Loads the pickled model architecture from ``model_obj_file`` and, when
+    ``model_state_dict_file`` is not None, loads that state dict
+
+    Parameters
+    ----------
+    model_obj_file: str
+        Path to the pickled model object (``model.pkl``)
+    model_state_dict_file: str | None
+        Path to the ``.pt`` weights to load, or None to return the
+        freshly-unpickled model
+    verbose: bool
+        Log the loaded files and parameter count
+
+    Returns
+    -------
+    torch.nn.Module
+        The reconstructed model
+    """
     if verbose:
         logger.info(
             f"loading model from \n\t{model_obj_file} and {model_state_dict_file}"
@@ -49,17 +75,20 @@ def create_model_from_log(model_obj_file, model_state_dict_file, verbose=True):
 
 
 def forward_pass(
-    model,
-    np_data_in,
-    scaler_X_file,
-    scaler_Y_file,
-    scale_y,
-    np_prot_params=None,
-):
+    model: torch.nn.Module,
+    np_data_in: np.ndarray,
+    scaler_X_file: str,
+    scaler_Y_file: str,
+    scale_y: bool,
+    np_prot_params: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
     """Run a forward pass and return unscaled (mu, gamma).
 
-    :param np_prot_params: required when ``model`` is :class:`ProbProtParamCNN`;
-        protocol parameter array of shape ``(N, n_prot)``.
+    Parameters
+    ----------
+    np_prot_params: np.ndarray | None
+        Required when ``model`` is :class:`ProbProtParamCNN`; protocol
+        parameter array of shape ``(N, n_prot)``.
     """
     model.eval()
     model.to("cpu")
@@ -145,7 +174,30 @@ def forward_pass(
         return pred_unscaled
 
 
-def learning_rate_schedule(epoch, epoch_end, lr_beg, lr_end):
+def learning_rate_schedule(
+    epoch: int, epoch_end: int, lr_beg: float, lr_end: float
+) -> float:
+    """Piecewise learning-rate schedule.
+
+    Use ``lr_beg`` for the first ``epoch_end // 10`` epochs
+    Decays geometrically from ``lr_beg`` toward ``lr_end``
+
+    Parameters
+    ----------
+    epoch: int
+        Current epoch
+    epoch_end: int
+        Epoch at which the decay reaches ``lr_end``
+    lr_beg: float
+        Initial learning rate
+    lr_end: float
+        Final learning rate
+
+    Returns
+    -------
+    float
+        Learning rate for ``epoch``
+    """
     epoch_delay = epoch_end // 10
     if epoch < epoch_delay:
         return lr_beg
@@ -155,7 +207,36 @@ def learning_rate_schedule(epoch, epoch_end, lr_beg, lr_end):
         )
 
 
-def temp_schedule(epoch, epoch_beg, epoch_end, val_beg, val_end):
+def temp_schedule(
+    epoch: int,
+    epoch_beg: int,
+    epoch_end: int,
+    val_beg: float,
+    val_end: float,
+) -> float:
+    """Schedule of tempering value (for vae)
+
+    The ramp runs between ``epoch_beg`` and ``epoch_end`` and is clamped to
+    ``val_end`` afterwards.
+
+    Parameters
+    ----------
+    epoch: int
+        Current epoch
+    epoch_beg: int
+        Epoch at which the ramp starts
+    epoch_end: int
+        Epoch at which the ramp reaches ``val_end``
+    val_beg: float
+        Initial value
+    val_end: float
+        Final value
+
+    Returns
+    -------
+    float
+        Interpolated value for ``epoch``
+    """
     return val_beg + min(
         (epoch - epoch_beg) / (epoch_end - epoch_beg), 1.0
     ) * (val_end - val_beg)
@@ -172,21 +253,76 @@ def train_model(
     num_steps_test: int | None = None,
     log_folder: str = "train_log",
     log_freq: int = 100,
-    save_freq: int = 1000,
-    optimizer_state_dict_filename: str | None = None,
+    save_freq: int = 1_000_000,
+    restart_from: str | None = None,
     enable_cuda: bool = True,
     enable_mps: bool = True,
-    trial=None,
+    trial: optuna.trial.Trial | None = None,
     noise_levels: torch.Tensor | None = torch.tensor([0, 0.010, 0.04, 1]),
     bias_tensor: torch.Tensor | None = None,
-    scaler_X=None,
+    scaler_X: CustomScaler | None = None,
     a_min: torch.Tensor | None = torch.tensor(
         [-torch.inf, 3, -torch.inf, -torch.inf]
     ),
     a_max: torch.Tensor | None = torch.tensor([torch.inf, 4.1, 0, 0]),
     target_mode: None | str = None,
     prior=None,
-):
+) -> tuple[torch.nn.Module, np.ndarray]:
+    """Train NPE with noise augmentation.
+
+    Parameters
+    ----------
+    model: torch.nn.Module
+        Probabilistic model (e.g. :class:`ProbParamCNN`,
+        :class:`ProbProtParamCNN`) trained in place
+    train_data_loader: torch.utils.data.DataLoader
+        Training batches
+    learning_rate: float
+        Initial learning rate
+    num_epochs: int | None
+        Number of epochs; ignored when ``num_steps`` is set
+    learning_rate_end: float | None
+        Final learning rate (defaults to ``learning_rate / 100``)
+    test_data_loader: torch.utils.data.DataLoader | None
+        Optional loader for per-epoch test-loss evaluation
+    num_steps: int | None
+        Total training steps; overrides ``num_epochs`` when set
+    num_steps_test: int | None
+        Steps used when evaluating the test loss
+    log_folder: str
+        Directory for loss CSVs and checkpoints
+    log_freq: int
+        Step interval for logging the training loss
+    save_freq: int
+        Step interval for checkpointing the model
+    restart_from: str | None
+        Path to a model state dict to restart training from (weights only).
+        When set, epoch/step counters resume from the existing loss CSVs.
+    enable_cuda: bool
+        Allow training on CUDA when available
+    enable_mps: bool
+        Allow training on MPS when available
+    trial: optuna.trial.Trial | None
+        Optuna trial enabling hyperparameter-tuning pruning
+    noise_levels: torch.Tensor | None
+        Per-channel noise levels for :func:`apply_noise`
+    bias_tensor: torch.Tensor | None
+        Optional per-channel bias added during augmentation
+    scaler_X: CustomScaler | None
+        Signal scaler used to apply noise in physical space
+    a_min: torch.Tensor | None
+        Per-channel lower clip applied after adding noise
+    a_max: torch.Tensor | None
+        Per-channel upper clip applied after adding noise
+    target_mode: str | None
+        When ``"encoded"``, skip signal-space noise augmentation
+
+    Returns
+    -------
+    tuple
+        ``(model, loss_hist)`` — the trained model and the training-loss
+        history array
+    """
 
     # Device set up
     device_type = get_device_type(
@@ -226,23 +362,53 @@ def train_model(
     optimizer = torch.optim.Adamax(
         model.parameters(), lr=learning_rate, weight_decay=1e-5
     )
-    if optimizer_state_dict_filename is not None:
-        optimizer.load_state_dict(
-            torch.load(optimizer_state_dict_filename, weights_only=True)
-        )
-    # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-    #    optimizer, num_epochs, 0
-    # )
 
     num_batch = len(train_data_loader)
+
+    # Optionally restart from a checkpoint (weights only; the optimizer and LR
+    # schedule start fresh). Epoch/step counters resume from an existing loss
+    # CSV so the appended log stays monotonic, and the best test loss is seeded
+    # by re-evaluating the loaded checkpoint so a worse epoch cannot overwrite a
+    # good ``model_best.pt``.
+    best_test_loss = float("inf")
+    if restart_requested(restart_from):
+        model = load_model(model, restart_from, device_type=device_type)
+        start_epoch, start_step = read_restart_position(log_folder)
+        prepare_log(log_folder, append=start_epoch > 0)
+        if test_data_loader is not None:
+            seed_loss = compute_test_loss(
+                model=model,
+                test_data_loader=test_data_loader,
+                num_steps=num_steps_test,
+                enable_cuda=enable_cuda,
+                enable_mps=enable_mps,
+                verbose=False,
+                noise_levels=noise_levels,
+                scaler_X=scaler_X,
+                a_min=a_min,
+                a_max=a_max,
+                target_mode=target_mode,
+                prior=prior,
+            )
+            best_test_loss = update_best_model(
+                seed_loss,
+                best_test_loss,
+                model,
+                device_type=device_type,
+                log_folder=log_folder,
+            )
+    else:
+        start_epoch, start_step = 0, 0
+        prepare_log(log_folder)
+
     model.train()
 
-    prepare_log(log_folder)
     if num_steps is not None:
-        total_steps = num_steps
         num_epochs = num_steps // num_batch + 1
+        total_steps = start_epoch * num_batch + num_steps
     else:
-        total_steps = num_batch * num_epochs
+        total_steps = (start_epoch + num_epochs) * num_batch
+    end_epoch = start_epoch + num_epochs
     # train
     print_progress_bar(
         0,
@@ -252,12 +418,17 @@ def train_model(
         length=50,
     )
 
-    current_step = 0
-    for epoch in range(num_epochs):
-        # Set LR for this epoch
+    current_step = start_step
+    for epoch in range(start_epoch, end_epoch):
+        # Set LR for this epoch. On a restart the schedule restarts from
+        # ``learning_rate`` and decays over the additional run, keyed on the
+        # local index ``epoch - start_epoch``.
         for param_group in optimizer.param_groups:
             param_group["lr"] = learning_rate_schedule(
-                epoch, num_epochs * 3 // 4, learning_rate, learning_rate_end
+                epoch - start_epoch,
+                num_epochs * 3 // 4,
+                learning_rate,
+                learning_rate_end,
             )
 
         for step, batch in enumerate(train_data_loader):
@@ -347,7 +518,6 @@ def train_model(
                 save_model(
                     step=current_step,
                     model=model,
-                    optimizer=optimizer,
                     device_type=device_type,
                     log_folder=log_folder,
                 )
@@ -397,6 +567,13 @@ def train_model(
                 log_folder,
                 filename="test_loss.csv",
             )
+            best_test_loss = update_best_model(
+                test_loss,
+                best_test_loss,
+                model,
+                device_type=device_type,
+                log_folder=log_folder,
+            )
             model.train()
         else:
             test_loss = None
@@ -410,7 +587,6 @@ def train_model(
     save_model(
         step=total_steps,
         model=model,
-        optimizer=optimizer,
         device_type=device_type,
         log_folder=log_folder,
         bypass="final",
@@ -419,22 +595,57 @@ def train_model(
 
 
 def compute_test_loss(
-    model: ProbParamCNN,
+    model: torch.nn.Module,
     test_data_loader: torch.utils.data.DataLoader,
     num_steps: int | None = None,
     enable_cuda: bool = True,
     enable_mps: bool = True,
-    verbose=True,
+    verbose: bool = True,
     noise_levels: torch.Tensor | None = torch.tensor([0, 0.010, 0.04, 1]),
     bias_tensor: torch.Tensor | None = None,
-    scaler_X=None,
+    scaler_X: CustomScaler | None = None,
     a_min: torch.Tensor | None = torch.tensor(
         [-torch.inf, 3, -torch.inf, -torch.inf]
     ),
     a_max: torch.Tensor | None = torch.tensor([torch.inf, 4.1, 0, 0]),
     target_mode: None | str = None,
     prior=None,
-):
+) -> float:
+    """Compute mean test loss.
+    Use same input-noise augmentation as training
+
+    Parameters
+    ----------
+    model: torch.nn.Module
+        Probabilistic model to evaluate
+    test_data_loader: torch.utils.data.DataLoader
+        Test batches
+    num_steps: int | None
+        Cap on the number of batches evaluated; all batches when None
+    enable_cuda: bool
+        Allow evaluating on CUDA when available
+    enable_mps: bool
+        Allow evaluating on MPS when available
+    verbose: bool
+        Display a progress bar
+    noise_levels: torch.Tensor | None
+        Per-channel noise levels for :func:`apply_noise`
+    bias_tensor: torch.Tensor | None
+        Optional per-channel bias added during augmentation
+    scaler_X: CustomScaler | None
+        Signal scaler used to apply noise in physical space
+    a_min: torch.Tensor | None
+        Per-channel lower clip applied after adding noise
+    a_max: torch.Tensor | None
+        Per-channel upper clip applied after adding noise
+    target_mode: str | None
+        When ``"encoded"``, skip signal-space noise augmentation
+
+    Returns
+    -------
+    float
+        Sample-weighted average loss over the evaluated batches
+    """
     # Device set up
     device_type = get_device_type(
         enable_cuda=enable_cuda, enable_mps=enable_mps
@@ -549,21 +760,62 @@ def compute_test_loss(
 
 
 def compute_post(
-    model: ProbParamCNN,
+    model: torch.nn.Module,
     test_data_loader: torch.utils.data.DataLoader,
     num_steps: int | None = None,
     enable_cuda: bool = True,
     enable_mps: bool = True,
-    verbose=True,
+    verbose: bool = True,
     noise_levels: torch.Tensor | None = torch.tensor([0, 0.010, 0.04, 1]),
-    scaler_X=None,
+    scaler_X: CustomScaler | None = None,
     a_min: torch.Tensor | None = torch.tensor(
         [-torch.inf, 3, -torch.inf, -torch.inf]
     ),
     a_max: torch.Tensor | None = torch.tensor([torch.inf, 4.1, 0, 0]),
-    post_fn=rel_accuracy,
+    post_fn: Callable = rel_accuracy,
     target_mode: str | None = None,
-):
+) -> float:
+    """Compute posterior diagnostic metrics.
+
+    The metric is given by ``post_fn``, one of:
+
+    - :func:`accuracy` — mean absolute error between the predicted mean and
+      the target
+    - :func:`rel_accuracy` — mean relative absolute error
+    - :func:`identifiability` — mean ``1 / std`` of the predicted marginals
+
+    Parameters
+    ----------
+    model: torch.nn.Module
+        Probabilistic model to evaluate
+    test_data_loader: torch.utils.data.DataLoader
+        Test batches
+    num_steps: int | None
+        Cap on the number of batches evaluated; all batches when None
+    enable_cuda: bool
+        Allow evaluating on CUDA when available
+    enable_mps: bool
+        Allow evaluating on MPS when available
+    verbose: bool
+        Display a progress bar
+    noise_levels: torch.Tensor | None
+        Per-channel noise levels for :func:`apply_noise`
+    scaler_X: CustomScaler | None
+        Signal scaler used to apply noise in physical space
+    a_min: torch.Tensor | None
+        Per-channel lower clip applied after adding noise
+    a_max: torch.Tensor | None
+        Per-channel upper clip applied after adding noise
+    post_fn: Callable
+        The metric to compute
+    target_mode: str | None
+        When ``"encoded"``, skip signal-space noise augmentation
+
+    Returns
+    -------
+    float
+        Sample-weighted aggregate of ``post_fn`` over the evaluated batches
+    """
     # Device set up
     device_type = get_device_type(
         enable_cuda=enable_cuda, enable_mps=enable_mps

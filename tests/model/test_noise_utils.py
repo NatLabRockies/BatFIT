@@ -3,7 +3,6 @@ import torch
 from batfit.model.param_utils.noise_utils import (
     apply_noise_unscaled,
     make_noise_levels,
-    sample_var,
 )
 
 

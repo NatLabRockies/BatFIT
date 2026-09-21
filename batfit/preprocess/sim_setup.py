@@ -1,11 +1,29 @@
 import os
-import sys
 
 import numpy as np
 from ruamel.yaml import YAML
-from scipy.stats import qmc
 
-from batfit import logger
+from batfit import BATFIT_EXP, logger
+
+
+def resolve_sim_config(filename: str) -> str:
+    """Resolve a ``sim_config`` path, falling back to ``BATFIT_EXP``.
+
+    Parameters
+    ----------
+    filename: str
+        Either a config YAML,
+        or a bare filename to be looked up from ``default_exps`` dir.
+
+    Returns
+    -------
+    str
+        ``filename`` if it exists as given, otherwise
+        ``os.path.join(BATFIT_EXP, filename)``.
+    """
+    if os.path.isfile(filename):
+        return filename
+    return os.path.join(BATFIT_EXP, filename)
 
 
 def parse_input(filename, parallel_env=None):
@@ -401,6 +419,7 @@ def parse_input(filename, parallel_env=None):
 
 
 def make_params(filename, parallel_env=None):
+    filename = resolve_sim_config(filename)
     (
         deg_param_names,
         deg_param_min,
@@ -714,8 +733,11 @@ def print_ca(sim):
 if __name__ == "__main__":
     import argparse
 
-    from batfit import BATFIT_EXP
-    from batfit.preprocess.param_sampling import *
+    from batfit.preprocess.param_sampling import (
+        get_bounding_samples,
+        get_samples,
+        write_exec,
+    )
 
     parser = argparse.ArgumentParser(description="Parameter sampling")
     parser.add_argument(

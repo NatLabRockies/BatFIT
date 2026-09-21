@@ -1,6 +1,6 @@
 import numpy as np
 
-from batfit.calibration.cal_utils import get_nchan, make_data_in
+from batfit.calibration.data_utils import get_nchan, make_data_in
 
 
 def test_get_nchan():

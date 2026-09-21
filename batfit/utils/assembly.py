@@ -1,13 +1,3 @@
-"""Assemble raw BatMODS-lite simulation output (a combined ``sols.pkl``) into
-the ``(X, [P], Y)`` numpy arrays consumed by surrogate/NPE training.
-
-Filtering is kept explicitly separate from assembling: :func:`passes_quality_filters`
-implements a rejection-sampling prior that decides whether a raw solution is
-usable at all (e.g. too few points, or a simulation that ended too early),
-independent of :func:`from_combined_sols_to_data`/:func:`from_sol_dict_to_xy`,
-which only ever convert an already-accepted solution into ``(x, y)`` arrays.
-"""
-
 import gc
 import os
 import pickle
@@ -36,7 +26,7 @@ def _sol_passes_filters(
     t_max_min: float,
     max_start_phi: float,
 ) -> bool:
-    """Reject a single raw solution dict if it's too short, ends too early,
+    """Reject a single raw solution dict if it is too short, ends too early,
     or starts at too high a voltage."""
     if sol_dict["phis_c"].shape[0] < n_points_min:
         logger.warning(
@@ -72,10 +62,15 @@ def passes_quality_filters(
     out-of-range physics solutions from training, independent of how an
     accepted solution is later converted into ``(x, y)`` arrays.
 
-    :param combined_sols: the loaded ``sols.pkl`` dict
-    :param key: the simulation key (raw solution filename) to check
-    :param cyc_mode: cycling mode, selects which solution(s) under ``key``
-        to check (``discharge-chargecc`` has two: ``sol_dis``/``sol_chcc``)
+    Parameters
+    ----------
+    combined_sols: dict
+        The loaded ``sols.pkl`` dict
+    key: str
+        The simulation key (raw solution filename) to check
+    cyc_mode: str
+        Cycling mode, selects which solution(s) under ``key`` to check
+        (``discharge-chargecc`` has two: ``sol_dis``/``sol_chcc``)
     """
     if cyc_mode.lower() in _SINGLE_SOL_CYC_MODES:
         return _sol_passes_filters(
@@ -145,7 +140,7 @@ def from_combined_sols_to_data(
     target_mode: str,
     cyc_mode: str,
 ) -> tuple[np.ndarray, list]:
-    """Convert one already-accepted raw solution into ``(x, y)`` arrays.
+    """Convert raw solution into ``(x, y)`` arrays.
 
     Assumes the caller has already applied :func:`passes_quality_filters` to
     ``key``; this function only assembles, it never rejects.
@@ -189,12 +184,6 @@ def check_assembled_data_shape(
     else:
         raise NotImplementedError
 
-    # Don't check this, we might be in a situation where we post processed the assembled data
-    # if combined_pickle_file is not None:
-    #    with open(combined_pickle_file, "rb") as f:
-    #        sols = pickle.load(f)
-    #        assert len(sols) == tmp["X_data"].shape[0]
-
     return tmp
 
 
@@ -214,20 +203,27 @@ def assemble_all_data(
 ):
     """Assemble raw simulation data (from a combined ``sols.pkl``) into ``(X, Y)`` arrays.
 
-    :param n_points_min: reject solutions with fewer timesteps than this
+    Parameters
+    ----------
+    n_points_min: int
+        Reject solutions with fewer timesteps than this
         (see :func:`passes_quality_filters`).
-    :param t_max_min: reject solutions whose max time is below this.
-    :param max_start_phi: reject solutions whose first recorded voltage
-        exceeds this.
-    :param combined_pickle_file: filename of the combined ``sols.pkl`` (relative
-        to ``data_root_folder``); required.
-    :param return_prot_params: when True, also extract per-simulation protocol
-        parameters from the combined sols and return ``(X_data, P_data, Y_data)``.
-        ``P_data`` has shape ``(N, n_prot_params)``.
-    :param n_sol_max: stop once this many solutions have passed quality
-        filtering and been assembled, even if more raw solutions remain in
-        ``sols.pkl`` (e.g. cap a 2M-entry ``sols.pkl`` down to 1M assembled
-        entries). ``None`` assembles every solution that passes filtering.
+    t_max_min: float
+        Reject solutions whose max time is below this.
+    max_start_phi: float
+        Reject solutions whose first recorded voltage exceeds this.
+    combined_pickle_file: str | None
+        Filename of the combined ``sols.pkl`` (relative to
+        ``data_root_folder``); required.
+    return_prot_params: bool
+        When True, also extract per-simulation protocol parameters from the
+        combined sols and return ``(X_data, P_data, Y_data)``. ``P_data`` has
+        shape ``(N, n_prot_params)``.
+    n_sol_max: int | None
+        Stop once this many solutions have passed quality filtering and been
+        assembled, even if more raw solutions remain in ``sols.pkl`` (e.g. cap
+        a 2M-entry ``sols.pkl`` down to 1M assembled entries). ``None``
+        assembles every solution that passes filtering.
     """
     assembled_data_filename = os.path.join(save_path, "assembled_data.npz")
     if os.path.isfile(assembled_data_filename):
@@ -317,104 +313,22 @@ def assemble_all_data(
     return X_data, Y_data
 
 
-def check_assembled_surrogate_data_shape(
-    data_root_folder,
-    n_points,
-    n_param_pred,
-    combined_pickle_file=None,
-    cyc_mode="discharge",
-    save_data=True,
-    save_path=".",
-):
-    """Validate a cached ``assembled_surrogate_data.npz`` against the requested shape."""
-    assembled_data_filename = os.path.join(
-        save_path, "assembled_surrogate_data.npz"
-    )
-    tmp = np.load(assembled_data_filename)
-
-    assert len(tmp["X_data"].shape) == 2
-    assert tmp["X_data"].shape[1] == n_param_pred + 1
-    assert tmp["X_data"].shape[0] == tmp["Y_data"].shape[0]
-
-    if combined_pickle_file is not None:
-        # combined_pickle_file is relative to data_root_folder, as in
-        # assemble_all_data
-        with open(
-            os.path.join(data_root_folder, combined_pickle_file), "rb"
-        ) as f:
-            sols = pickle.load(f)
-            assert len(sols) * n_points == tmp["X_data"].shape[0]
-
-    return tmp
-
-
-def assemble_surrogate_data(
-    data_root_folder,
-    n_points,
-    n_param_pred,
-    combined_pickle_file=None,
-    cyc_mode="discharge",
-    save_data=True,
-    save_path=".",
-    n_sol_max: int | None = None,
-):
-    """Assemble a surrogate ``(time+params -> voltage)`` dataset from raw simulations.
-
-    :param n_sol_max: forwarded to :func:`assemble_all_data` to cap how many
-        raw solutions get assembled.
-    """
-    assembled_data_filename = os.path.join(
-        save_path, "assembled_surrogate_data.npz"
-    )
-    if os.path.isfile(assembled_data_filename):
-        try:
-            tmp = check_assembled_surrogate_data_shape(
-                data_root_folder,
-                n_points,
-                n_param_pred,
-                combined_pickle_file,
-                cyc_mode,
-                save_data,
-                save_path,
-            )
-            return tmp["X_data"], tmp["Y_data"]
-        except AssertionError as err:
-            logger.warning(
-                f"Tried to load the assembled surrogate data instead of regenerating it, but something was inconsistent\n\t{err}"
-            )
-            pass
-
-    logger.info("Assembling raw surrogate dataset")
-    X_data, Y_data = assemble_all_data(
-        data_root_folder,
-        n_points,
-        combined_pickle_file=combined_pickle_file,
-        target_mode="phi",
-        save_data=save_data,
-        cyc_mode=cyc_mode,
-        save_path=save_path,
-        n_sol_max=n_sol_max,
-    )
-    new_x_data, new_y_data = from_param_to_surrogate_data(X_data, Y_data)
-
-    if save_data:
-        np.savez(
-            assembled_data_filename,
-            X_data=new_x_data.astype("float32"),
-            Y_data=new_y_data.astype("float32"),
-        )
-
-    return new_x_data, new_y_data
-
-
 def from_param_to_surrogate_data(
     X_data: np.ndarray, Y_data: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
     """Reshape a ``(time, voltage)`` NPE dataset into per-timestep surrogate rows.
 
-    :param X_data: shape ``(N, 2, n_points)`` — channel 0 is time, channel 1 voltage.
-    :param Y_data: shape ``(N, n_param_pred)`` degradation parameters.
-    :return: ``(new_x_data, new_y_data)`` of shape ``(N*n_points, n_param_pred+1)``
+    Parameters
+    ----------
+    X_data: np.ndarray
+        Shape ``(N, 2, n_points)`` — channel 0 is time, channel 1 voltage.
+    Y_data: np.ndarray
+        Shape ``(N, n_param_pred)`` degradation parameters.
+
+    Returns
+    -------
+    tuple
+        ``(new_x_data, new_y_data)`` of shape ``(N*n_points, n_param_pred+1)``
         and ``(N*n_points, 1)``, where each row is ``(time, *params) -> voltage``.
     """
     X_data = np.array(X_data).astype("float32")  # (N, 2, npoints)
@@ -448,8 +362,11 @@ def augment_data(
     Prestores ``new_ds`` noisy duplicates of the dataset (uniform noise on
     ``X``), as an alternative to adding noise online at train time.
 
-    :return: ``(X_data, Y_data)`` with ``new_ds + 1`` times as many rows,
-        the original samples preserved in the first ``N`` rows.
+    Returns
+    -------
+    tuple
+        ``(X_data, Y_data)`` with ``new_ds + 1`` times as many rows, the
+        original samples preserved in the first ``N`` rows.
     """
     logger.info(
         f"Augmenting dataset by a factor {new_ds+1} with noise {noise_level}"

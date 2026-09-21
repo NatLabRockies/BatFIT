@@ -3,6 +3,7 @@ import pickle
 import tempfile
 
 import numpy as np
+import torch
 from sklearn.preprocessing import StandardScaler
 
 from batfit.utils.scalers import (
@@ -42,6 +43,25 @@ def test_CustomScaler():
     assert np.allclose(X_fit_scaled.mean(axis=(0, 2)), 0.0, atol=1e-5)
     assert np.allclose(X_fit_scaled.std(axis=(0, 2)), 1.0, atol=1e-5)
     assert np.allclose(fitted_scaler.inverse_transform(X_fit_scaled), X_fit)
+
+    # type-agnostic: a torch tensor stays a torch tensor, matches the numpy
+    # result, and propagates gradients (no numpy __array_wrap__ deprecation)
+    X_t = torch.tensor(X, dtype=torch.float32, requires_grad=True)
+    X_t_scaled = scaler.transform(X_t)
+    assert isinstance(X_t_scaled, torch.Tensor)
+    assert np.allclose(X_t_scaled.detach().numpy(), scaler.transform(X))
+    X_t_scaled.sum().backward()
+    assert X_t.grad is not None
+    assert torch.allclose(X_t.grad, 1.0 / torch.tensor(stds, dtype=X_t.dtype))
+    X_t_back = scaler.inverse_transform(X_t_scaled.detach())
+    assert isinstance(X_t_back, torch.Tensor)
+    assert torch.allclose(X_t_back, X_t.detach())
+
+    # single-channel fallback to channel-1 stats also works for tensors
+    X1_t = torch.ones((4, 1, 10), dtype=torch.float32) * 15.0
+    X1_scaled = scaler.transform(X1_t)
+    assert isinstance(X1_scaled, torch.Tensor)
+    assert torch.allclose(X1_scaled, torch.ones_like(X1_scaled))
 
 
 def test_scale_input_from_scaler():

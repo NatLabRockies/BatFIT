@@ -1,10 +1,8 @@
 import copy
 import os
-import sys
 from pathlib import Path
 
 import numpy as np
-from ruamel.yaml import YAML
 from scipy.stats import qmc
 
 from batfit import logger
@@ -399,7 +397,7 @@ def enforce_pos_void_a(
         elif ind_eps_s_a_am > -1:
             eps_s = (
                 eps_cbd
-                + (sim_params[f"eps_s_a"] - eps_cbd)
+                + (sim_params["eps_s_a"] - eps_cbd)
                 * sample_scaled[isamp, ind_eps_s_a_am]
             )
         else:
@@ -462,7 +460,7 @@ def enforce_pos_void_c(
         elif ind_eps_s_c_am > -1:
             eps_s = (
                 eps_cbd
-                + (sim_params[f"eps_s_c"] - eps_cbd)
+                + (sim_params["eps_s_c"] - eps_cbd)
                 * sample_scaled[isamp, ind_eps_s_c_am]
             )
         else:
@@ -753,14 +751,11 @@ def write_exec(
 
     if deg_param_names is None:
         deg_param_names = sim_params["deg_param_names"]
-    n_deg_params = len(deg_param_names)
     if prot_param_names is None:
         try:
             prot_param_names = sim_params["prot_param_names"]
         except KeyError:
             prot_param_names = []
-    n_prot_params = len(prot_param_names)
-
     id_deg_param = []
     for name in deg_param_names:
         id_deg_param.append(sim_params["deg_param_names"].index(name))

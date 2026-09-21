@@ -6,7 +6,6 @@ import matplotlib
 matplotlib.use("Agg")
 
 import numpy as np
-import torch
 
 from batfit.model.param_utils.losses import independent_normal_loss
 from batfit.model.paramNN import ProbParamCNN

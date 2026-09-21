@@ -1,1 +1,1 @@
-from . import ReadInput, slicetools
+from . import ReadInput, slicetools  # noqa: F401

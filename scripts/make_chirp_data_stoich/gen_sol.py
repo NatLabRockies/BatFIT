@@ -3,10 +3,10 @@ import os
 import time
 
 import batfit.utils.parallel as parallel_env
-from batfit import BATFIT_EXP
+from batfit import BATFIT_EXP, logger
 from batfit.preprocess.sim_setup import make_params
 from batfit.preprocess.sol_gen import multi_run, multi_run_ser
-from batfit import logger
+
 logger.setLevel(level="DEBUG")
 
 parser = argparse.ArgumentParser(description="Dataset generator")

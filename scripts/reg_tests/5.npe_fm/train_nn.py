@@ -31,7 +31,7 @@ def make_data_loaders(
     assemble_all_data(
         inp.data_path,
         n_points=inp.n_points,
-        combined_pickle_file=os.path.join(inp.data_path, "sols.pkl"),
+        combined_pickle_file="sols.pkl",
         target_mode=inp.target_mode,
         save_data=True,
         cyc_mode=inp.cyc_mode,
@@ -41,7 +41,7 @@ def make_data_loaders(
     X_data = tmp["X_data"]
     Y_data = tmp["Y_data"]
 
-    batch_size = min(inp.batch_size, int(Y_data.shape[0] * 0.9))
+    batch_size = min(inp.batch_size, int(Y_data.shape[0] * 0.8))
     return make_dataset_from_np(
         batch_size=batch_size,
         np_data=X_data,
@@ -106,13 +106,14 @@ def do_training(inp, model, train_data_loader, test_data_loader, scaler_X):
         enable_cuda=True,
         enable_mps=True,
         log_folder=inp.models_dir,
-        save_freq=10000,
+        restart_from=getattr(inp, "restart_from", None) or None,
     )
 
 
 if __name__ == "__main__":
     inp = ri.basic_input(sys.argv[1])
-    train_dl, test_dl = make_data_loaders(inp)
+    loaders = make_data_loaders(inp)
+    train_dl, test_dl = loaders["train"], loaders["test"]
     model, scaler_X = define_model(inp)
 
     # Register scaled training labels as the empirical prior for prior matching.

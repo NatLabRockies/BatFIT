@@ -60,6 +60,13 @@ def load_model(inp):
 def load_surrogates(inp):
     models = {}
     inp_discharge = ri.basic_input(inp.model_discharge_recipe)
+    # Rebase the surrogate recipe's relative models_dir/data_path onto its own
+    # step dir so they resolve from our CWD.
+    surr_base = os.path.dirname(os.path.dirname(inp.model_discharge_recipe))
+    inp_discharge.models_dir = os.path.join(
+        surr_base, inp_discharge.models_dir
+    )
+    inp_discharge.data_path = os.path.join(surr_base, inp_discharge.data_path)
     tmp_d = load_model(inp_discharge)
     models["discharge"] = {
         "torch_model": tmp_d[0],
@@ -138,16 +145,18 @@ def load_synthetic_data(inp):
         cyc_mode=inp.cyc_mode,
     )
     data_path = inp.data_path_discharge
-    tmp = np.load(os.path.join(data_path, "assembled_data.npz"))
+    # Same held-out validation slice used as observations in bayesCal; the MCMC
+    # samples (samples.npz) correspond to its first n_val_mcmc curves.
+    tmp = np.load(os.path.join(data_path, "data_split.npz"))
     batch_in_unscaled = apply_noise_unscaled(
-        torch.tensor(tmp["X_data"]),
+        torch.tensor(tmp["X_val"]),
         noise_levels=noise_levels,
         a_min=a_min,
         a_max=a_max,
     )
     t["discharge"] = batch_in_unscaled[:, 0, :]
     phi["discharge"] = batch_in_unscaled[:, 1, :]
-    truth["discharge"] = tmp["Y_data"][:, :]
+    truth["discharge"] = tmp["Y_val"][:, :]
 
     return (
         t,

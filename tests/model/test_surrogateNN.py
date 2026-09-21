@@ -7,7 +7,6 @@ from batfit.model.surrogateNN import SurrogateFCNN
 
 def test_surrogate_forward():
     n_param_pred = 4
-    n_points = 10
     batch = 8
     model = SurrogateFCNN(fc_list=[32, 32], n_param_pred=n_param_pred)
     x = torch.rand(batch, n_param_pred + 1)
