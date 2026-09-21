@@ -260,9 +260,17 @@ def make_surrogate_dataset_from_np(
     surrogate_cache_ok = False
     if os.path.isfile(surrogate_split_filename):
         tmp = np.load(surrogate_split_filename)
-        if val_split > 0 and "X_val" not in tmp.files:
+        has_val = "X_val" in tmp.files
+        if val_split > 0 and not has_val:
             logger.warning(
                 "Surrogate split cache lacks validation slice, re-deriving"
+            )
+        elif val_split == 0 and has_val:
+            # a two-way request must not silently return a val loader
+            raise ValueError(
+                f"Surrogate split cache {surrogate_split_filename} contains "
+                f"a validation slice but val_split == 0 was requested; delete "
+                f"the file to rebuild it as a two-way split"
             )
         else:
             logger.warning("Data surrogate already splitted, loading it only")

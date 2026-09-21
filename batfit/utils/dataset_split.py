@@ -51,6 +51,13 @@ def split_arrays(
                 f"Cached split {cache_file} lacks a validation slice, "
                 f"re-splitting"
             )
+        elif val_split == 0 and has_val:
+            # a two-way request must not silently return a val slice
+            raise ValueError(
+                f"Cached split {cache_file} contains a validation slice "
+                f"but val_split == 0 was requested; delete the file to "
+                f"rebuild it as a two-way split"
+            )
         else:
             # cache-hit: reuse the split already on disk
             logger.warning(f"Data already split, loading {cache_file} only")
