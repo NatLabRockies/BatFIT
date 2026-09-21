@@ -16,4 +16,4 @@ epochs: 200
 lr: 0.001
 models_dir: p2d_discharge_surrogate/models
 # Path to a checkpoint to restart from (weights only); empty = train from scratch.
-restart_from:
+restart_from: null
