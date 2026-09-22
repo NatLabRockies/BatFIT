@@ -1,5 +1,4 @@
-"""Test the nochirp Gaussian NPE on validation set.
-"""
+"""Test the nochirp Gaussian NPE on validation set."""
 
 import os
 

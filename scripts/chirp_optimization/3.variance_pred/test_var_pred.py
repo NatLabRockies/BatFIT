@@ -27,8 +27,7 @@ def _parity_figure(
     log_axes: bool,
     out_file: str,
 ) -> None:
-    """Save a per-parameter parity plot of predicted vs NPE sigma.
-    """
+    """Save a per-parameter parity plot of predicted vs NPE sigma."""
     n_deg = len(param_names)
     ncols = 3
     nrows = int(np.ceil(n_deg / ncols))
@@ -74,8 +73,7 @@ def _parity_figure(
 
 
 def parity_plot(inp) -> None:
-    """Run inference on the val set, save parity plots and a sigma error table.
-    """
+    """Run inference on the val set, save parity plots and a sigma error table."""
     dataset_file = os.path.join(inp.var_pred_save_path, "var_pred_dataset.npz")
     assert os.path.isfile(dataset_file), (
         f"var_pred_dataset.npz not found at {dataset_file}; "

@@ -48,8 +48,8 @@ def test_multi_run():
     ]
     # prot names: time_start, amplitude, length
     prot_lines = [
-        "100 0.1 20",
-        "500 0.2 50",
+        "100 0.1 60",
+        "500 0.2 70",
         "1500 0.05 80",
     ]
 

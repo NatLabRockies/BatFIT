@@ -69,8 +69,7 @@ def _lr_schedule(
 def make_data_loaders(
     inp,
 ) -> tuple[torch.utils.data.DataLoader, torch.utils.data.DataLoader]:
-    """Load the variance predictor dataset and build train/test DataLoaders.
-    """
+    """Load the variance predictor dataset and build train/test DataLoaders."""
     dataset_file = os.path.join(inp.var_pred_save_path, "var_pred_dataset.npz")
     assert os.path.isfile(dataset_file), (
         f"var_pred_dataset.npz not found at {dataset_file}; "
@@ -111,8 +110,7 @@ def make_data_loaders(
 
 
 def define_model(inp) -> VariancePredFCNN:
-    """Instantiate VariancePredFCNN from recipe parameters.
-    """
+    """Instantiate VariancePredFCNN from recipe parameters."""
     sigma_mode = _detect_sigma_mode(inp.var_pred_save_path)
     model = VariancePredFCNN(
         n_prot=inp.n_prot_params,

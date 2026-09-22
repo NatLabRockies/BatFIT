@@ -1,5 +1,4 @@
-"""Test the nochirp FM NPE on validation split
-"""
+"""Test the nochirp FM NPE on validation split"""
 
 import os
 

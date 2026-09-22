@@ -125,8 +125,7 @@ def conditional_average(
 def conditional_std(
     x: np.ndarray, y: np.ndarray, nbins: int = 32
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Conditional mean and standard deviation of y with respect to x.
-    """
+    """Conditional mean and standard deviation of y with respect to x."""
     x_cond, y_mean = conditional_average(x, y, nbins)
     _, y_sq_mean = conditional_average(x, y**2, nbins)
     # Guard against tiny negative values from floating-point cancellation
@@ -146,8 +145,7 @@ def _make_grid(n_panels: int) -> tuple:
 
 
 def plot_optimization_clean(inp) -> None:
-    """Make the conditional-average plots from the saved npz results.
-    """
+    """Make the conditional-average plots from the saved npz results."""
     results_file = os.path.join(
         inp.save_path, "optimization_clean_results.npz"
     )
@@ -207,9 +205,7 @@ def plot_optimization_clean(inp) -> None:
         fig, axes = _make_grid(n_deg)
         for j, cond in enumerate(param_names):
             ax = axes[j]
-            centers, means = conditional_average(
-                Y_true[:, j], red_npe, n_bins
-            )
+            centers, means = conditional_average(Y_true[:, j], red_npe, n_bins)
             line_npe = ax.plot(centers, means, "o-", label="vs nochirp NPE")
             _, means_true = conditional_average(
                 Y_true[:, j], red_npe_true, n_bins
@@ -313,9 +309,7 @@ def plot_optimization_clean(inp) -> None:
             centers, means = conditional_average(
                 Y_true[:, j], sigma_nochirp[:, k], n_bins
             )
-            ax.plot(
-                centers, means, "o-", color="C0", label="nochirp NPE"
-            )
+            ax.plot(centers, means, "o-", color="C0", label="nochirp NPE")
             _, means = conditional_average(
                 Y_true[:, j], sigma_amp0_mean, n_bins
             )

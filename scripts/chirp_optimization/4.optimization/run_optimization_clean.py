@@ -2,18 +2,18 @@
 Evaluate the benefit of adding a chirp
 
 For each validation curve:
-  1. Run an NPE trained WITHOUT chirp to get (mu, sigma_nochirp) 
+  1. Run an NPE trained WITHOUT chirp to get (mu, sigma_nochirp)
   2. Run the CHIRP NPE on the same signal (requires to interpolate
-     to a finer time grid) with protocol input (time_start, amplitude=0, 
-     length), averaged over n_amp0_draws random (these extra inputs 
+     to a finer time grid) with protocol input (time_start, amplitude=0,
+     length), averaged over n_amp0_draws random (these extra inputs
      should not matter under amplitude=0)
      This gives sigma_amp0
   3. Fix mu and recommend a chirp: minimise the variance
      estimator wrt the protocol parameters.
-     Loop over each degradation parameter. 
+     Loop over each degradation parameter.
      The optimisation is run twice: from the NPE estimate mu (deployable case)
      and from the ground-truth parameters (P_opt_true, sigma_opt_true) to
-     isolate the effect of mu inaccuracy. 
+     isolate the effect of mu inaccuracy.
 
 Results are saved to a single npz; plots are made separately
 """
@@ -263,6 +263,7 @@ def run_optimization_clean(inp) -> None:
     for k, name in enumerate(param_names):
         logger.info(f"Optimizing chirp for '{name}' ({k + 1}/{n_deg})")
         from prettyPlot.progressBar import print_progress_bar
+
         print_progress_bar(
             0,
             n_curves,

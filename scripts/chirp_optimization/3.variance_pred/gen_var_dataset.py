@@ -31,8 +31,7 @@ from batfit.utils.torch_utils import find_best_model_file, get_device_type
 
 
 def _load_npe(inp):
-    """Load the best NPE checkpoint and move to the compute device.
-    """
+    """Load the best NPE checkpoint and move to the compute device."""
     model_pkl = os.path.join(inp.npe_models_dir, "model.pkl")
     best_pt = find_best_model_file(inp.npe_models_dir)
     logger.info(f"Loading NPE from {best_pt}")
@@ -75,7 +74,7 @@ def _process_split(
     """Run the frozen NPE over one data split with noise augmentation.
 
     For each batch of size B:
-      - Tiles X and P to (B * n_noise, …) so one forward pass covers 
+      - Tiles X and P to (B * n_noise, …) so one forward pass covers
         all noise realisations simultaneously.
       - For ProbProtParamCNN: one forward pass gives (mu_k, sigma_k) per
         noisy copy directly.
@@ -161,8 +160,7 @@ def _process_split(
 
 
 def gen_var_dataset(inp) -> None:
-    """Build and save the variance predictor dataset.
-    """
+    """Build and save the variance predictor dataset."""
     os.makedirs(inp.var_pred_save_path, exist_ok=True)
 
     # Load data split (unscaled physical values)
