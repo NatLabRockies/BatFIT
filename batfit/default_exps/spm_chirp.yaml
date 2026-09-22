@@ -20,27 +20,27 @@ max degradation parameter:
     eps_s_c_am:    1.0
 
 min protocol parameter:
-    time_start: 10.0
+    time_start: 100.0
     amplitude: 0.0
-    length: 10.0
+    length: 50.0
 
 
 max protocol parameter:
-    time_start: 2000.0
-    amplitude: 0.3
-    length: 100.0
+    time_start: 16000.0
+    amplitude: 10.0
+    length: 200.0
 
 
 macroscopic:
     vmin:       3
     vmax:       4.1
-    C:          -1.0
-    tmax:       5000
+    C:          -0.1
+    tmax:       60000
     cap:        1.89e-2               # Nominal capacity                       [A*h]
     model:      SPM
     temp:       303.15                # Temperature                              [K]
     area:       1.4e-3                # Cell area                              [m^2]
-    material:   ./graphite_nmc532.yaml
+    material:   graphite_nmc532
 
 electrolyte:
     Li_0:       1.2                   # Initial Li+ conc.                 [kmol/m^3]
@@ -75,5 +75,3 @@ cathode:
     x_0:        0.99                  # Initial intercalation frac.              [-]
     i0_deg:     1.0                   # Degradation factor for i0                [-]
     Ds_deg:     1.0                   # Degradation factor for Ds                [-]
-
-    
