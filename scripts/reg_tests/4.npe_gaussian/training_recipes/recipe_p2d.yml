@@ -24,7 +24,7 @@ epochs: 20
 lr: 0.0001
 models_dir: models_p2d
 # Path to a checkpoint to restart from (weights only); empty = train from scratch.
-restart_from:
+restart_from: null
 
 #SURROGATE
 surrogate_model_recipe: ../2.surrogate/training_recipes/recipe_p2d.yml

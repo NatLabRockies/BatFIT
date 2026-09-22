@@ -1,0 +1,28 @@
+# --- Models (frozen; from earlier steps) ---
+nochirp_npe_models_dir: ../2.npe_fm/models_spm_nochirp
+chirp_npe_models_dir: ../2.npe_fm/models_spm_chirp
+var_pred_models_dir: ../3.variance_pred/var_pred_spm/models
+var_pred_save_path: ../3.variance_pred/var_pred_data_spm
+
+# --- Data ---
+nochirp_data_path: ../1.gen_data/data_spm_nochirp
+chirp_data_path: ../1.gen_data/data_spm_chirp
+sim_config: spm_chirp.yaml       # chirp config: supplies protocol bounds + names
+cyc_mode: chargecc               # observations are the plain (nochirp) charge
+target_mode: phi
+noise_factor: 1.0
+
+# --- Settings ---
+n_curves: 1000                   # HPC: 10000 (capped at the nochirp val size)
+n_restarts: 3                    # HPC: 10
+n_noise_npe: 2                   # HPC: 5
+n_amp0_draws: 3                  # HPC: 5
+n_bins: 10                       # HPC: 30
+random_seed: 42
+gen_batch_size: 256
+# FM sampling for the NPE (mu, sigma) estimates
+n_samples: 125                   # HPC: 1000
+n_ode_steps: 50                  # HPC: 100
+
+# --- Output ---
+save_path: optimization_results_spm

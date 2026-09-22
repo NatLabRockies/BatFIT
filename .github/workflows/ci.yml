@@ -202,3 +202,94 @@ jobs:
             exit 3
           fi
           cd ../../../
+
+  Regression-Test-Chirp:
+    name: (Regression-Test-Chirp ${{ matrix.python-version }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.14']
+        # macOS runners are excluded for the same MPS/Metal reason as the
+        # main regression job; the chirp suite only runs on Linux.
+        os: ['ubuntu-latest']
+        mpi: ['openmpi']
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Setup MPI
+        uses: mpi4py/setup-mpi@v1
+        with:
+          mpi: ${{ matrix.mpi }}
+
+      - name: Install batfit
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade nox
+          pip install .[tests]
+
+      - name: Generate chirp + nochirp data in parallel with MPI
+        env:
+          MPLBACKEND: Agg
+        run: |
+          cd scripts/reg_chirp_optimization/1.gen_data
+          bash run_spm.sh
+          for d in data_spm_chirp data_spm_nochirp; do
+            if [ ! -f "$d/sols.pkl" ]; then
+              exit 1
+            fi
+            if [ ! -f "$d/all_sol.png" ]; then
+              exit 2
+            fi
+          done
+          cd ../../../
+      - name: NPE training (FM, chirp + nochirp)
+        run: |
+          cd scripts/reg_chirp_optimization/2.npe_fm
+          bash run_spm.sh
+          for m in models_spm_chirp models_spm_nochirp; do
+            if [ ! -f "$m/post_val.txt" ]; then
+              exit 1
+            fi
+            if [ ! -f "$m/model_best.pt" ]; then
+              exit 3
+            fi
+          done
+          cd ../../../
+      - name: Variance predictor (chirp)
+        run: |
+          cd scripts/reg_chirp_optimization/3.variance_pred
+          bash run_spm.sh
+          if [ ! -f "var_pred_data_spm/scaler_logsigma.pkl" ]; then
+            exit 1
+          fi
+          if [ ! -f "var_pred_spm/models/model_best.pt" ]; then
+            exit 3
+          fi
+          if [ ! -f "var_pred_spm/models/val_error_sigma.txt" ]; then
+            exit 2
+          fi
+          if [ ! -f "var_pred_spm/models/sensitivity.png" ]; then
+            exit 4
+          fi
+          cd ../../../
+      - name: Chirp optimization
+        run: |
+          cd scripts/reg_chirp_optimization/4.optimization
+          bash run_spm.sh
+          if [ ! -f "optimization_results_spm/optimization_clean_results.npz" ]; then
+            exit 1
+          fi
+          if [ ! -f "optimization_results_spm/figures/var_reduction_i0_a.png" ]; then
+            exit 2
+          fi
+          cd ../../../

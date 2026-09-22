@@ -1,0 +1,19 @@
+# train_var_pred.py / test_var_pred.py — chirp variance estimator
+# NPE-agnostic: operates only on var_pred_dataset.npz (from gen_var_dataset.py).
+
+# DATA
+n_param_pred: 6
+n_prot_params: 3
+sim_config: p2d_chirp.yaml
+var_pred_save_path: var_pred_data_p2d
+
+# ARCH
+hidden_list: [128, 128]      # HPC: [256, 256, 256, 256]
+
+# TRAIN
+batch_size: 32               # HPC: 2048
+epochs: 100                  # HPC: 500
+lr: 0.001
+models_dir: var_pred_p2d/models
+# Path to a checkpoint to restart from (weights only); null = from scratch.
+restart_from: null
