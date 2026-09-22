@@ -780,7 +780,7 @@ def write_exec(
             str_par += "\n"
             f.write(str_par)
 
-    if prot_samples is not None:
+    if prot_samples is not None and prot_samples.size > 0:
         with open(prot_param_list_file, "w+") as f:
             for sample in prot_samples:
                 str_par = ""
