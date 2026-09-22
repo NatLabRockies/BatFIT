@@ -3,13 +3,11 @@
 [![batfit-CI](https://github.com/NatLabRockies/BatFIT/actions/workflows/ci.yml/badge.svg)](https://github.com/NatLabRockies/BatFIT/actions/workflows/ci.yml)
 [![python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://www.python.org)
 [![codecov](https://codecov.io/gh/NatLabRockies/BatFIT/graph/badge.svg)](https://app.codecov.io/gh/NatLabRockies/BatFIT)
-[![Documentation Status](https://readthedocs.org/projects/batfit/badge/?version=latest)](https://batfit.readthedocs.io/en/latest/?badge=latest)
+
 
 ## Summary
 
 This package implements several data-based techniques for parameter fitting in Li-ion battery models. It uses [BATMODS-lite](https://github.com/NatLabRockies/batmods-lite) to generate the data. 
-
-The repository contains the code that is used for the paper "Neural posterior estimation for scalable and accurate inverse parameter inference in Li-ion batteries", M. Hassanaly, C. R. Randall, P. J. Weddle, P. J. Gasper, C. Kelly, T. R. Tanim, K. Smith.
 
 ## Installation
 
@@ -27,7 +25,7 @@ pip install .             (basic installation)
 pip install -e .[dev]     (editable installation with developer options)
 ```
 
-## Get Started
+## Tutorial
 
 The regression tests (run as part of the CI) show how to use the basic capabilities of the code.
 1. Data generation with BATMODS-lite (``scripts/reg_tests/1.gen_data``). This demonstrates how to generate data from a single particle model in parallel. This has been tested with up to 3328 workers but uses 4 workers here. A single ``run_spm.sh`` also assembles the data and writes the train/test/validation split reused by every later step.
