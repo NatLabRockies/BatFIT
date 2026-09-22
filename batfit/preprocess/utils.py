@@ -252,7 +252,7 @@ def from_degparamlist_to_degparamdict(
         try:
             assert sim_params["deg_param_names"] == deg_param_names
         except AssertionError:
-            msg = f"ERROR: sim_params['deg_param_names'] and deg_param_names do not match\n"
+            msg = "ERROR: sim_params['deg_param_names'] and deg_param_names do not match\n"
             msg += f"\tsim_params['deg_param_names'] = {sim_params['deg_param_names']}"
             msg += f"\tdeg_param_names = {deg_param_names}"
             if parallel_env is None:
@@ -293,7 +293,7 @@ def from_protparamlist_to_protparamdict(
         try:
             assert sim_params["prot_param_names"] == prot_param_names
         except AssertionError:
-            msg = f"ERROR: sim_params['prot_param_names'] and prot_param_names do not match\n"
+            msg = "ERROR: sim_params['prot_param_names'] and prot_param_names do not match\n"
             msg += f"\tsim_params['prot_param_names'] = {sim_params['prot_param_names']}"
             msg += f"\tprot_param_names = {prot_param_names}"
             if parallel_env is None:

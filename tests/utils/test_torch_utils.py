@@ -11,7 +11,10 @@ from batfit.utils.torch_utils import (
     get_num_parameters,
     load_frozen_model,
     load_model,
+    read_restart_position,
+    restart_requested,
     save_model,
+    update_best_model,
 )
 
 
@@ -55,6 +58,13 @@ def test_save_load_model():
 
 def test_find_best_model_file():
     with tempfile.TemporaryDirectory() as tmp_dir:
+        # model_best.pt present -> preferred, no test_loss.csv scan needed
+        open(os.path.join(tmp_dir, "model_best.pt"), "w").close()
+        open(os.path.join(tmp_dir, "model_final.pt"), "w").close()
+        best = find_best_model_file(tmp_dir)
+        assert best == os.path.join(tmp_dir, "model_best.pt")
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
         # Best loss at an intermediate iteration -> closest checkpoint wins
         with open(os.path.join(tmp_dir, "test_loss.csv"), "w") as f:
             f.write("iter;loss\n100;1.0\n200;0.5\n300;0.7\n")
@@ -83,6 +93,77 @@ def test_find_best_model_file():
         open(os.path.join(tmp_dir, "model_final.pt"), "w").close()
         best = find_best_model_file(tmp_dir)
         assert best == os.path.join(tmp_dir, "model_final.pt")
+
+
+def test_update_best_model():
+    model = nn.Linear(4, 8)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        best_path = os.path.join(tmp_dir, "model_best.pt")
+
+        # Improving loss (inf -> 0.5) writes model_best.pt and returns new best
+        best = update_best_model(
+            test_loss=0.5,
+            best_test_loss=float("inf"),
+            model=model,
+            device_type="cpu",
+            log_folder=tmp_dir,
+        )
+        assert best == 0.5
+        assert os.path.isfile(best_path)
+
+        # Non-improving loss leaves the return value and file mtime unchanged
+        mtime = os.path.getmtime(best_path)
+        best = update_best_model(
+            test_loss=0.7,
+            best_test_loss=best,
+            model=model,
+            device_type="cpu",
+            log_folder=tmp_dir,
+        )
+        assert best == 0.5
+        assert os.path.getmtime(best_path) == mtime
+
+        # A tensor loss that improves is accepted and coerced to float
+        best = update_best_model(
+            test_loss=torch.tensor(0.1),
+            best_test_loss=best,
+            model=model,
+            device_type="cpu",
+            log_folder=tmp_dir,
+        )
+        assert best == float(torch.tensor(0.1))
+
+
+def test_read_restart_position():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        # No CSV -> start from scratch
+        assert read_restart_position(tmp_dir) == (0, 0)
+
+        # One row per epoch: 3 rows -> next epoch 3, last step 300
+        with open(os.path.join(tmp_dir, "test_loss.csv"), "w") as f:
+            f.write("step;loss\n100;1.0\n200;0.5\n300;0.7\n")
+        assert read_restart_position(tmp_dir) == (3, 300)
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        # Header only (no completed epochs) -> start from scratch
+        with open(os.path.join(tmp_dir, "test_loss.csv"), "w") as f:
+            f.write("step;loss\n")
+        assert read_restart_position(tmp_dir) == (0, 0)
+
+
+def test_restart_requested():
+    # None -> no restart
+    assert restart_requested(None) is False
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        # Existing file -> restart requested
+        ckpt = os.path.join(tmp_dir, "model_best.pt")
+        open(ckpt, "w").close()
+        assert restart_requested(ckpt) is True
+
+        # Missing file -> warn and fall back to scratch (False)
+        missing = os.path.join(tmp_dir, "does_not_exist.pt")
+        assert restart_requested(missing) is False
 
 
 def test_load_frozen_model():

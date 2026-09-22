@@ -1,10 +1,10 @@
-"""Evaluate a trained ProbParamFM (no protocol conditioning) on held-out data.
+"""Evaluate a trained ProbParamFM (no protocol conditioning) on the val slice.
 
-Evaluates both the held-out "test" split (inp.data_path) and the separate
-synthetic "val" dataset (inp.data_val_path), matching 4.npe_cnn/test_nn.py.
-Also includes the surrogate voltage-fit round-trip check, adapted to use the
-FM's real posterior samples directly (instead of resampling a Gaussian from
-mu/sigma, as the CNN version does).
+Reports metrics on the held-out validation slice of ``data_split.npz`` in the
+training dataset (``inp.data_path``), matching 4.npe_gaussian/test_nn.py. Also
+includes the surrogate voltage-fit round-trip check, adapted to use the FM's
+real posterior samples directly (instead of resampling a Gaussian from
+mu/sigma, as the Gaussian NPE version does).
 """
 
 import os
@@ -124,41 +124,22 @@ def empirical_coverage(
     return covered.mean()
 
 
-def test_perf(inp, mode: str = "test") -> None:
+def test_perf(inp, mode: str = "val") -> None:
     """Evaluate the trained FM model and write a report.
 
-    :param mode: "test" evaluates the held-out test split of the training
-        dataset (inp.data_path); "val" evaluates the separate synthetic
-        validation dataset (inp.data_val_path), matching 4.npe_cnn/test_nn.py.
+    Metrics are reported on the held-out validation slice of ``data_split.npz``
+    in the training dataset (``inp.data_path``).
     """
-    if mode.lower() == "test":
-        data_path = inp.data_path
-        split_file = os.path.join(data_path, "data_split.npz")
-        if not os.path.isfile(split_file):
-            logger.warning(
-                f"Split file not found at {split_file}, skipping test"
-            )
-            return
-        A = np.load(split_file)
-        X_scaled = scale_input_from_scaler(
-            A["X_test"], os.path.join(data_path, "scaler_X.pkl")
-        )
-        Y_test = A["Y_test"]
-    elif mode.lower() == "val":
-        data_path = inp.data_val_path
-        assembled_file = os.path.join(data_path, "assembled_data.npz")
-        if not os.path.isfile(assembled_file):
-            logger.warning(
-                f"Assembled data not found at {assembled_file}, skipping val"
-            )
-            return
-        A = np.load(assembled_file)
-        X_scaled = scale_input_from_scaler(
-            A["X_data"], os.path.join(data_path, "scaler_X.pkl")
-        )
-        Y_test = A["Y_data"]
-    else:
-        raise NotImplementedError(mode)
+    data_path = inp.data_path
+    split_file = os.path.join(data_path, "data_split.npz")
+    if not os.path.isfile(split_file):
+        logger.warning(f"Split file not found at {split_file}, skipping val")
+        return
+    A = np.load(split_file)
+    X_scaled = scale_input_from_scaler(
+        A["X_val"], os.path.join(data_path, "scaler_X.pkl")
+    )
+    Y_test = A["Y_val"]
 
     # Training uses scale_y=True, so model.sample() returns posterior samples
     # in z-scored parameter space; scaler_Y brings them back to physical
@@ -288,9 +269,13 @@ def test_perf(inp, mode: str = "test") -> None:
         truth_time=truth_time,
     )
 
-    surrogate, surrogate_scaler = load_surrogate_model(
-        ri.basic_input(inp.surrogate_model_recipe)
-    )
+    surr_inp = ri.basic_input(inp.surrogate_model_recipe)
+    # Rebase the surrogate recipe's relative models_dir/data_path onto its own
+    # step dir so they resolve from our CWD.
+    surr_base = os.path.dirname(os.path.dirname(inp.surrogate_model_recipe))
+    surr_inp.models_dir = os.path.join(surr_base, surr_inp.models_dir)
+    surr_inp.data_path = os.path.join(surr_base, surr_inp.data_path)
+    surrogate, surrogate_scaler = load_surrogate_model(surr_inp)
     forward_model = ForwardModel(surrogate, surrogate_scaler)
     voltage_error = np.zeros(samples_pred_params.shape[:2])
     logger.info("Computing voltage error")
@@ -359,5 +344,4 @@ def test_perf(inp, mode: str = "test") -> None:
 
 if __name__ == "__main__":
     inp = ri.basic_input(sys.argv[1])
-    test_perf(inp, mode="test")
-    test_perf(inp, mode="val")
+    test_perf(inp)

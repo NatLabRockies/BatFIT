@@ -3,28 +3,19 @@ import torch
 import torch.nn as nn
 
 from batfit import logger
-from batfit.utils.torch_utils import (
-    get_device_type,
-    get_num_parameters,
-    load_model,
-    log_training,
-    make_dataset_from_np,
-    prepare_log,
-    save_model,
-)
 
 from .param_utils.model_utils import (
     _build_cnn_encoder,
     _build_hidden_fcnn_layers,
     _build_output_heads,
-    _ParamScalingMixin,
     _ProbParamBase,
     _ProbParamFMBase,
-    _VFWrapper,
 )
 
 
 class ProbParamCNN(_ProbParamBase):
+    """CNN encoder for electrochemical signal."""
+
     def __init__(
         self,
         input_shape,
@@ -111,6 +102,8 @@ class ProbParamCNN(_ProbParamBase):
 
 
 class ProbParamFCNN(_ProbParamBase):
+    """FCNN encoder for electrochemical signal"""
+
     def __init__(
         self,
         input_shape,
@@ -193,13 +186,7 @@ class ProbParamFCNN(_ProbParamBase):
 
 
 class ProbProtParamCNN(_ProbParamBase):
-    """CNN encoder for electrochemical signal with protocol parameter fusion.
-
-    The CNN encodes the input signal (time, voltage, etc.), then the flattened
-    CNN output is concatenated with the protocol parameters before passing through
-    optional additional FC layers. The combined representation is then split into
-    independent mu and gamma prediction heads.
-    """
+    """CNN encoder for electrochemical signal with protocol parameter fusion."""
 
     def __init__(
         self,
@@ -285,9 +272,17 @@ class ProbProtParamCNN(_ProbParamBase):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Forward pass combining electrochemical signal and protocol parameters.
 
-        :param x: electrochemical signal of shape (batch, channels, time)
-        :param prot_params: protocol parameters of shape (batch, n_prot_params)
-        :return: (mu, gamma) — predicted parameter means and variances/covariance
+        Parameters
+        ----------
+        x: torch.Tensor
+            Electrochemical signal, shape ``(batch, channels, time)``
+        prot_params: torch.Tensor
+            Protocol parameters, shape ``(batch, n_prot_params)``
+
+        Returns
+        -------
+        tuple[torch.Tensor, torch.Tensor]
+            Predicted parameter means and variances/covariance ``(mu, gamma)``
         """
         x = self.cnn_layers(x)
         x = torch.cat((x, prot_params), dim=1)
@@ -303,22 +298,20 @@ class ProbProtParamCNN(_ProbParamBase):
 
 
 class ProbParamFM(_ProbParamFMBase):
-    """Flow matching model for battery parameter estimation.
+    """Flow matching model for battery parameter inference
 
     Two encoder modes are supported:
 
     **CNN mode** (default): a 1-D CNN is trained jointly with the velocity
-    field MLP end-to-end.  Requires ``input_shape``, ``chan_list``,
-    ``fc_list``.  ``cyc_mode="discharge-chargecc"`` is supported and uses
+    field MLP end-to-end.
+    Requires ``input_shape``, ``chan_list``, ``fc_list``
+    ``cyc_mode="discharge-chargecc"`` is supported and uses
     two independent CNN encoders whose embeddings are concatenated.
 
-    **External encoder mode**: a pre-trained encoder (e.g. the
-    ``ConvEncoder1D`` sub-module of a ``VAECNN``) is passed via
-    ``encoder_model``.  Its parameters are **frozen** and only the velocity
-    field MLP is trained.  The encoder must expose a ``latent_dim: int``
-    attribute and its ``forward(x)`` must return ``(mu, ...)`` where the
-    first element is the deterministic embedding (e.g. the VAE posterior
-    mean).  Pass ``vae_model.encoder``, not the full ``VAECNN``.
+    **External encoder mode**: a pre-trained encoder
+    passed via ``encoder_model``, parameters are **frozen**
+    The encoder must expose a ``latent_dim: int``
+    Pass ``vae_model.encoder``, not the full ``VAECNN``.
     ``cyc_mode="discharge-chargecc"`` is not supported in this mode.
 
     Training
@@ -349,28 +342,39 @@ class ProbParamFM(_ProbParamFMBase):
         attn_dropout: float = 0.0,
     ):
         """
-        :param vf_hidden_list: hidden dims of the velocity field MLP
-        :param input_shape: (n_channels, n_time_points); required in CNN mode
-        :param chan_list: Conv1d output channels per layer; required in CNN mode
-        :param fc_list: FC hidden dims after the CNN; required in CNN mode
-        :param encoder_model: pre-trained encoder (e.g. ``vae.encoder``);
-                              when given, CNN params are ignored and the
-                              encoder weights are frozen
-        :param leaky_relu_slope: negative slope for LeakyReLU in CNN mode
-        :param cyc_mode: cycling mode; "discharge-chargecc" uses dual CNN
-                         encoders (CNN mode only)
-        :param n_param_pred: number of degradation parameters to estimate
-        :param sim_config: path to sim config YAML for physical scaling;
-                           None skips scaling init
-        :param use_prior_matching: if True, use the empirical training-data
-                                   distribution as the base (requires calling
-                                   :meth:`set_prior_data` before training);
-                                   when False, N(0, I) is used
-        :param num_attn_heads: if > 0, insert a :class:`_SelfAttentionBlock`
-                               after the last CNN conv layer; must divide
-                               ``chan_list[-1]``; ignored when
-                               ``encoder_model`` is provided
-        :param attn_dropout: dropout inside MultiheadAttention
+        Parameters
+        ----------
+        vf_hidden_list: list[int]
+            Hidden dims of the velocity field MLP
+        input_shape: tuple[int, int], optional
+            ``(n_channels, n_time_points)``; required in CNN mode
+        chan_list: list[int], optional
+            Conv1d output channels per layer; required in CNN mode
+        fc_list: list[int], optional
+            FC hidden dims after the CNN; required in CNN mode
+        encoder_model: nn.Module, optional
+            Pre-trained encoder (e.g. ``vae.encoder``); when given, CNN
+            params are ignored and the encoder weights are frozen
+        leaky_relu_slope: float
+            Negative slope for LeakyReLU in CNN mode
+        cyc_mode: str
+            Cycling mode; ``"discharge-chargecc"`` uses dual CNN encoders
+            (CNN mode only)
+        n_param_pred: int
+            Number of degradation parameters to estimate
+        sim_config: str, optional
+            Path to sim config YAML for physical scaling; None skips
+            scaling init
+        use_prior_matching: bool
+            If True, use the empirical training-data distribution as the
+            base (requires calling :meth:`set_prior_data` before training);
+            when False, N(0, I) is used
+        num_attn_heads: int
+            If > 0, insert a :class:`_SelfAttentionBlock` after the last
+            CNN conv layer; must divide ``chan_list[-1]``; ignored when
+            ``encoder_model`` is provided
+        attn_dropout: float
+            Dropout inside MultiheadAttention
         """
         _cnn_mode = encoder_model is None
         if _cnn_mode and (
@@ -439,16 +443,7 @@ class ProbParamFM(_ProbParamFMBase):
         self.vf_layers = nn.Sequential(*_vf)
 
     def _encode(self, x: torch.Tensor) -> torch.Tensor:
-        """Encode the signal into an embedding vector.
-
-        In CNN mode uses the jointly trained convolutional encoder. In external
-        encoder mode calls ``encoder_model.forward(x)`` and takes the first
-        returned tensor as the deterministic embedding (the VAE posterior mean
-        when using a ``ConvEncoder1D``).
-
-        :param x: input signal, shape (batch, channels, time)
-        :return: embedding, shape (batch, emb_dim)
-        """
+        """Encode signal into an embedding vector."""
         if self.encoder_model is not None:
             out = self.encoder_model(x)
             return out[0] if isinstance(out, (tuple, list)) else out
@@ -471,19 +466,20 @@ class ProbParamFM(_ProbParamFMBase):
     ) -> torch.Tensor:
         """Predict the velocity u(z_t, t | x) of the conditional flow.
 
-        The velocity field u(z_t, t | x) is the quantity learned by flow
-        matching: it is the time-derivative of the probability path that
-        interpolates between a base sample x_0 ~ N(0, I) and a parameter
-        sample x_1 ~ p(params | x). At each training step, z_t and t are
-        sampled from the path (via AffineProbPath from flow_matching), and u
-        is regressed against the straight-line target velocity (x_1 - x_0)
-        using flow_matching_loss.
+        Parameters
+        ----------
+        x: torch.Tensor
+            Electrochemical signal, shape ``(batch, channels, time)``
+        z_t: torch.Tensor
+            Particle positions in parameter space at time t, shape
+            ``(batch, n_param_pred)``
+        t: torch.Tensor
+            Flow time in [0, 1], shape ``(batch,)``
 
-        :param x: electrochemical signal, shape (batch, channels, time)
-        :param z_t: particle positions in parameter space at time t,
-                    shape (batch, n_param_pred)
-        :param t: flow time in [0, 1], shape (batch,)
-        :return: predicted velocity, shape (batch, n_param_pred)
+        Returns
+        -------
+        torch.Tensor
+            Predicted velocity, shape ``(batch, n_param_pred)``
         """
         context = self._encode(x)
         return self._velocity_forward(z_t, t, context)
@@ -494,16 +490,21 @@ class ProbParamFM(_ProbParamFMBase):
         n_samples: int,
         n_steps: int = 100,
     ) -> torch.Tensor:
-        """Sample from the approximate posterior p(params | x).
+        """Sample posterior p(params | x).
 
-        Encodes x once, then integrates the learned ODE from z_0 ~ N(0, I)
-        at t=0 to t=1 using the midpoint method. Each observation in the
-        batch independently produces n_samples posterior draws.
+        Parameters
+        ----------
+        x: torch.Tensor
+            Electrochemical signal, shape ``(batch, channels, time)``
+        n_samples: int
+            Number of posterior samples per observation
+        n_steps: int
+            Number of ODE integration steps
 
-        :param x: electrochemical signal, shape (batch, channels, time)
-        :param n_samples: number of posterior samples per observation
-        :param n_steps: number of ODE integration steps
-        :return: posterior samples, shape (batch, n_samples, n_param_pred)
+        Returns
+        -------
+        torch.Tensor
+            Posterior samples, shape ``(batch, n_samples, n_param_pred)``
         """
         context = self._encode(x)
         return self._sample_from_context(
@@ -513,11 +514,6 @@ class ProbParamFM(_ProbParamFMBase):
 
 class ProbProtParamFM(_ProbParamFMBase):
     """Flow matching model conditioned on both signal and protocol parameters.
-
-    The electrochemical signal is encoded by a jointly trained 1-D CNN.  Its
-    embedding is concatenated with the protocol parameters and optionally
-    passed through fusion FC layers before serving as the context for the
-    velocity field MLP.
 
     Training
     --------
@@ -548,27 +544,39 @@ class ProbProtParamFM(_ProbParamFMBase):
         attn_dropout: float = 0.0,
     ):
         """
-        :param input_shape: (n_channels, n_time_points) of the input signal
-        :param chan_list: Conv1d output channels per layer
-        :param fc_list: FC hidden dims after the CNN
-        :param fc_prot_list: hidden dims for the protocol fusion FC layers;
-                             empty list skips fusion (prot_params concatenated
-                             directly to the CNN embedding)
-        :param vf_hidden_list: hidden dims of the velocity field MLP
-        :param n_prot_params: number of protocol parameters
-        :param leaky_relu_slope: negative slope for LeakyReLU in the CNN
-        :param cyc_mode: cycling mode; "discharge-chargecc" is not supported
-        :param n_param_pred: number of degradation parameters to estimate
-        :param sim_config: path to sim config YAML for physical scaling;
-                           None skips scaling init
-        :param use_prior_matching: if True, use the empirical training-data
-                                   distribution as the base (requires calling
-                                   :meth:`set_prior_data` before training);
-                                   when False, N(0, I) is used
-        :param num_attn_heads: if > 0, insert a :class:`_SelfAttentionBlock`
-                               after the last CNN conv layer; must divide
-                               ``chan_list[-1]``
-        :param attn_dropout: dropout inside MultiheadAttention
+        Parameters
+        ----------
+        input_shape: tuple[int, int]
+            ``(n_channels, n_time_points)`` of the input signal
+        chan_list: list[int]
+            Conv1d output channels per layer
+        fc_list: list[int]
+            FC hidden dims after the CNN
+        fc_prot_list: list[int]
+            Hidden dims for the protocol fusion FC layers; empty list skips
+            fusion (prot_params concatenated directly to the CNN embedding)
+        vf_hidden_list: list[int]
+            Hidden dims of the velocity field MLP
+        n_prot_params: int
+            Number of protocol parameters
+        leaky_relu_slope: float
+            Negative slope for LeakyReLU in the CNN
+        cyc_mode: str
+            Cycling mode; ``"discharge-chargecc"`` is not supported
+        n_param_pred: int
+            Number of degradation parameters to estimate
+        sim_config: str, optional
+            Path to sim config YAML for physical scaling; None skips
+            scaling init
+        use_prior_matching: bool
+            If True, use the empirical training-data distribution as the
+            base (requires calling :meth:`set_prior_data` before training);
+            when False, N(0, I) is used
+        num_attn_heads: int
+            If > 0, insert a :class:`_SelfAttentionBlock` after the last
+            CNN conv layer; must divide ``chan_list[-1]``
+        attn_dropout: float
+            Dropout inside MultiheadAttention
         """
         if cyc_mode.lower() == "discharge-chargecc":
             raise NotImplementedError(
@@ -633,15 +641,7 @@ class ProbProtParamFM(_ProbParamFMBase):
     def _encode_context(
         self, x: torch.Tensor, prot_params: torch.Tensor
     ) -> torch.Tensor:
-        """Encode signal and protocol parameters into a context vector.
-
-        Runs the signal through the CNN encoder, concatenates the protocol
-        parameters, then applies the optional fusion layers.
-
-        :param x: electrochemical signal, shape (batch, channels, time)
-        :param prot_params: protocol parameters, shape (batch, n_prot_params)
-        :return: context embedding, shape (batch, context_dim)
-        """
+        """Encode signal and protocol parameters into a context vector."""
         cnn_emb = self.cnn_layers(x)
         fused = torch.cat((cnn_emb, prot_params), dim=1)
         return self.prot_layers(fused)
@@ -655,19 +655,22 @@ class ProbProtParamFM(_ProbParamFMBase):
     ) -> torch.Tensor:
         """Predict the velocity u(z_t, t | x, prot_params) of the conditional flow.
 
-        The velocity field is conditioned jointly on the electrochemical signal
-        and the protocol parameters.  At each training step, z_t and t are
-        sampled from the probability path (via AffineProbPath) between a noise
-        sample x_0 ~ N(0, I) and the ground-truth parameter sample x_1, and
-        the predicted velocity is regressed against the straight-line target
-        (x_1 - x_0) using ``flow_matching_loss``.
+        Parameters
+        ----------
+        x: torch.Tensor
+            Electrochemical signal, shape ``(batch, channels, time)``
+        prot_params: torch.Tensor
+            Protocol parameters, shape ``(batch, n_prot_params)``
+        z_t: torch.Tensor
+            Particle positions in parameter space at time t, shape
+            ``(batch, n_param_pred)``
+        t: torch.Tensor
+            Flow time in [0, 1], shape ``(batch,)``
 
-        :param x: electrochemical signal, shape (batch, channels, time)
-        :param prot_params: protocol parameters, shape (batch, n_prot_params)
-        :param z_t: particle positions in parameter space at time t,
-                    shape (batch, n_param_pred)
-        :param t: flow time in [0, 1], shape (batch,)
-        :return: predicted velocity, shape (batch, n_param_pred)
+        Returns
+        -------
+        torch.Tensor
+            Predicted velocity, shape ``(batch, n_param_pred)``
         """
         context = self._encode_context(x, prot_params)
         return self._velocity_forward(z_t, t, context)
@@ -681,16 +684,21 @@ class ProbProtParamFM(_ProbParamFMBase):
     ) -> torch.Tensor:
         """Sample from the approximate posterior p(params | x, prot_params).
 
-        Encodes x and prot_params once, then integrates the learned ODE from
-        z_0 ~ N(0, I) at t=0 to t=1 using the midpoint method.  Each
-        observation in the batch independently produces n_samples posterior
-        draws.
+        Parameters
+        ----------
+        x: torch.Tensor
+            Electrochemical signal, shape ``(batch, channels, time)``
+        prot_params: torch.Tensor
+            Protocol parameters, shape ``(batch, n_prot_params)``
+        n_samples: int
+            Number of posterior samples per observation
+        n_steps: int
+            Number of ODE integration steps
 
-        :param x: electrochemical signal, shape (batch, channels, time)
-        :param prot_params: protocol parameters, shape (batch, n_prot_params)
-        :param n_samples: number of posterior samples per observation
-        :param n_steps: number of ODE integration steps
-        :return: posterior samples, shape (batch, n_samples, n_param_pred)
+        Returns
+        -------
+        torch.Tensor
+            Posterior samples, shape ``(batch, n_samples, n_param_pred)``
         """
         context = self._encode_context(x, prot_params)
         return self._sample_from_context(

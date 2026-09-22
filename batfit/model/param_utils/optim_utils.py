@@ -1,5 +1,5 @@
 """
-Shared helpers for NPE-based protocol optimization pipelines.
+NPE-based protocol optimization pipelines.
 """
 
 import numpy as np
@@ -28,37 +28,55 @@ def predict_mu_sigma(
 ) -> tuple:
     """Run a frozen NPE with noise averaging and return physical (mu, sigma).
 
-    Each curve is tiled n_noise times, independent noise is applied to each
-    copy, and (mu, sigma) are averaged over noise realisations. Dispatches on
-    the NPE architecture and conditioning:
+    Each curve is tiled n_noise times
+    (mu, sigma) are averaged over noise realisations.
+    Dispatches on the NPE architecture and conditioning:
 
     - CNN-style NPE (``ProbParamCNN`` / ``ProbProtParamCNN``): one forward
       pass gives (mu, gamma); ``inv_transform_output`` is applied when the
       model was trained with ``constrain_output``.
-    - Flow-matching NPE (``ProbParamFM`` / ``ProbProtParamFM``): no
-      closed-form (mu, sigma); ``model.sample()`` draws n_samples posterior
+    - Flow-matching NPE (``ProbParamFM`` / ``ProbProtParamFM``): draws n_samples posterior
       samples per noisy copy (z-scored) whose mean/std after
       ``scaler_Y.inverse_transform`` are used instead.
     - ``P_scaled=None`` selects the protocol-free call signature
       (``forward(x)`` / ``sample(x, ...)``); otherwise protocol parameters
       are passed as the second argument.
 
-    :param X_scaled: z-scored signal, shape (n_curves, channels, time)
-    :param npe_model: frozen NPE model
-    :param scaler_x: the NPE's CustomScaler (needed by apply_noise)
-    :param noise_levels: per-channel noise levels from make_noise_levels
-    :param a_min: per-channel lower clip bound from make_noise_levels
-    :param a_max: per-channel upper clip bound from make_noise_levels
-    :param n_noise: number of noise realisations averaged per curve
-    :param device: compute device
-    :param P_scaled: MinMax-scaled protocol params, shape (n_curves, n_prot);
-        None for an NPE trained without protocol conditioning
-    :param scaler_Y: FM only — inverse-transforms posterior samples from
-        z-scored to physical space; required for a flow-matching NPE
-    :param n_samples: FM only — posterior samples drawn per noisy copy
-    :param n_ode_steps: FM only — ODE integration steps for model.sample()
-    :param batch_size: curves processed per forward pass (None = all at once)
-    :return: (mu, sigma) in physical space, each shape (n_curves, n_deg)
+    Parameters
+    ----------
+    X_scaled: np.ndarray
+        Z-scored signal, shape ``(n_curves, channels, time)``
+    npe_model: torch.nn.Module
+        Frozen NPE model
+    scaler_x: CustomScaler
+        The NPE's CustomScaler (needed by apply_noise)
+    noise_levels: torch.Tensor
+        Per-channel noise levels from make_noise_levels
+    a_min: torch.Tensor
+        Per-channel lower clip bound from make_noise_levels
+    a_max: torch.Tensor
+        Per-channel upper clip bound from make_noise_levels
+    n_noise: int
+        Number of noise realisations averaged per curve
+    device: torch.device
+        Compute device
+    P_scaled: np.ndarray, optional
+        MinMax-scaled protocol params, shape ``(n_curves, n_prot)``; None
+        for an NPE trained without protocol conditioning
+    scaler_Y: object, optional
+        FM only — inverse-transforms posterior samples from z-scored to
+        physical space; required for a flow-matching NPE
+    n_samples: int
+        FM only — posterior samples drawn per noisy copy
+    n_ode_steps: int
+        FM only — ODE integration steps for model.sample()
+    batch_size: int, optional
+        Curves processed per forward pass (None = all at once)
+
+    Returns
+    -------
+    tuple
+        ``(mu, sigma)`` in physical space, each shape ``(n_curves, n_deg)``
     """
     n_curves = X_scaled.shape[0]
     n_deg = npe_model.n_param_pred
@@ -130,22 +148,28 @@ def sigma_physical(
 ) -> torch.Tensor:
     """Convert the variance estimator's raw output to physical sigma.
 
-    Differentiable in sigma_out so it can sit inside an autograd objective.
-    Dispatches on the scaler type, matching the target parameterisation the
-    estimator was trained with (see gen_var_dataset.py):
-
     - StandardScaler (``log_sigma: true``): output is z-scored log sigma;
       sigma = exp(out * scale_ + mean_)
     - MinMaxScaler (``scale_sigma: true``): output is MinMax-scaled sigma;
       sigma = out / scale_ + data_min_
     - None: Sigmoid output rescaled via inv_transform_gamma (amp_par)
 
-    :param sigma_out: raw VariancePredFCNN output
-    :param var_model: the variance estimator (provides inv_transform_gamma)
-    :param scaler_sigma: the sigma scaler saved by gen_var_dataset.py
-        (scaler_logsigma.pkl or scaler_sigma.pkl), or None
-    :param device: compute device
-    :return: sigma in physical space, same shape as sigma_out
+    Parameters
+    ----------
+    sigma_out: torch.Tensor
+        Raw VariancePredFCNN output
+    var_model: torch.nn.Module
+        The variance estimator (provides inv_transform_gamma)
+    scaler_sigma: object
+        The sigma scaler saved by gen_var_dataset.py
+        (``scaler_logsigma.pkl`` or ``scaler_sigma.pkl``), or None
+    device: torch.device
+        Compute device
+
+    Returns
+    -------
+    torch.Tensor
+        Sigma in physical space, same shape as sigma_out
     """
     if isinstance(scaler_sigma, StandardScaler):
         # Reverse z-scored log sigma: sigma = exp(z * scale + mean)
@@ -179,13 +203,24 @@ def evaluate_sigma(
 ) -> np.ndarray:
     """Return physical sigma for all parameters at one (P_scaled, mu_scaled).
 
-    :param P_scaled: protocol params in the variance estimator's MinMax
-        space, shape (n_prot,)
-    :param mu_scaled: MinMax-scaled degradation param mean, shape (n_deg,)
-    :param var_model: trained VariancePredFCNN
-    :param scaler_sigma: sigma scaler or None (see sigma_physical)
-    :param device: compute device
-    :return: physical sigma, shape (n_deg,)
+    Parameters
+    ----------
+    P_scaled: np.ndarray
+        Protocol params in the variance estimator's MinMax space,
+        shape ``(n_prot,)``
+    mu_scaled: np.ndarray
+        MinMax-scaled degradation param mean, shape ``(n_deg,)``
+    var_model: torch.nn.Module
+        Trained VariancePredFCNN
+    scaler_sigma: object
+        Sigma scaler or None (see sigma_physical)
+    device: torch.device
+        Compute device
+
+    Returns
+    -------
+    np.ndarray
+        Physical sigma, shape ``(n_deg,)``
     """
     p_t = torch.from_numpy(P_scaled.reshape(1, -1)).to(device)
     mu_t = torch.from_numpy(mu_scaled.reshape(1, -1)).to(device)
@@ -206,27 +241,36 @@ def optimize_protocol(
 ) -> tuple:
     """Find P_scaled that minimises sigma_physical[param_idx] for a fixed mu.
 
-    Runs L-BFGS-B (bounded quasi-Newton) with exact PyTorch autograd
-    gradients, restarted from n_restarts random initial points sampled
+    Runs L-BFGS-B (bounded quasi-Newton) with exact gradients
+    restarted from n_restarts random initial points sampled
     uniformly within bounds.
-    Clamping a protocol amplitude dimension to evaluate a
-    chirp-free baseline).
 
-    The single-parameter objective is isolated below; a joint criterion such
+    Single-parameter objective is isolated below; a joint criterion such
     as D-optimality (e.g. minimising the sum of log-sigmas over all
     degradation parameters) can later be added by swapping that objective.
 
-    :param mu_scaled: fixed MinMax-scaled degradation param mean,
-        shape (1, n_deg)
-    :param var_model: trained VariancePredFCNN
-    :param param_idx: index of the degradation parameter whose sigma is
-        minimised
-    :param bounds: list of (low, high) tuples in scaled protocol space, one
-        per protocol parameter
-    :param n_restarts: number of L-BFGS-B restarts
-    :param scaler_sigma: sigma scaler or None (see sigma_physical)
-    :param device: compute device
-    :return: (P_scaled_opt, sigma_physical_opt) for the target parameter
+    Parameters
+    ----------
+    mu_scaled: np.ndarray
+        Fixed MinMax-scaled degradation param mean, shape ``(1, n_deg)``
+    var_model: torch.nn.Module
+        Trained VariancePredFCNN
+    param_idx: int
+        Index of the degradation parameter whose sigma is minimised
+    bounds: list
+        List of ``(low, high)`` tuples in scaled protocol space, one per
+        protocol parameter
+    n_restarts: int
+        Number of L-BFGS-B restarts
+    scaler_sigma: object
+        Sigma scaler or None (see sigma_physical)
+    device: torch.device
+        Compute device
+
+    Returns
+    -------
+    tuple
+        ``(P_scaled_opt, sigma_physical_opt)`` for the target parameter
     """
     mu_t = torch.from_numpy(mu_scaled).to(device)  # (1, n_deg)
     n_prot = len(bounds)

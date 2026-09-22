@@ -1,6 +1,5 @@
 import os
 import pickle
-import random
 import re
 import sys
 import time
@@ -11,7 +10,6 @@ import numpy as np
 import pandas as pd
 
 from batfit import BATFIT_EXP, logger
-from batfit.preprocess.diff_cap import calc_dqdv_dvdq
 from batfit.preprocess.pickledb import PickleDB
 
 from .hdvolts_prot import (
@@ -23,8 +21,23 @@ from .hdvolts_prot import (
 from .mppoc_prot import (
     define_chirp_experiment,
 )
-from .sim_setup import *
-from .utils import *
+from .sim_setup import (
+    make_params,
+    set_battery,
+    set_discretization,
+    set_electrodes,
+    set_electrolyte,
+    set_interc,
+    set_separator,
+)
+from .utils import (
+    from_degparamlist_to_degparamdict,
+    from_param_list_to_str,
+    from_prot_param_list_to_str,
+    from_protparamlist_to_protparamdict,
+    reduce_npoints_records,
+    remove_file,
+)
 
 
 def mod_sim(
@@ -220,9 +233,7 @@ def robust_HPPC(sim, sim_params, force_fail=False, skip_degenerate_cv=True):
 
     def _run(exp, reset_state):
         if skip_degenerate_cv:
-            return run_steps_skip_degenerate_cv(
-                sim, exp, sim_params["vmax"]
-            )
+            return run_steps_skip_degenerate_cv(sim, exp, sim_params["vmax"])
         return sim.run(exp, reset_state=reset_state, bar=False)
 
     sol = None
@@ -264,6 +275,7 @@ def robust_HPPC(sim, sim_params, force_fail=False, skip_degenerate_cv=True):
                 pass
         pass
     return sol
+
 
 def run_steps_skip_degenerate_cv(
     sim: bm.SPM._simulation.Simulation | bm.P2D._simulation.Simulation,
@@ -340,9 +352,7 @@ def robust_postHPPC(
 
     def _run(exp, reset_state):
         if skip_degenerate_cv:
-            return run_steps_skip_degenerate_cv(
-                sim, exp, sim_params["vmax"]
-            )
+            return run_steps_skip_degenerate_cv(sim, exp, sim_params["vmax"])
         return sim.run(exp, reset_state=reset_state, bar=False)
 
     sol = None
@@ -573,8 +583,6 @@ def single_run(
         prot_params_list = [
             prot_param_sample[key] for key in sim_params["prot_param_names"]
         ]
-    param_string = from_param_list_to_str(params_list)
-
     bat_model = None
     if sim_params["model"] == "SPM":
         bat_model = "SPM"
@@ -647,9 +655,7 @@ def single_run(
                 sim=sim,
                 sim_params=sim_params,
                 force_fail=force_fail,
-                skip_degenerate_cv=sim_params.get(
-                    "skip_degenerate_cv", True
-                ),
+                skip_degenerate_cv=sim_params.get("skip_degenerate_cv", True),
             )
             if rootsol is None:
                 print(f"All sim failed for {deg_param_sample}")
@@ -660,9 +666,7 @@ def single_run(
                 sim=sim,
                 sim_params=sim_params,
                 force_fail=force_fail,
-                skip_degenerate_cv=sim_params.get(
-                    "skip_degenerate_cv", True
-                ),
+                skip_degenerate_cv=sim_params.get("skip_degenerate_cv", True),
             )
             if rootsol is None:
                 print(f"All sim failed for {deg_param_sample}")
@@ -902,7 +906,6 @@ def single_run_save(
                 if store_current:
                     save_dict["i"] = sol_dict["i"][:ind_t_max, -1]
 
-        t = sol_dict["t"]
         phis_c = sol_dict["phis_c"]
         assert np.amax(phis_c) - np.amin(phis_c) > 0.1
 
@@ -1901,8 +1904,6 @@ if __name__ == "__main__":
     import argparse
 
     import batfit.utils.parallel as parallel_env
-    from batfit import BATFIT_EXP
-    from batfit.preprocess.sim_setup import make_params
 
     parser = argparse.ArgumentParser(description="dataset generator")
     parser.add_argument(

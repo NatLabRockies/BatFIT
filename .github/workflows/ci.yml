@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.10']
+        python-version: ['3.11']
         os: ['ubuntu-latest']
     defaults:
       run:
@@ -63,7 +63,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.10', '3.14']
+        python-version: ['3.11', '3.14']
         os: ['ubuntu-latest', 'macos-latest']
 
     steps:
@@ -74,8 +74,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip' 
-      
+          cache: 'pip'
+
       - name: Cache Nox
         uses: actions/cache@v4
         with:
@@ -86,12 +86,26 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install --upgrade nox
-          pip install .[tests]
+          pip install -e .[tests]
 
       - name: Pytest
         env:
           MPLBACKEND: Agg
         run: nox -s tests -- no-reports
+
+      - name: Coverage report
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+        env:
+          MPLBACKEND: Agg
+        run: nox -s tests -- no-cleanup
+
+      - name: Upload coverage reports to Codecov
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: reports/coverage.xml
+          fail_ci_if_error: false
 
   Regression-Test:
     name: (Regression-Test ${{ matrix.python-version }}, ${{ matrix.os }})
@@ -100,8 +114,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.10', '3.14']
-        os: ['ubuntu-latest', 'macos-latest']
+        python-version: ['3.11', '3.14']
+        # macOS runners are excluded: torch's MultivariateNormal (used in the
+        # NPE-Gaussian loss) triggers a Cholesky kernel that fails to compile on
+        # the runner's MPS/Metal backend. The regression only runs on Linux.
+        os: ['ubuntu-latest']
         mpi: ['openmpi']
 
     steps:
@@ -130,32 +147,32 @@ jobs:
           MPLBACKEND: Agg
         run: |
           cd scripts/reg_tests/1.gen_data
-          bash run.sh
+          bash run_spm.sh
           if [ ! -f "data_spm_discharge/sols.pkl" ]; then
             exit 1
-          fi 
-          bash run_val.sh
-          if [ ! -f "data_spm_discharge_val/sols.pkl" ]; then
+          fi
+          if [ ! -f "data_spm_discharge/data_split.npz" ]; then
             exit 1
-          fi 
+          fi
           cd ../../../
       - name: Train surrogate
         run: |
-          cd scripts/reg_tests/2.train_surrogate
-          bash run_change_recipe_github.sh
-          bash run.sh
+          cd scripts/reg_tests/2.surrogate
+          bash run_spm.sh
           if [ ! -f "spm_discharge_surrogate/models/model_final.pt" ]; then
             exit 1
-          fi 
+          fi
+          if [ ! -f "spm_discharge_surrogate/models/model_best.pt" ]; then
+            exit 3
+          fi
           if [ ! -f "spm_discharge_surrogate/models/Figures/surr_preds.pdf" ]; then
             exit 2
-          fi 
+          fi
           cd ../../../
       - name: Do MCMC with the surrogate
         run: |
           cd scripts/reg_tests/3.surrogate_mcmc
-          bash run_change_recipe_github.sh
-          bash run.sh
+          bash run_spm.sh
           if [ ! -f "spm_discharge_surrogate_mcmc/models/samples.npz" ]; then
             exit 1
           fi 
@@ -163,27 +180,116 @@ jobs:
             exit 2
           fi 
           cd ../../../
-      - name: NPE training (CNN)
+      - name: NPE training (Gaussian)
         run: |
-          cd scripts/reg_tests/4.npe_cnn
-          bash run_change_recipe_github.sh
-          bash run.sh
-          if [ ! -f "models/post_test.txt" ]; then
+          cd scripts/reg_tests/4.npe_gaussian
+          bash run_spm.sh
+          if [ ! -f "models_spm/post_val.txt" ]; then
             exit 1
           fi
-          if [ ! -f "models/post_val.txt" ]; then
-            exit 2
+          if [ ! -f "models_spm/model_best.pt" ]; then
+            exit 3
           fi
           cd ../../../
       - name: NPE training (FM)
         run: |
           cd scripts/reg_tests/5.npe_fm
-          bash run_change_recipe_github.sh
-          bash run.sh
-          if [ ! -f "models/post_test.txt" ]; then
+          bash run_spm.sh
+          if [ ! -f "models_spm/post_val.txt" ]; then
             exit 1
           fi
-          if [ ! -f "models/post_val.txt" ]; then
+          if [ ! -f "models_spm/model_best.pt" ]; then
+            exit 3
+          fi
+          cd ../../../
+
+  Regression-Test-Chirp:
+    name: (Regression-Test-Chirp ${{ matrix.python-version }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.14']
+        # macOS runners are excluded for the same MPS/Metal reason as the
+        # main regression job; the chirp suite only runs on Linux.
+        os: ['ubuntu-latest']
+        mpi: ['openmpi']
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Setup MPI
+        uses: mpi4py/setup-mpi@v1
+        with:
+          mpi: ${{ matrix.mpi }}
+
+      - name: Install batfit
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade nox
+          pip install .[tests]
+
+      - name: Generate chirp + nochirp data in parallel with MPI
+        env:
+          MPLBACKEND: Agg
+        run: |
+          cd scripts/reg_chirp_optimization/1.gen_data
+          bash run_spm.sh
+          for d in data_spm_chirp data_spm_nochirp; do
+            if [ ! -f "$d/sols.pkl" ]; then
+              exit 1
+            fi
+            if [ ! -f "$d/all_sol.png" ]; then
+              exit 2
+            fi
+          done
+          cd ../../../
+      - name: NPE training (FM, chirp + nochirp)
+        run: |
+          cd scripts/reg_chirp_optimization/2.npe_fm
+          bash run_spm.sh
+          for m in models_spm_chirp models_spm_nochirp; do
+            if [ ! -f "$m/post_val.txt" ]; then
+              exit 1
+            fi
+            if [ ! -f "$m/model_best.pt" ]; then
+              exit 3
+            fi
+          done
+          cd ../../../
+      - name: Variance predictor (chirp)
+        run: |
+          cd scripts/reg_chirp_optimization/3.variance_pred
+          bash run_spm.sh
+          if [ ! -f "var_pred_data_spm/scaler_logsigma.pkl" ]; then
+            exit 1
+          fi
+          if [ ! -f "var_pred_spm/models/model_best.pt" ]; then
+            exit 3
+          fi
+          if [ ! -f "var_pred_spm/models/val_error_sigma.txt" ]; then
+            exit 2
+          fi
+          if [ ! -f "var_pred_spm/models/sensitivity.png" ]; then
+            exit 4
+          fi
+          cd ../../../
+      - name: Chirp optimization
+        run: |
+          cd scripts/reg_chirp_optimization/4.optimization
+          bash run_spm.sh
+          if [ ! -f "optimization_results_spm/optimization_clean_results.npz" ]; then
+            exit 1
+          fi
+          if [ ! -f "optimization_results_spm/figures/var_reduction_i0_a.png" ]; then
             exit 2
           fi
           cd ../../../

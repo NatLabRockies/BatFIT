@@ -5,9 +5,7 @@ from batfit.model.param_utils.losses import (
     independent_normal_loss,
 )
 from batfit.model.param_utils.losses import mse_loss as mse_loss_param
-from batfit.model.param_utils.losses import (
-    pinball_loss,
-)
+from batfit.model.param_utils.losses import pinball_loss
 from batfit.model.surrogate_utils.losses import mae_loss as mae_loss_surr
 from batfit.model.surrogate_utils.losses import mse_loss as mse_loss_surr
 

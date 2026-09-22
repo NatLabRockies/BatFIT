@@ -21,13 +21,13 @@ max degradation parameter:
 macroscopic:
     vmin:       3
     vmax:       4.1
-    C:          -1.0
-    tmax:       5000
+    C:          -0.1
+    tmax:       60000
     cap:        1.89e-2               # Nominal capacity                       [A*h]
     model:      SPM
     temp:       303.15                # Temperature                              [K]
     area:       1.4e-3                # Cell area                              [m^2]
-    material:   ./graphite_nmc532.yaml
+    material:   graphite_nmc532
 
 electrolyte:
     Li_0:       1.2                   # Initial Li+ conc.                 [kmol/m^3]

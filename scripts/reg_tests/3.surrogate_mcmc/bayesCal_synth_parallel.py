@@ -47,26 +47,6 @@ from batfit.model.param_utils.noise_utils import (
 )
 
 
-def make_val_data(inp):
-    data_root_folder = inp.data_path_discharge
-    n_points = inp.n_points
-    n_param_pred = inp.n_param_pred
-    cyc_mode = inp.cyc_mode
-
-    # This is optional, and is useful to look at the voltage curve prediction
-    X_npe_data, Y_npe_data = assemble_all_data(
-        data_root_folder,
-        n_points=n_points,
-        combined_pickle_file=os.path.join(data_root_folder, "sols.pkl"),
-        target_mode="phi",
-        save_data=True,
-        cyc_mode=cyc_mode,
-        save_path=data_root_folder,
-    )
-
-    return
-
-
 def load_model(inp):
     model, scaler = define_model(inp)
     best_model_file = find_best_model_file(inp.models_dir)
@@ -79,6 +59,13 @@ def load_model(inp):
 def load_surrogates(inp):
     models = {}
     inp_discharge = ri.basic_input(inp.model_discharge_recipe)
+    # Rebase the surrogate recipe's relative models_dir/data_path onto its own
+    # step dir so they resolve from our CWD.
+    surr_base = os.path.dirname(os.path.dirname(inp.model_discharge_recipe))
+    inp_discharge.models_dir = os.path.join(
+        surr_base, inp_discharge.models_dir
+    )
+    inp_discharge.data_path = os.path.join(surr_base, inp_discharge.data_path)
     tmp_d = load_model(inp_discharge)
     models["discharge"] = {
         "torch_model": tmp_d[0],
@@ -148,16 +135,17 @@ def load_synthetic_data(inp):
         cyc_mode=inp.cyc_mode,
     )
     data_path = inp.data_path_discharge
-    tmp = np.load(os.path.join(data_path, "assembled_data.npz"))
+    # Use the held-out validation slice as the synthetic observations to invert.
+    tmp = np.load(os.path.join(data_path, "data_split.npz"))
     batch_in_unscaled = apply_noise_unscaled(
-        torch.tensor(tmp["X_data"]),
+        torch.tensor(tmp["X_val"]),
         noise_levels=noise_levels,
         a_min=a_min,
         a_max=a_max,
     )
     t["discharge"] = batch_in_unscaled[:, 0, :]
     phi["discharge"] = batch_in_unscaled[:, 1, :]
-    truth["discharge"] = tmp["Y_data"][:, :]
+    truth["discharge"] = tmp["Y_val"][:, :]
 
     return (
         t,
@@ -172,9 +160,6 @@ if __name__ == "__main__":
     import batfit.utils.parallel as parallel_env
 
     inp = ri.basic_input(sys.argv[1])
-    if parallel_env.irank == parallel_env.iroot:
-        make_val_data(inp)
-    parallel_env.barrier()
     min_sigma = inp.min_sigma
     max_sigma = inp.max_sigma
     calibrate_sigma = inp.calibrate_sigma
@@ -208,8 +193,9 @@ if __name__ == "__main__":
     for key in cycle_types:
         if total_data_t[key].shape[0] < min_test:
             min_test = total_data_t[key].shape[0]
-    # only do 4 mcmc for regression test
-    min_test = 4
+    # MCMC is far more expensive than NPE, so cap how many val curves we invert
+    # (never exceeding the available val count).
+    min_test = min(int(min_test), inp.n_val_mcmc)
 
     n_test_, start_test_ = parallel_env.partitionData(min_test)
 

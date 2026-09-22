@@ -1,0 +1,175 @@
+import os
+
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"  # Enable MPS fallback
+import pickle
+
+import numpy as np
+import torch
+from prettyPlot.plotting import *
+from train_nn import define_model
+
+from batfit import BATFIT_DIR, BATFIT_EXP, logger
+from batfit.basicutilityc import ReadInput as ri
+from batfit.utils.data_utils import *
+from batfit.utils.torch_utils import *
+
+
+def test_perf(inp):
+    data_path = inp.data_path
+    if not os.path.isfile(os.path.join(data_path, "data_surrogate_split.npz")):
+        if os.path.isfile(os.path.join(data_path, "data_split.npz")):
+            tmp = np.load(os.path.join(data_path, "data_split.npz"))
+            X_val, Y_val = from_param_to_surrogate_data(
+                tmp["X_val"], tmp["Y_val"]
+            )
+        else:
+            return
+    else:
+        # Make dataset
+        A_split = np.load(os.path.join(data_path, "data_surrogate_split.npz"))
+        X_val = A_split["X_val"]
+        Y_val = A_split["Y_val"]
+    X_scaled = scale_input_from_scaler(
+        X_val, os.path.join(inp.data_path, "scaler_surrogate_X.pkl")
+    )
+    input_data = torch.Tensor(X_scaled)
+    output_data = torch.Tensor(Y_val)
+    shape_in = input_data[0].shape
+    test_data_loader = torch.utils.data.DataLoader(
+        torch.utils.data.TensorDataset(input_data, output_data),
+        batch_size=512 * 256,
+        shuffle=False,
+    )
+
+    # Make model
+    model, scaler = define_model(inp)
+    best_model_file = find_best_model_file(inp.models_dir)
+    logger.info(f"Loading {best_model_file}")
+    model.load_state_dict(torch.load(best_model_file, weights_only=True))
+
+    device = torch.device(get_device_type())
+    model.to(device)
+    model.eval()
+
+    # Forward pass
+    with torch.no_grad():
+        for ibatch, batch in enumerate(test_data_loader):
+            tmpmu_preds = model(batch[0].to(device))
+            if model.constrain_output:
+                tmpmu_preds = model.inv_transform_output(
+                    tmpmu_preds.cpu(), model.min_v, model.amp_v
+                )
+            else:
+                tmpmu_preds = tmpmu_preds.cpu()
+            tmpmu_preds = tmpmu_preds.numpy()
+
+            tmptruth = batch[1].cpu().numpy()
+
+            tmperr = abs(tmpmu_preds - tmptruth)
+            tmpmu_preds = tmpmu_preds
+
+            if ibatch == 0:
+                mu_preds = tmpmu_preds
+                err = tmperr
+                truth = tmptruth
+            else:
+                mu_preds = np.vstack((mu_preds, tmpmu_preds))
+                err = np.vstack((err, tmperr))
+                truth = np.vstack((truth, tmptruth))
+    mean_err = np.mean(err, axis=0)
+    rmse = np.sqrt(np.mean(err**2, axis=0))
+    post_file = "post_val"
+
+    with open(os.path.join(inp.models_dir, f"{post_file}.txt"), "w+") as f:
+        f.write(f"MAE: {mean_err*1000} mV\n")
+        f.write(f"RMSE: {rmse*1000} mV\n")
+    np.savez(os.path.join(inp.models_dir, f"{post_file}.npz"), err=err)
+
+
+def plot_perf(inp):
+    data_path = inp.data_path
+    if not os.path.isfile(os.path.join(data_path, "data_split.npz")):
+        return
+
+    # Make dataset
+    A_split = np.load(os.path.join(data_path, "data_split.npz"))
+    X_data = A_split["X_val"]
+    Y_data = A_split["Y_val"]
+    n_param_pred = Y_data.shape[1]
+    Y_data = Y_data[:, np.newaxis, :]
+    Y_data = np.repeat(Y_data, X_data.shape[2], axis=1)
+    Y_data = np.reshape(Y_data, (-1, n_param_pred))  # (N*npoints,n_param_pred)
+    t_data = np.reshape(X_data[:, 0, :], (-1, 1))  # (N*npoints,n_param_pred)
+    new_x_data = np.hstack((t_data, Y_data))  # (N*npoints,n_param_pred+1)
+    new_y_data = np.reshape(X_data[:, 1, :], (-1, 1))
+
+    X_scaled = scale_input_from_scaler(
+        new_x_data, os.path.join(inp.data_path, "scaler_surrogate_X.pkl")
+    )
+    Y_scaled = new_y_data
+
+    input_data = torch.Tensor(X_scaled)
+    output_data = torch.Tensor(Y_scaled)
+    shape_in = input_data[0].shape
+    test_data_loader = torch.utils.data.DataLoader(
+        torch.utils.data.TensorDataset(input_data, output_data),
+        batch_size=512 * 256,
+        shuffle=False,
+    )
+
+    # Make model
+    model, scaler = define_model(inp)
+    best_model_file = find_best_model_file(inp.models_dir)
+    logger.info(f"Loading {best_model_file}")
+    model.load_state_dict(torch.load(best_model_file, weights_only=True))
+
+    device = torch.device(get_device_type())
+    model.to(device)
+    model.eval()
+
+    # Forward pass
+    with torch.no_grad():
+        for ibatch, batch in enumerate(test_data_loader):
+            tmpmu_preds = model(batch[0].to(device))
+            if model.constrain_output:
+                tmpmu_preds = model.inv_transform_output(
+                    tmpmu_preds.cpu(), model.min_v, model.amp_v
+                )
+            else:
+                tmpmu_preds = tmpmu_preds.cpu()
+            tmpmu_preds = tmpmu_preds.numpy()
+            if ibatch == 0:
+                mu_preds = tmpmu_preds
+            else:
+                mu_preds = np.vstack((mu_preds, tmpmu_preds))
+
+    mu_preds = mu_preds.reshape((-1, inp.n_points))
+
+    figure_folder = os.path.join(inp.models_dir, "Figures")
+    os.makedirs(figure_folder, exist_ok=True)
+
+    fig, axs = plt.subplots(3, 3, figsize=(8, 8))
+    for i in range(min(9, A_split["X_val"].shape[0])):
+        ix = i // 3
+        iy = i % 3
+        axs[ix, iy].plot(
+            A_split["X_val"][i, 0, :],
+            A_split["X_val"][i, 1, :],
+            label="True",
+        )
+        axs[ix, iy].plot(
+            A_split["X_val"][i, 0, :], mu_preds[i, :], label="pred"
+        )
+    plt.tight_layout()
+    fig_file = "surr_preds"
+    plt.savefig(os.path.join(inp.models_dir, "Figures", f"{fig_file}.pdf"))
+    plt.close()
+
+
+if __name__ == "__main__":
+    import shutil
+    import sys
+
+    inp = ri.basic_input(sys.argv[1])
+    test_perf(inp)
+    plot_perf(inp)

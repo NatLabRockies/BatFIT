@@ -1,11 +1,15 @@
 import os
+import sys
 from pathlib import Path
 
+import jax
 import jax.numpy as jnp
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scipy
-from prettyPlot.plotting import *
+from numpyro.infer import MCMC, NUTS, SA, init_to_value
+from prettyPlot.plotting import pretty_labels, pretty_legend
 
 from batfit import logger
 from batfit.utils.text_utils import shuffle_substrings

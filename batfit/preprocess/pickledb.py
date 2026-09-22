@@ -19,7 +19,7 @@ class PickleDB:
         with open(self.filename, "rb") as f:
             while True:
                 try:
-                    tmp_count = pickle.load(f)
+                    _ = pickle.load(f)
                     count += 1
                 except EOFError:
                     break

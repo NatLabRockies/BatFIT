@@ -1,6 +1,24 @@
+import os
+import tempfile
+
 import numpy as np
 
-from batfit.preprocess.sim_setup import set_interc
+from batfit import BATFIT_EXP
+from batfit.preprocess.sim_setup import resolve_sim_config, set_interc
+
+
+def test_resolve_sim_config():
+    # An existing (cwd-relative/absolute) path is returned unchanged
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        existing = os.path.join(tmp_dir, "my_config.yaml")
+        with open(existing, "w") as f:
+            f.write("dummy: 1\n")
+        assert resolve_sim_config(existing) == existing
+
+    # A bare filename that isn't a file falls back to BATFIT_EXP
+    assert resolve_sim_config("spm_discharge.yaml") == os.path.join(
+        BATFIT_EXP, "spm_discharge.yaml"
+    )
 
 
 class _FakeElectrode:

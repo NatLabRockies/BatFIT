@@ -1,32 +1,15 @@
-import argparse
-import os
-from pathlib import Path
-
 import numpy as np
 import optuna
 import torch
 import torch.nn as nn
 from prettyPlot.progressBar import print_progress_bar
-from torch.utils.data import DataLoader, TensorDataset
 
 from batfit import logger
 from batfit.preprocess.sim_setup import make_params
-from batfit.utils.data_utils import (
-    scale_dataset_from_scaler,
-    scale_input_from_scaler,
-    scale_output_from_scaler,
-    unscale_dataset_from_scaler,
-    unscale_input_from_scaler,
-    unscale_output_from_scaler,
-    unscale_pred_from_scaler,
-)
 from batfit.utils.text_utils import shuffle_substrings
 from batfit.utils.torch_utils import (
     get_device_type,
-    get_num_parameters,
-    load_model,
     log_training,
-    make_dataset_from_np,
     prepare_log,
     save_model,
 )

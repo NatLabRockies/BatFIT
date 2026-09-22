@@ -1,27 +1,45 @@
-"""Scaler class and helpers to apply/invert a persisted (pickled) scaler.
-
-All public functions here operate on a *path* to a pickled scaler object
-(one with ``.transform``/``.inverse_transform`` methods, e.g. :class:`CustomScaler`
-or a scikit-learn scaler) rather than the scaler object itself, so callers at
-inference/test time don't need to keep the fitted scaler around in memory.
-"""
-
 import pickle
 
 import numpy as np
+import torch
 from sklearn.preprocessing import StandardScaler
+
+
+def _match_array(stat: np.ndarray, data):
+    """Cast a numpy statistic to match ``data``'s array type.
+
+    Parameters
+    ----------
+    stat : numpy.ndarray
+        A ``means``/``stds`` array (or slice thereof) to broadcast against
+        ``data``.
+    data : numpy.ndarray or torch.Tensor
+        The array the statistic will be combined with.
+
+    Returns
+    -------
+    numpy.ndarray or torch.Tensor
+        ``stat`` unchanged when ``data`` is a numpy array; otherwise a
+        ``torch.Tensor`` on ``data``'s device and dtype. The returned tensor
+        is a non-leaf constant (``requires_grad=False``), so gradients flow
+        through ``data`` only and no reference to it is retained on the
+        scaler.
+    """
+    if isinstance(data, torch.Tensor):
+        return torch.as_tensor(stat, dtype=data.dtype, device=data.device)
+    return stat
 
 
 class CustomScaler:
     """Per-channel z-score scaler for 3D signal arrays ``(N, channels, time)``.
 
-    Falls back to the channel-1 statistics when asked to transform a
-    single-channel array against means/stds fitted on a 2-channel array
-    (used when a downstream model only consumes the voltage channel).
+    Falls back to the channel-1 statistics for  single-channel array.
+    Accepts numpy arrays or torch tensors and returns the same type,
+    propagating gradients when the input is a tensor.
     """
 
     def __init__(self, means: np.ndarray, stds: np.ndarray) -> None:
-        """Store the per-channel means and standard deviations used for scaling."""
+        """Store per-channel means and standard deviations"""
         self.means = means
         self.stds = stds
 
@@ -29,10 +47,8 @@ class CustomScaler:
     def fit(
         cls, data: np.ndarray, axis: int | tuple[int, ...]
     ) -> "CustomScaler":
-        """Fit a scaler from ``data``, reducing over ``axis`` with dims kept.
-
-        Mirrors the ``.fit()`` interface of scikit-learn scalers so callers
-        can treat :class:`CustomScaler` uniformly alongside them.
+        """Fit scaler from ``data``
+        Mirrors the ``.fit()`` interface of scikit-learn scalers
         """
         means = np.mean(data, axis=axis, keepdims=True)
         stds = np.std(data, axis=axis, keepdims=True)
@@ -43,11 +59,14 @@ class CustomScaler:
         assert len(data.shape) == len(self.means.shape)
         assert len(data.shape) == len(self.stds.shape)
         if self.stds.shape[1] == 2 and data.shape[1] == 1:
-            transformed_data = (data - self.means[:, 1, :]) / self.stds[
-                :, 1, :
-            ]
+            means = self.means[:, 1, :]
+            stds = self.stds[:, 1, :]
         else:
-            transformed_data = (data - self.means) / self.stds
+            means = self.means
+            stds = self.stds
+        means = _match_array(means, data)
+        stds = _match_array(stds, data)
+        transformed_data = (data - means) / stds
         assert transformed_data.shape == data.shape
         return transformed_data
 
@@ -56,9 +75,14 @@ class CustomScaler:
         assert len(transformed_data.shape) == len(self.means.shape)
         assert len(transformed_data.shape) == len(self.stds.shape)
         if self.stds.shape[1] == 2 and transformed_data.shape[1] == 1:
-            data = transformed_data * self.stds[:, 1, :] + self.means[:, 1, :]
+            means = self.means[:, 1, :]
+            stds = self.stds[:, 1, :]
         else:
-            data = transformed_data * self.stds + self.means
+            means = self.means
+            stds = self.stds
+        means = _match_array(means, transformed_data)
+        stds = _match_array(stds, transformed_data)
+        data = transformed_data * stds + means
         assert transformed_data.shape == data.shape
         return data
 
@@ -76,11 +100,7 @@ def _apply_scaler(
     allow_missing: bool,
 ) -> np.ndarray:
     """Load the scaler at ``scaler_file`` and transform or inverse-transform ``data``.
-
-    :param inverse: apply ``inverse_transform`` instead of ``transform``.
-    :param allow_missing: when True, a ``None`` path or a missing file
-        means "no scaling configured" and ``data`` is returned unchanged
-        instead of raising.
+    If inverse is True, apply inverse_transform instead of transform
     """
     if allow_missing:
         if scaler_file is None:
@@ -176,19 +196,7 @@ def unscale_pred_std_from_scaler(
     Y_std: np.ndarray[np.float32],
     scaler_Y_file: str | None = None,
 ) -> np.ndarray:
-    """Inverse-scale a predicted standard deviation array.
-
-    A standard deviation transforms with the scaler's scale only, never its
-    mean shift: for a ``(x - mu) / sigma``-type scaler (e.g.
-    ``StandardScaler``) the physical std is ``std_scaled * sigma``, whereas
-    ``inverse_transform`` would wrongly add the mean back. Passes through if
-    no scaler is configured (mirroring :func:`unscale_pred_from_scaler`).
-
-    :param Y_std: predicted std array of shape ``(N, n_params)``
-    :param scaler_Y_file: path to the pickled Y scaler, or ``None``
-    :raises NotImplementedError: if the pickled scaler is not a
-        ``(x - mu) / sigma``-type scaler
-    """
+    """Inverse-scale a predicted standard deviation array."""
     assert len(Y_std.shape) == 2
     if scaler_Y_file is None:
         return Y_std
