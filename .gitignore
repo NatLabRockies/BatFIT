@@ -175,4 +175,8 @@ cython_debug/
 *.pkl
 *.csv
 *.npz
-*.txt
+parameter_list.txt          
+protocol_parameter_list.txt 
+bad_par.txt                 
+bad_protocol.txt            
+post_*.txt
