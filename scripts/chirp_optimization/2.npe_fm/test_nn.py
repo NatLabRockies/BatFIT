@@ -1,8 +1,4 @@
-"""Test the nochirp FM NPE on the held-out validation slice.
-
-Surrogate-free: this pipeline has no surrogate step, so the voltage-fit
-round-trip of the reg_tests tester is dropped; only MAE/RMSE/STD/coverage
-are reported.
+"""Test the nochirp FM NPE on validation split
 """
 
 import os
@@ -32,9 +28,6 @@ def empirical_coverage(
     samples: np.ndarray, truth: np.ndarray, k: int
 ) -> float:
     """Fraction of (val, param) pairs whose truth falls in the central interval.
-
-    Unlike the mu ± k*sigma check, this doesn't assume a Gaussian posterior —
-    it uses the empirical sample distribution directly.
 
     Parameters
     ----------

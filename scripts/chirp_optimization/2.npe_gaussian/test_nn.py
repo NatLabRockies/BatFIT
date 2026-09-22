@@ -1,8 +1,4 @@
-"""Test the nochirp Gaussian NPE on the held-out validation slice.
-
-Surrogate-free: this pipeline has no surrogate step, so the voltage-fit
-round-trip of the reg_tests tester is dropped; only MAE/RMSE/STD/coverage
-are reported.
+"""Test the nochirp Gaussian NPE on validation set.
 """
 
 import os

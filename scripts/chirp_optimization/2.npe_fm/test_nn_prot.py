@@ -1,4 +1,4 @@
-"""Test the chirp FM NPE on the held-out validation slice."""
+"""Test the chirp FM NPE on validation split."""
 
 import os
 
@@ -27,9 +27,6 @@ def empirical_coverage(
     samples: np.ndarray, truth: np.ndarray, k: int
 ) -> float:
     """Fraction of (val, param) pairs whose truth falls in the central interval.
-
-    Unlike the mu ± k*sigma check, this doesn't assume a Gaussian posterior —
-    it uses the empirical sample distribution directly.
 
     Parameters
     ----------

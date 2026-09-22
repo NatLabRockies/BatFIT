@@ -1,4 +1,4 @@
-"""Train the nochirp Gaussian NPE (ProbParamCNN) on the train split."""
+"""Train the nochirp Gaussian NPE."""
 
 import os
 

@@ -1,4 +1,4 @@
-"""Train the chirp Gaussian NPE (ProbProtParamCNN) on the train split."""
+"""Train the chirp Gaussian NPE."""
 
 import os
 

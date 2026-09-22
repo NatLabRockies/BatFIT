@@ -1,4 +1,4 @@
-"""Train the chirp FM NPE (ProbProtParamFM) on the train split."""
+"""Train the chirp FM NPE."""
 
 import os
 

@@ -1,4 +1,4 @@
-"""Train the nochirp FM NPE (ProbParamFM) on the train split."""
+"""Train the nochirp FM NPE"""
 
 import os
 
