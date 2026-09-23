@@ -102,9 +102,13 @@ def _buffer_like(
         A numpy array of ``data``'s dtype when ``data`` is a numpy array;
         otherwise a tensor on ``data``'s device and dtype.
     """
+    if isinstance(data, np.ndarray):
+        return buffer.detach().cpu().numpy().astype(data.dtype)
     if isinstance(data, torch.Tensor):
         return buffer.to(dtype=data.dtype, device=data.device)
-    return buffer.detach().cpu().numpy().astype(data.dtype)
+    # other tensor-like inputs (e.g. torch2jax tracing, where the buffer is
+    # converted alongside the data) combine with the buffer as it is
+    return buffer
 
 
 class BoundedScaler(torch.nn.Module):
@@ -159,7 +163,9 @@ class BoundedScaler(torch.nn.Module):
         """Return ``(data - low) / (high - low)``."""
         low = _buffer_like(self.low, data)
         high = _buffer_like(self.high, data)
-        return (data - low) / (high - low)
+        # ``** -1`` instead of ``/``: torch2jax (MCMC through the surrogate)
+        # supports neither ``/`` nor ``torch.div`` on traced tensors
+        return (data - low) * (high - low) ** -1
 
     def transform_(self, data: np.ndarray) -> np.ndarray:
         """Scale a float numpy array in place, without allocating a copy."""
@@ -255,7 +261,8 @@ class ZScoreScaler(torch.nn.Module):
     ) -> np.ndarray | torch.Tensor:
         """Return ``(data - means) / stds``, broadcasting over channels."""
         means, stds = self._stats_for(data)
-        return (data - means) / stds
+        # ``** -1`` instead of ``/``: see BoundedScaler.transform
+        return (data - means) * stds**-1
 
     def transform_(self, data: np.ndarray) -> np.ndarray:
         """Scale a float numpy array in place, without allocating a copy."""
@@ -292,7 +299,8 @@ class MarginSigmoid(torch.nn.Module):
 
     def forward(self, z: torch.Tensor) -> torch.Tensor:
         """Apply the widened sigmoid to ``z``."""
-        return -self.margin + (1.0 + 2.0 * self.margin) * torch.sigmoid(z)
+        # written without unary minus, which torch2jax does not support
+        return (1.0 + 2.0 * self.margin) * torch.sigmoid(z) - self.margin
 
     def to_dict(self) -> dict[str, float]:
         """Return the margin, for a JSON export."""
