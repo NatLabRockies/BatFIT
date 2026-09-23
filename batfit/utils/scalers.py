@@ -19,8 +19,8 @@ def _match_array(stat: np.ndarray, data):
     Returns
     -------
     numpy.ndarray or torch.Tensor
-        ``stat`` unchanged when ``data`` is a numpy array; 
-        otherwise a ``torch.Tensor`` on ``data``'s device and dtype. 
+        ``stat`` unchanged when ``data`` is a numpy array;
+        otherwise a ``torch.Tensor`` on ``data``'s device and dtype.
     """
     if isinstance(data, torch.Tensor):
         return torch.as_tensor(stat, dtype=data.dtype, device=data.device)
@@ -161,6 +161,14 @@ class BoundedScaler(torch.nn.Module):
         high = _buffer_like(self.high, data)
         return (data - low) / (high - low)
 
+    def transform_(self, data: np.ndarray) -> np.ndarray:
+        """Scale a float numpy array in place, without allocating a copy."""
+        low = _buffer_like(self.low, data)
+        high = _buffer_like(self.high, data)
+        data -= low
+        data /= high - low
+        return data
+
     def inverse_transform(
         self, data_scaled: np.ndarray | torch.Tensor
     ) -> np.ndarray | torch.Tensor:
@@ -248,6 +256,13 @@ class ZScoreScaler(torch.nn.Module):
         """Return ``(data - means) / stds``, broadcasting over channels."""
         means, stds = self._stats_for(data)
         return (data - means) / stds
+
+    def transform_(self, data: np.ndarray) -> np.ndarray:
+        """Scale a float numpy array in place, without allocating a copy."""
+        means, stds = self._stats_for(data)
+        data -= means
+        data /= stds
+        return data
 
     def inverse_transform(
         self, data_scaled: np.ndarray | torch.Tensor

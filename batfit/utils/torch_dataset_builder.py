@@ -6,11 +6,14 @@ import torch
 from batfit import logger
 from batfit.utils.assembly import from_param_to_surrogate_data
 from batfit.utils.dataset_scaling import (
+    build_scalers,
     scale_dataset_from_np,
     scale_protocol_dataset_from_np,
+    scale_splits,
     scale_surrogate_dataset_from_np,
 )
 from batfit.utils.dataset_split import (
+    split_arrays,
     split_dataset_from_np,
     split_protocol_dataset_from_np,
 )
@@ -35,6 +38,112 @@ def _make_loader(
     return torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last
     )
+
+
+def make_npe_dataset_from_np(
+    sim_params: dict,
+    np_data: np.ndarray | None = None,
+    np_data_label: np.ndarray | None = None,
+    np_prot_params: np.ndarray | None = None,
+    batch_size: int = 16,
+    shuffle: bool = True,
+    test_split: float = 0.1,
+    val_split: float = 0.1,
+    save_path: str = ".",
+    random_state: int | None = None,
+) -> tuple[
+    dict[str, torch.utils.data.DataLoader | None],
+    dict[str, torch.nn.Module],
+]:
+    """Create scaled train/test/val DataLoaders for parameter inference (NPE).
+
+    The data is split (reusing ``data_split.npz`` when present), then X is
+    z-scored per channel (fitted on train) and the degradation parameters Y
+    (and protocol parameters P) are scaled to ``[0, 1]`` from the bounds of
+    ``sim_params``. Scaling is done in place on the split arrays and the scaled
+    data is not saved to disk. Batches are ``(X, Y)``, or ``(X, P, Y)`` when protocol
+    parameters are used.
+
+    Parameters
+    ----------
+    sim_params : dict
+        Parsed experiment config (output of ``make_params``).
+    np_data : numpy.ndarray | None
+        Signal of shape ``(N, channels, time)``; may be None when the split
+        cache already exists.
+    np_data_label : numpy.ndarray | None
+        Degradation parameters of shape ``(N, n_deg)``.
+    np_prot_params : numpy.ndarray | None
+        Protocol parameters of shape ``(N, n_prot)``. Protocol parameters are
+        used when this is given or when ``sim_params`` declares them.
+    batch_size : int
+        Batch size of the DataLoaders.
+    shuffle : bool
+        Shuffle the train and test DataLoaders.
+    test_split : float
+        Fraction of the data held out as the test set.
+    val_split : float
+        Fraction of the data held out as the validation set.
+    save_path : str
+        Folder of the split cache ``data_split.npz``.
+    random_state : int | None
+        Seed of the split.
+
+    Returns
+    -------
+    tuple
+        ``(loaders, scalers)``: ``{"train", "test", "val"}`` DataLoaders
+        (``"val"`` is None without a validation slice) and the scalers keyed
+        ``"X"``, ``"Y"`` (and ``"P"``), to be handed to the model.
+    """
+    with_prot = np_prot_params is not None or "prot_param_names" in sim_params
+    arrays = {"X": np_data, "Y": np_data_label}
+    if with_prot:
+        arrays["P"] = np_prot_params
+    splits = split_arrays(
+        arrays,
+        test_split=test_split,
+        val_split=val_split,
+        save_path=save_path,
+        random_state=random_state,
+    )
+    if with_prot:
+        assert "P_train" in splits, (
+            f"The split cache in {save_path} has no protocol parameters; "
+            f"delete it to rebuild it with P"
+        )
+
+    scalers = build_scalers(splits["X_train"], sim_params, with_prot)
+    # in place: the split arrays become the scaled arrays (no copy)
+    scaled = scale_splits(splits, scalers)
+
+    quantities = ["X", "P", "Y"] if with_prot else ["X", "Y"]
+    logger.info(f"Train on {scaled['X_train'].shape[0]} samples")
+    logger.info(f"Test on {scaled['X_test'].shape[0]} samples")
+    loaders: dict[str, torch.utils.data.DataLoader | None] = {
+        "train": _make_loader(
+            *[scaled[f"{q}_train"] for q in quantities],
+            batch_size=batch_size,
+            shuffle=shuffle,
+            drop_last=True,
+        ),
+        "test": _make_loader(
+            *[scaled[f"{q}_test"] for q in quantities],
+            batch_size=batch_size,
+            shuffle=shuffle,
+            drop_last=False,
+        ),
+        "val": None,
+    }
+    if "X_val" in scaled:
+        logger.info(f"Validate on {scaled['X_val'].shape[0]} samples")
+        loaders["val"] = _make_loader(
+            *[scaled[f"{q}_val"] for q in quantities],
+            batch_size=batch_size,
+            shuffle=False,
+            drop_last=False,
+        )
+    return loaders, scalers
 
 
 def make_dataset_from_np(

@@ -5,11 +5,13 @@ import tempfile
 import numpy as np
 
 from batfit.utils.dataset_scaling import (
+    build_scalers,
     scale_dataset_from_np,
     scale_protocol_dataset_from_np,
+    scale_splits,
     scale_surrogate_dataset_from_np,
 )
-from batfit.utils.scalers import CustomScaler
+from batfit.utils.scalers import BoundedScaler, CustomScaler, ZScoreScaler
 
 
 def test_scale_dataset_from_np():
@@ -224,3 +226,61 @@ def test_scale_surrogate_dataset_from_np():
 
     assert np.allclose(Y_tr_sc_y.mean(axis=0), 0.0, atol=1e-5)
     assert np.allclose(Y_tr_sc_y.std(axis=0), 1.0, atol=1e-5)
+
+
+def test_build_scalers():
+    X_train = np.random.randn(20, 2, 30).astype("float32") * 2.0 + 1.0
+    sim_params = {
+        "deg_param_names": ["i0_a"],
+        "deg_i0_a_min": 0.5,
+        "deg_i0_a_max": 1.5,
+        "prot_param_names": ["amplitude", "length"],
+        "prot_amplitude_min": 0.0,
+        "prot_amplitude_max": 10.0,
+        "prot_length_min": 50.0,
+        "prot_length_max": 200.0,
+    }
+
+    scalers = build_scalers(X_train, sim_params)
+    assert set(scalers) == {"X", "Y"}
+    assert isinstance(scalers["X"], ZScoreScaler)
+    assert isinstance(scalers["Y"], BoundedScaler)
+    # X is fitted on train, Y comes from the bounds
+    X_scaled = scalers["X"].transform(X_train)
+    assert np.allclose(X_scaled.mean(axis=(0, 2)), 0.0, atol=1e-5)
+    assert scalers["Y"].to_dict() == {"low": [0.5], "high": [1.5]}
+
+    scalers_p = build_scalers(X_train, sim_params, with_prot=True)
+    assert set(scalers_p) == {"X", "Y", "P"}
+    assert scalers_p["P"].to_dict() == {
+        "low": [0.0, 50.0],
+        "high": [10.0, 200.0],
+    }
+
+
+def test_scale_splits():
+    scalers = {
+        "X": ZScoreScaler(
+            np.array([[[1.0], [2.0]]]), np.array([[[2.0], [4.0]]])
+        ),
+        "Y": BoundedScaler([0.0, 10.0], [2.0, 30.0]),
+    }
+    X_train = np.random.randn(10, 2, 5).astype("float32")
+    X_ref = scalers["X"].transform(X_train)
+    splits = {
+        "X_train": X_train,
+        "Y_train": np.array([[0.0, 10.0], [2.0, 30.0]], dtype="float32"),
+        "X_val": None,
+        "P_train": np.ones((10, 1), dtype="float32"),
+    }
+
+    scaled = scale_splits(splits, scalers)
+    # None arrays and quantities without a scaler are dropped
+    assert set(scaled) == {"X_train", "Y_train"}
+    assert np.allclose(scaled["Y_train"], [[0.0, 0.0], [1.0, 1.0]])
+    assert np.allclose(scaled["X_train"], X_ref)
+    # scaling is in place: no copy, the input array holds the scaled values
+    assert scaled["X_train"] is X_train
+    assert scaled["X_train"].dtype == np.float32
+    # quantities without a scaler are left untouched
+    assert np.allclose(splits["P_train"], 1.0)

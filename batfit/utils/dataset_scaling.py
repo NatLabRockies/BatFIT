@@ -2,10 +2,11 @@ import os
 import pickle
 
 import numpy as np
+import torch
 from sklearn import preprocessing
 
 from batfit import logger
-from batfit.utils.scalers import CustomScaler
+from batfit.utils.scalers import BoundedScaler, CustomScaler, ZScoreScaler
 
 
 def _fit_or_reuse_zscore_scaler(
@@ -374,3 +375,72 @@ def scale_surrogate_dataset_from_np(
         X_val_scaled,
         Y_val_scaled,
     )
+
+
+def build_scalers(
+    X_train: np.ndarray,
+    sim_params: dict,
+    with_prot: bool = False,
+) -> dict[str, torch.nn.Module]:
+    """Build the scalers of a parameter-inference dataset.
+
+    Parameters
+    ----------
+    X_train : numpy.ndarray
+        Training signal of shape ``(N, channels, time)``; the per-channel
+        z-score of X is fitted on it.
+    sim_params : dict
+        Parsed experiment config (output of ``make_params``) providing the
+        degradation (and protocol) parameter bounds.
+    with_prot : bool
+        Also build the protocol-parameter scaler.
+
+    Returns
+    -------
+    dict[str, torch.nn.Module]
+        ``{"X": ZScoreScaler, "Y": BoundedScaler}`` plus ``"P"``
+        (``BoundedScaler``) when ``with_prot`` is True.
+    """
+    scalers: dict[str, torch.nn.Module] = {
+        "X": ZScoreScaler.fit(X_train, axis=(0, 2)),
+        "Y": BoundedScaler.from_sim_params(sim_params, kind="deg"),
+    }
+    if with_prot:
+        scalers["P"] = BoundedScaler.from_sim_params(sim_params, kind="prot")
+    return scalers
+
+
+def scale_splits(
+    splits: dict[str, np.ndarray | None],
+    scalers: dict[str, torch.nn.Module],
+) -> dict[str, np.ndarray]:
+    """Scale split arrays in place with the scaler of their quantity.
+
+    Arrays are named ``"<quantity>_<split>"`` (e.g. ``"X_train"``, as produced
+    by :func:`batfit.utils.dataset_split.split_arrays`) and scaled with
+    ``scalers[<quantity>]``. Arrays whose quantity has no scaler, or that are
+    ``None``, are dropped. Scaling is done in place so that no copy of the
+    dataset is allocated; the input arrays are therefore overwritten.
+
+    Parameters
+    ----------
+    splits : dict[str, numpy.ndarray | None]
+        Unscaled float32 split arrays, overwritten with their scaled values.
+    scalers : dict[str, torch.nn.Module]
+        Scalers keyed by quantity (``"X"``, ``"Y"``, ``"P"``), each providing
+        an in-place ``transform_``.
+
+    Returns
+    -------
+    dict[str, numpy.ndarray]
+        The scaled arrays (the same objects as in ``splits``).
+    """
+    logger.info("Scaling the data in place")
+    scaled = {}
+    for key, array in splits.items():
+        quantity = key.split("_")[0]
+        if array is None or quantity not in scalers:
+            continue
+        assert array.dtype == np.float32, f"{key} must be float32"
+        scaled[key] = scalers[quantity].transform_(array)
+    return scaled

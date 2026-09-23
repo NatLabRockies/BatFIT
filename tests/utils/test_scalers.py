@@ -82,6 +82,11 @@ def test_BoundedScaler():
     assert np.allclose(Y_scaled, [[0.0, 0.0], [1.0, 1.0], [0.5, 0.5]])
     assert np.allclose(scaler.inverse_transform(Y_scaled), Y)
 
+    # in-place scaling overwrites the array and matches transform
+    Y_inplace = Y.copy()
+    assert scaler.transform_(Y_inplace) is Y_inplace
+    assert np.allclose(Y_inplace, Y_scaled)
+
     # std only picks up the range, never the offset
     std_scaled = np.array([[0.1, 0.2]], dtype="float32")
     assert np.allclose(scaler.inverse_transform_std(std_scaled), [[0.1, 4.0]])
@@ -152,9 +157,15 @@ def test_ZScoreScaler():
         X_t.grad, (1.0 / torch.from_numpy(stds)).expand_as(X_t)
     )
 
+    # in-place scaling overwrites the array and matches transform
+    X_inplace = X.copy()
+    assert scaler.transform_(X_inplace) is X_inplace
+    assert np.allclose(X_inplace, X_scaled)
+
     # single-channel input falls back to the channel-1 statistics
     X1 = np.ones((4, 1, 10), dtype="float32") * 15.0
     assert np.allclose(scaler.transform(X1), 1.0)
+    assert np.allclose(scaler.transform_(X1.copy()), 1.0)
 
     # fit() gives zero-mean unit-std channels
     X_fit = np.random.randn(20, 2, 50).astype("float32") * 3.0 + 1.0
