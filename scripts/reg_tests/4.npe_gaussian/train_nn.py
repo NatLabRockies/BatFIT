@@ -19,6 +19,7 @@ from batfit.model.param_utils.train_utils import (
 from batfit.model.paramNN import ProbParamCNN
 from batfit.model.surrogate_utils.losses import mae_loss as mae_loss_surr
 from batfit.model.surrogateNN import SurrogateFCNN
+from batfit.preprocess.sim_setup import make_params
 from batfit.utils.data_utils import *
 from batfit.utils.torch_utils import *
 
@@ -45,16 +46,15 @@ def make_data_loaders(inp):
     Y_data = tmp["Y_data"]
 
     BATCH_SIZE = min(inp.batch_size, int(Y_data.shape[0] * 0.8))
-    loaders = make_dataset_from_np(
-        batch_size=BATCH_SIZE,
+    loaders, scalers = make_npe_dataset_from_np(
+        make_params(inp.sim_config),
         np_data=X_data,
         np_data_label=Y_data,
-        scale=True,
-        scale_y=False,
+        batch_size=BATCH_SIZE,
         save_path=data_root_folder,
     )
 
-    return loaders
+    return loaders, scalers
 
 
 def define_surrogate_model(inp):
@@ -82,7 +82,9 @@ def define_surrogate_model(inp):
     return model, scaler_X
 
 
-def define_model(inp):
+def define_model(inp, scaler_X=None):
+    """Instantiate a ProbParamCNN; scaler_X=None leaves a placeholder that
+    load_state_dict fills from the checkpoint."""
     data_root_folder = inp.data_path
     n_points = inp.n_points
     target_mode = inp.target_mode
@@ -98,22 +100,19 @@ def define_model(inp):
         fc_mu_list=[inp.num_fc_gamma_mu_units] * inp.num_fc_gamma_mu_hidden,
         fc_gamma_list=[inp.num_fc_gamma_mu_units] * inp.num_fc_gamma_mu_hidden,
         loss_fn=independent_normal_loss_param,
+        sim_config=inp.sim_config,
         cyc_mode=cyc_mode,
         n_param_pred=n_param_pred,
-        constrain_output=True,
-        dependent_outputs=False,
-        sim_config=inp.sim_config,
+        scaler_X=scaler_X,
+        param_margin=getattr(inp, "param_margin", 0.05),
     )
     num_parameters = get_num_parameters(model)
     print(f"No. Trainable Parameters: {num_parameters}")
 
-    with open(os.path.join(inp.data_path, "scaler_X.pkl"), "rb") as f:
-        scaler_X = pickle.load(f)
-
-    return model, scaler_X
+    return model
 
 
-def do_training(inp, model, train_data_loader, test_data_loader, scaler_X):
+def do_training(inp, model, train_data_loader, test_data_loader):
     noise_levels, a_min, a_max = make_noise_levels(
         target_mode=inp.target_mode,
         noise_levels=[
@@ -123,6 +122,8 @@ def do_training(inp, model, train_data_loader, test_data_loader, scaler_X):
             2.01 * 2,
         ],
         cyc_mode=inp.cyc_mode,
+        vmin=model.sim_params["vmin"],
+        vmax=model.sim_params["vmax"],
     )
 
     model, loss_hist = train_model_param(
@@ -131,7 +132,6 @@ def do_training(inp, model, train_data_loader, test_data_loader, scaler_X):
         test_data_loader=test_data_loader,
         learning_rate=inp.lr,
         num_epochs=inp.epochs,
-        scaler_X=scaler_X,
         noise_levels=noise_levels,
         a_min=a_min,
         a_max=a_max,
@@ -147,7 +147,7 @@ if __name__ == "__main__":
     import sys
 
     inp = ri.basic_input(sys.argv[1])
-    loaders = make_data_loaders(inp)
-    model, scaler_X = define_model(inp)
-    do_training(inp, model, loaders["train"], loaders["test"], scaler_X)
+    loaders, scalers = make_data_loaders(inp)
+    model = define_model(inp, scaler_X=scalers["X"])
+    do_training(inp, model, loaders["train"], loaders["test"])
     shutil.copy(sys.argv[1], os.path.join(inp.models_dir, "recipe.yml"))
