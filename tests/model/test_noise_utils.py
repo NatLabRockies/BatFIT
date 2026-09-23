@@ -11,25 +11,35 @@ def test_make_noise_levels_shape():
         target_mode="phi",
         noise_levels=[0.0, 0.01, 0.02, 0.03],
         cyc_mode="discharge",
+        vmin=2.5,
+        vmax=4.2,
     )
     # phi -> inds [0, 1], so 2 channels
     assert noise_levels.shape == (1, 2, 1)
     assert a_min.shape == (1, 2, 1)
     assert a_max.shape == (1, 2, 1)
+    # the voltage channel is clipped at the given vmin
+    assert abs(a_min[0, 1, 0].item() - 2.5) < 1e-6
 
     noise_levels, a_min, a_max = make_noise_levels(
         target_mode="phionly",
         noise_levels=[0.0, 0.01, 0.02, 0.03],
         cyc_mode="chirp",
+        vmin=2.5,
+        vmax=4.2,
     )
     assert noise_levels.shape == (1, 1, 1)
     assert a_min.shape == (1, 1, 1)
     assert a_max.shape == (1, 1, 1)
+    # the voltage channel is clipped at the given vmax
+    assert abs(a_max[0, 0, 0].item() - 4.2) < 1e-6
 
     noise_levels, a_min, a_max = make_noise_levels(
         target_mode="phi",
         noise_levels=[0.0, 0.01, 0.02, 0.03],
         cyc_mode="discharge-chargecc",
+        vmin=2.5,
+        vmax=4.2,
     )
     # phi -> 2 channels per mode, concatenated -> 4 total
     assert noise_levels.shape == (1, 4, 1)
