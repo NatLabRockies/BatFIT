@@ -133,14 +133,10 @@ def _process_split(
                 mu_np = samples_phys.mean(axis=1)  # (B*n_noise, n_deg)
                 sigma_np = samples_phys.std(axis=1)  # (B*n_noise, n_deg)
             else:
-                mu_s, sigma_s = model(X_noisy.to(device), P_tiled.to(device))
-                if model.constrain_output:
-                    mu_s, sigma_s = model.inv_transform_output(
-                        mu_s,
-                        sigma_s,
-                        model.min_par.to(device),
-                        model.amp_par.to(device),
-                    )
+                mu_scaled, sigma_scaled = model(
+                    X_noisy.to(device), P_tiled.to(device)
+                )
+                mu_s, sigma_s = model.to_physical(mu_scaled, sigma_scaled)
                 mu_np = mu_s.cpu().numpy()  # (B*n_noise, n_deg)
                 sigma_np = sigma_s.cpu().numpy()  # (B*n_noise, n_deg)
 
