@@ -9,18 +9,14 @@ import torch
 from batfit import logger
 from batfit.utils.scalers import scaling_to_dict
 from batfit.utils.torch_dataset_builder import (
-    make_dataset_from_np,
     make_npe_dataset_from_np,
-    make_protocol_dataset_from_np,
     make_surrogate_dataset_from_np,
 )
 
 __all__ = [
     "get_num_parameters",
     "get_device_type",
-    "make_dataset_from_np",
     "make_npe_dataset_from_np",
-    "make_protocol_dataset_from_np",
     "make_surrogate_dataset_from_np",
     "prepare_log",
     "log_training",
