@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 
 from batfit import logger
+from batfit.utils.scalers import ZScoreScaler
 
 from .param_utils.model_utils import (
     _build_cnn_encoder,
@@ -24,25 +25,26 @@ class ProbParamCNN(_ProbParamBase):
         fc_mu_list,
         fc_gamma_list,
         loss_fn,
+        sim_config: str,
         leaky_relu_slope=0.2,
         cyc_mode="discharge",
         n_param_pred=6,
-        dependent_outputs=False,
-        constrain_output=False,
         encoder_model=None,
-        sim_config=None,
+        scaler_X: ZScoreScaler | None = None,
+        param_margin: float = 0.05,
         num_attn_heads: int = 0,
         attn_dropout: float = 0.0,
     ):
         logger.info("Creating probabilistic CNN model")
         super(ProbParamCNN, self).__init__(
             loss_fn=loss_fn,
+            sim_config=sim_config,
+            scaler_X_shape=(1, input_shape[0], 1),
             cyc_mode=cyc_mode,
             n_param_pred=n_param_pred,
-            dependent_outputs=dependent_outputs,
-            constrain_output=constrain_output,
             encoder_model=encoder_model,
-            sim_config=sim_config,
+            scaler_X=scaler_X,
+            param_margin=param_margin,
         )
         self.leaky_relu_slope = leaky_relu_slope
         self.chan_list = chan_list
@@ -73,8 +75,7 @@ class ProbParamCNN(_ProbParamBase):
             fc_mu_list,
             fc_gamma_list,
             self.output_dim,
-            self.dependent_outputs,
-            self.constrain_output,
+            self.param_margin,
         )
 
     def forward(self, x):
@@ -95,9 +96,6 @@ class ProbParamCNN(_ProbParamBase):
             mu = self.model_mu_layers(x)
             gamma = self.model_gamma_layers(x)
 
-        if self.dependent_outputs:
-            gamma = self._cholesky_cov(gamma)
-
         return mu, gamma
 
 
@@ -111,22 +109,23 @@ class ProbParamFCNN(_ProbParamBase):
         fc_mu_list,
         fc_gamma_list,
         loss_fn,
+        sim_config: str,
         cyc_mode="discharge",
         n_param_pred=6,
-        dependent_outputs=False,
-        constrain_output=False,
         encoder_model=None,
-        sim_config=None,
+        scaler_X: ZScoreScaler | None = None,
+        param_margin: float = 0.05,
     ):
         logger.info("Creating probabilistic FCNN model")
         super(ProbParamFCNN, self).__init__(
             loss_fn=loss_fn,
+            sim_config=sim_config,
+            scaler_X_shape=(1, input_shape[0]),
             cyc_mode=cyc_mode,
             n_param_pred=n_param_pred,
-            dependent_outputs=dependent_outputs,
-            constrain_output=constrain_output,
             encoder_model=encoder_model,
-            sim_config=sim_config,
+            scaler_X=scaler_X,
+            param_margin=param_margin,
         )
         self.hidden_list = hidden_list
         elementary_fcnn = _build_hidden_fcnn_layers(
@@ -153,8 +152,7 @@ class ProbParamFCNN(_ProbParamBase):
             fc_mu_list,
             fc_gamma_list,
             self.output_dim,
-            self.dependent_outputs,
-            self.constrain_output,
+            self.param_margin,
         )
 
         self.fcnn_layers = nn.Sequential(*self.fcnn)
@@ -179,9 +177,6 @@ class ProbParamFCNN(_ProbParamBase):
             mu = self.model_mu_layers(x)
             gamma = self.model_gamma_layers(x)
 
-        if self.dependent_outputs:
-            gamma = self._cholesky_cov(gamma)
-
         return mu, gamma
 
 
@@ -198,13 +193,13 @@ class ProbProtParamCNN(_ProbParamBase):
         fc_gamma_list: list[int],
         loss_fn,
         n_prot_params: int,
+        sim_config: str,
         leaky_relu_slope: float = 0.2,
         cyc_mode: str = "chirp",
         n_param_pred: int = 6,
-        dependent_outputs: bool = False,
-        constrain_output: bool = False,
         encoder_model=None,
-        sim_config=None,
+        scaler_X: ZScoreScaler | None = None,
+        param_margin: float = 0.05,
         num_attn_heads: int = 0,
         attn_dropout: float = 0.0,
     ):
@@ -218,13 +213,16 @@ class ProbProtParamCNN(_ProbParamBase):
             )
         super(ProbProtParamCNN, self).__init__(
             loss_fn=loss_fn,
+            sim_config=sim_config,
+            scaler_X_shape=(1, input_shape[0], 1),
             cyc_mode=cyc_mode,
             n_param_pred=n_param_pred,
-            dependent_outputs=dependent_outputs,
-            constrain_output=constrain_output,
             encoder_model=encoder_model,
-            sim_config=sim_config,
+            scaler_X=scaler_X,
+            param_margin=param_margin,
+            with_prot=True,
         )
+        assert self.scaler_P.low.shape[0] == n_prot_params
         self.leaky_relu_slope = leaky_relu_slope
         self.chan_list = chan_list
         self.fc_list = fc_list
@@ -263,8 +261,7 @@ class ProbProtParamCNN(_ProbParamBase):
             fc_mu_list,
             fc_gamma_list,
             self.output_dim,
-            self.dependent_outputs,
-            self.constrain_output,
+            self.param_margin,
         )
 
     def forward(
@@ -282,7 +279,7 @@ class ProbProtParamCNN(_ProbParamBase):
         Returns
         -------
         tuple[torch.Tensor, torch.Tensor]
-            Predicted parameter means and variances/covariance ``(mu, gamma)``
+            Scaled posterior means and standard deviations ``(mu, gamma)``
         """
         x = self.cnn_layers(x)
         x = torch.cat((x, prot_params), dim=1)
@@ -290,9 +287,6 @@ class ProbProtParamCNN(_ProbParamBase):
 
         mu = self.model_mu_layers(x)
         gamma = self.model_gamma_layers(x)
-
-        if self.dependent_outputs:
-            gamma = self._cholesky_cov(gamma)
 
         return mu, gamma
 
