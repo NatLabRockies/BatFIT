@@ -157,7 +157,10 @@ class ZScoreScaler(torch.nn.Module):
 
     @classmethod
     def fit(
-        cls, data: np.ndarray, axis: int | tuple[int, ...]
+        cls,
+        data: np.ndarray,
+        axis: int | tuple[int, ...],
+        min_std: float = 0.0,
     ) -> "ZScoreScaler":
         """Fit the scaler on ``data``, reducing over ``axis`` with dims kept.
 
@@ -166,7 +169,11 @@ class ZScoreScaler(torch.nn.Module):
         data : numpy.ndarray
             Training array, e.g. ``(N, channels, time)``.
         axis : int or tuple of int
-            Axes to reduce over, e.g. ``(0, 2)`` for per-channel statistics.
+            Axes to reduce over, e.g. ``(0, 2)`` for per-channel statistics
+            or ``0`` for per-channel, per-time-point statistics.
+        min_std : float
+            Lower clip of the fitted standard deviations, in the units of
+            ``data`` (e.g. where all training curves coincide).
 
         Returns
         -------
@@ -175,6 +182,7 @@ class ZScoreScaler(torch.nn.Module):
         """
         means = np.mean(data, axis=axis, keepdims=True)
         stds = np.std(data, axis=axis, keepdims=True)
+        stds = np.maximum(stds, min_std)
         return cls(means, stds)
 
     def _stats_for(
