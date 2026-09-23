@@ -9,10 +9,6 @@ from batfit.utils.assembly import (
     from_sol_dict_to_xy,
     passes_quality_filters,
 )
-from batfit.utils.dataset_scaling import (
-    scale_dataset_from_np,
-    scale_protocol_dataset_from_np,
-)
 from batfit.utils.dataset_split import (
     split_dataset_from_np,
     split_protocol_dataset_from_np,
@@ -21,17 +17,6 @@ from batfit.utils.raw_sol_utils import (
     from_name_to_params,
     get_max_time,
     get_sol_list,
-)
-from batfit.utils.scalers import (
-    CustomScaler,
-    scale_dataset_from_scaler,
-    scale_input_from_scaler,
-    scale_output_from_scaler,
-    unscale_dataset_from_scaler,
-    unscale_input_from_scaler,
-    unscale_output_from_scaler,
-    unscale_pred_from_scaler,
-    unscale_pred_std_from_scaler,
 )
 
 __all__ = [
@@ -42,22 +27,11 @@ __all__ = [
     "from_param_to_surrogate_data",
     "from_sol_dict_to_xy",
     "passes_quality_filters",
-    "scale_dataset_from_np",
-    "scale_protocol_dataset_from_np",
     "split_dataset_from_np",
     "split_protocol_dataset_from_np",
     "from_name_to_params",
     "get_max_time",
     "get_sol_list",
-    "CustomScaler",
-    "scale_dataset_from_scaler",
-    "scale_input_from_scaler",
-    "scale_output_from_scaler",
-    "unscale_dataset_from_scaler",
-    "unscale_input_from_scaler",
-    "unscale_output_from_scaler",
-    "unscale_pred_from_scaler",
-    "unscale_pred_std_from_scaler",
     "load_pickle",
 ]
 
