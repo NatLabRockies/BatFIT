@@ -335,8 +335,6 @@ class _ProbParamBase(nn.Module, ABC):
         Shape of the signal-scaler statistics, e.g. ``(1, channels, 1)``
     cyc_mode: str
         Cycling mode of the signal
-    n_param_pred: int
-        Number of degradation parameters predicted
     encoder_model: torch.nn.Module | None
         Optional frozen encoder applied to the scaled signal
     scaler_X: ZScoreScaler | None
@@ -346,6 +344,9 @@ class _ProbParamBase(nn.Module, ABC):
         Margin of the mu head beyond the ``[0, 1]`` parameter bounds
     with_prot: bool
         Build the protocol-parameter scaler
+
+    The numbers of predicted degradation parameters (``n_param_pred``) and of
+    protocol parameters (``n_prot_params``) are read from ``sim_config``.
     """
 
     def __init__(
@@ -354,7 +355,6 @@ class _ProbParamBase(nn.Module, ABC):
         sim_config: str,
         scaler_X_shape: tuple[int, ...],
         cyc_mode: str = "discharge",
-        n_param_pred: int = 6,
         encoder_model: nn.Module | None = None,
         scaler_X: ZScoreScaler | None = None,
         param_margin: float = 0.05,
@@ -369,24 +369,25 @@ class _ProbParamBase(nn.Module, ABC):
         ]
         self.loss_fn = loss_fn
         self.cyc_mode = cyc_mode
-        self.n_param_pred = n_param_pred
-        self.output_dim = self.n_param_pred
         self.encoder_model = encoder_model
         self.param_margin = param_margin
 
         self.sim_config = sim_config
         self.sim_params = make_params(sim_config)
+        # one output per degradation parameter of the config
         self.scaler_Y = BoundedScaler.from_sim_params(self.sim_params, "deg")
-        assert self.scaler_Y.low.shape[0] == n_param_pred, (
-            f"n_param_pred={n_param_pred} does not match the "
-            f"{self.scaler_Y.low.shape[0]} degradation parameters of "
-            f"{sim_config}"
-        )
-        self.scaler_P = (
-            BoundedScaler.from_sim_params(self.sim_params, "prot")
-            if with_prot
-            else None
-        )
+        self.n_param_pred = len(self.sim_params["deg_param_names"])
+        self.output_dim = self.n_param_pred
+        if with_prot:
+            assert (
+                "prot_param_names" in self.sim_params
+            ), f"{sim_config} declares no protocol parameters"
+            self.scaler_P = BoundedScaler.from_sim_params(
+                self.sim_params, "prot"
+            )
+            self.n_prot_params = len(self.sim_params["prot_param_names"])
+        else:
+            self.scaler_P = None
         if scaler_X is None:
             # identity placeholder, overwritten when loading a checkpoint
             scaler_X = ZScoreScaler(
