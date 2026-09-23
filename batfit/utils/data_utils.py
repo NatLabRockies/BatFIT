@@ -12,7 +12,6 @@ from batfit.utils.assembly import (
 from batfit.utils.dataset_scaling import (
     scale_dataset_from_np,
     scale_protocol_dataset_from_np,
-    scale_surrogate_dataset_from_np,
 )
 from batfit.utils.dataset_split import (
     split_dataset_from_np,
@@ -45,7 +44,6 @@ __all__ = [
     "passes_quality_filters",
     "scale_dataset_from_np",
     "scale_protocol_dataset_from_np",
-    "scale_surrogate_dataset_from_np",
     "split_dataset_from_np",
     "split_protocol_dataset_from_np",
     "from_name_to_params",

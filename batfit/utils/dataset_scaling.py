@@ -297,86 +297,6 @@ def scale_protocol_dataset_from_np(
     )
 
 
-def scale_surrogate_dataset_from_np(
-    X_train: np.ndarray[np.float32],
-    X_test: np.ndarray[np.float32],
-    Y_train: np.ndarray[np.float32],
-    Y_test: np.ndarray[np.float32],
-    X_val: np.ndarray[np.float32] | None = None,
-    Y_val: np.ndarray[np.float32] | None = None,
-    save_path: str = ".",
-    save_scaled: bool = True,
-    scale_y: bool = False,
-):
-    """Scale a surrogate dataset's signal X and, optionally, labels Y."""
-    scaler_x_filename = os.path.join(save_path, "scaler_surrogate_X.pkl")
-    data_scaled_filename = os.path.join(save_path, "data_surrogate_scaled.npz")
-    scaler_y_filename = os.path.join(save_path, "scaler_surrogate_Y.pkl")
-
-    cache_hit = os.path.isfile(scaler_x_filename) and os.path.isfile(
-        data_scaled_filename
-    )
-    if scale_y:
-        cache_hit = cache_hit and os.path.isfile(scaler_y_filename)
-
-    if cache_hit:
-        tmp = np.load(data_scaled_filename)
-        if X_val is not None and "X_val" not in tmp.files:
-            logger.warning(
-                "Cached scaled surrogate data lacks validation slice, "
-                "re-scaling"
-            )
-        else:
-            logger.warning(
-                "Data surrogate already scaled, loading scaler and data"
-            )
-            return (
-                tmp["X_train"],
-                tmp["Y_train"],
-                tmp["X_test"],
-                tmp["Y_test"],
-                tmp["X_val"] if X_val is not None else None,
-                tmp["Y_val"] if X_val is not None else None,
-            )
-
-    logger.info("Scaling the data")
-
-    scaler_X = _fit_or_reuse_zscore_scaler(
-        X_train, scaler_x_filename, stat_axis=0, reuse_if_exists=False
-    )
-    X_train_scaled = scaler_X.transform(X_train).astype("float32")
-    X_test_scaled = scaler_X.transform(X_test).astype("float32")
-    X_val_scaled = (
-        None if X_val is None else scaler_X.transform(X_val).astype("float32")
-    )
-
-    Y_train_scaled, Y_test_scaled, Y_val_scaled = _maybe_scale_y(
-        Y_train, Y_test, scaler_y_filename, scale_y, Y_val=Y_val
-    )
-
-    if save_scaled:
-        logger.info(f"Saving scaled surrogate data at {data_scaled_filename}")
-        to_save = {
-            "X_train": X_train_scaled,
-            "Y_train": Y_train_scaled,
-            "X_test": X_test_scaled,
-            "Y_test": Y_test_scaled,
-        }
-        if X_val_scaled is not None:
-            to_save["X_val"] = X_val_scaled
-            to_save["Y_val"] = Y_val_scaled
-        np.savez(data_scaled_filename, **to_save)
-
-    return (
-        X_train_scaled,
-        Y_train_scaled,
-        X_test_scaled,
-        Y_test_scaled,
-        X_val_scaled,
-        Y_val_scaled,
-    )
-
-
 def build_scalers(
     X_train: np.ndarray,
     sim_params: dict,
@@ -443,4 +363,74 @@ def scale_splits(
             continue
         assert array.dtype == np.float32, f"{key} must be float32"
         scaled[key] = scalers[quantity].transform_(array)
+    return scaled
+
+
+def build_surrogate_scalers(
+    X_train: np.ndarray,
+    sim_params: dict,
+) -> dict[str, torch.nn.Module]:
+    """Build the scalers of a surrogate dataset.
+
+    Surrogate rows are ``(time, deg_params...) -> voltage``.
+
+    Parameters
+    ----------
+    X_train : numpy.ndarray
+        Training inputs of shape ``(N, 1 + n_deg)``; column 0 is time, on
+        which the time z-score is fitted.
+    sim_params : dict
+        Parsed experiment config providing the degradation-parameter bounds
+        and ``vmin``/``vmax``.
+
+    Returns
+    -------
+    dict[str, torch.nn.Module]
+        ``{"t": ZScoreScaler, "Y": BoundedScaler, "V": BoundedScaler}`` for
+        time, degradation parameters and voltage.
+    """
+    return {
+        "t": ZScoreScaler.fit(X_train[:, :1], axis=0),
+        "Y": BoundedScaler.from_sim_params(sim_params, kind="deg"),
+        "V": BoundedScaler.from_sim_params(sim_params, kind="voltage"),
+    }
+
+
+def scale_surrogate_splits(
+    splits: dict[str, np.ndarray | None],
+    scalers: dict[str, torch.nn.Module],
+) -> dict[str, np.ndarray]:
+    """Scale surrogate split arrays in place.
+
+    Inputs ``"X_<split>"`` hold ``(time, deg_params...)`` rows: column 0 is
+    scaled with ``scalers["t"]`` and the other columns with ``scalers["Y"]``.
+    Labels ``"Y_<split>"`` hold the voltage and are scaled with
+    ``scalers["V"]``. Scaling is done in place so that no copy of the dataset
+    is allocated; ``None`` entries are dropped.
+
+    Parameters
+    ----------
+    splits : dict[str, numpy.ndarray | None]
+        Unscaled float32 split arrays, overwritten with their scaled values.
+    scalers : dict[str, torch.nn.Module]
+        Output of :func:`build_surrogate_scalers`.
+
+    Returns
+    -------
+    dict[str, numpy.ndarray]
+        The scaled arrays (the same objects as in ``splits``).
+    """
+    logger.info("Scaling the surrogate data in place")
+    scaled = {}
+    for key, array in splits.items():
+        if array is None:
+            continue
+        assert array.dtype == np.float32, f"{key} must be float32"
+        if key.startswith("X_"):
+            # column views: scaling them writes into the array itself
+            scalers["t"].transform_(array[:, :1])
+            scalers["Y"].transform_(array[:, 1:])
+        else:
+            scalers["V"].transform_(array)
+        scaled[key] = array
     return scaled

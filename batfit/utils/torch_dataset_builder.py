@@ -7,10 +7,11 @@ from batfit import logger
 from batfit.utils.assembly import from_param_to_surrogate_data
 from batfit.utils.dataset_scaling import (
     build_scalers,
+    build_surrogate_scalers,
     scale_dataset_from_np,
     scale_protocol_dataset_from_np,
     scale_splits,
-    scale_surrogate_dataset_from_np,
+    scale_surrogate_splits,
 )
 from batfit.utils.dataset_split import (
     split_arrays,
@@ -349,18 +350,56 @@ def make_protocol_dataset_from_np(
 
 
 def make_surrogate_dataset_from_np(
+    sim_params: dict,
+    np_data: np.ndarray | None = None,
+    np_data_label: np.ndarray | None = None,
     batch_size: int = 16,
     shuffle: bool = True,
-    np_data: np.ndarray[np.float32] | None = None,
-    np_data_label: np.ndarray[np.float32] | None = None,
     test_split: float = 0.1,
     val_split: float = 0.1,
     save_path: str = ".",
-    scale: bool = True,
-    scale_y: bool = False,
     random_state: int | None = None,
-) -> dict[str, torch.utils.data.DataLoader | None]:
-    """Create ``{"train","test","val"}`` DataLoaders for the surrogate dataset."""
+) -> tuple[
+    dict[str, torch.utils.data.DataLoader | None],
+    dict[str, torch.nn.Module],
+]:
+    """Create scaled train/test/val DataLoaders for the voltage surrogate.
+
+    Each battery of the split (``data_split.npz``) is exploded into per-step
+    rows ``(time, deg_params...) -> voltage``, cached unscaled in
+    ``data_surrogate_split.npz``. Time is then z-scored (fitted on train), the
+    degradation parameters and the voltage are scaled to ``[0, 1]`` from the
+    bounds of ``sim_params``; scaling is done in place and not saved.
+
+    Parameters
+    ----------
+    sim_params : dict
+        Parsed experiment config (output of ``make_params``).
+    np_data : numpy.ndarray | None
+        Signal of shape ``(N, 2, time)`` (time, voltage); may be None when the
+        split caches already exist.
+    np_data_label : numpy.ndarray | None
+        Degradation parameters of shape ``(N, n_deg)``.
+    batch_size : int
+        Batch size of the DataLoaders.
+    shuffle : bool
+        Shuffle the train and test DataLoaders.
+    test_split : float
+        Fraction of the batteries held out as the test set.
+    val_split : float
+        Fraction of the batteries held out as the validation set.
+    save_path : str
+        Folder of the split caches.
+    random_state : int | None
+        Seed of the split.
+
+    Returns
+    -------
+    tuple
+        ``(loaders, scalers)``: ``{"train", "test", "val"}`` DataLoaders
+        (``"val"`` is None without a validation slice) and the scalers keyed
+        ``"t"``, ``"Y"``, ``"V"``, to be handed to the model.
+    """
     surrogate_split_filename = os.path.join(
         save_path, "data_surrogate_split.npz"
     )
@@ -413,30 +452,29 @@ def make_surrogate_dataset_from_np(
         logger.info(
             f"Saving splitted surrogate data at {surrogate_split_filename}"
         )
+        # copy=False: the arrays are already float32, avoid duplicating them
         to_save = {
-            "X_train": X_train.astype("float32"),
-            "Y_train": Y_train.astype("float32"),
-            "X_test": X_test.astype("float32"),
-            "Y_test": Y_test.astype("float32"),
+            "X_train": X_train.astype("float32", copy=False),
+            "Y_train": Y_train.astype("float32", copy=False),
+            "X_test": X_test.astype("float32", copy=False),
+            "Y_test": Y_test.astype("float32", copy=False),
         }
         if X_val is not None:
-            to_save["X_val"] = X_val.astype("float32")
-            to_save["Y_val"] = Y_val.astype("float32")
+            to_save["X_val"] = X_val.astype("float32", copy=False)
+            to_save["Y_val"] = Y_val.astype("float32", copy=False)
         np.savez(surrogate_split_filename, **to_save)
 
-    if scale:
-        X_train, Y_train, X_test, Y_test, X_val, Y_val = (
-            scale_surrogate_dataset_from_np(
-                X_train=X_train,
-                X_test=X_test,
-                Y_train=Y_train,
-                Y_test=Y_test,
-                X_val=X_val,
-                Y_val=Y_val,
-                save_path=save_path,
-                scale_y=scale_y,
-            )
-        )
+    splits = {
+        "X_train": X_train,
+        "Y_train": Y_train,
+        "X_test": X_test,
+        "Y_test": Y_test,
+        "X_val": X_val,
+        "Y_val": Y_val,
+    }
+    scalers = build_surrogate_scalers(X_train, sim_params)
+    # in place: the split arrays become the scaled arrays (no copy)
+    scale_surrogate_splits(splits, scalers)
 
     logger.info(f"Train on {X_train.shape[0]} samples")
     logger.info(f"Test on {X_test.shape[0]} samples")
@@ -468,4 +506,4 @@ def make_surrogate_dataset_from_np(
             drop_last=False,
         )
 
-    return loaders
+    return loaders, scalers
