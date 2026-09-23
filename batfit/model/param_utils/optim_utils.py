@@ -5,7 +5,6 @@ NPE-based protocol optimization pipelines.
 import numpy as np
 import scipy.optimize
 import torch
-from sklearn.preprocessing import StandardScaler
 
 from .model_utils import _ProbParamFMBase
 from .noise_utils import apply_noise
@@ -131,65 +130,10 @@ def predict_mu_sigma(
     return mu, sigma
 
 
-def sigma_physical(
-    sigma_out: torch.Tensor,
-    var_model: torch.nn.Module,
-    scaler_sigma,
-    device: torch.device,
-) -> torch.Tensor:
-    """Convert the variance estimator's raw output to physical sigma.
-
-    - StandardScaler (``log_sigma: true``): output is z-scored log sigma;
-      sigma = exp(out * scale_ + mean_)
-    - MinMaxScaler (``scale_sigma: true``): output is MinMax-scaled sigma;
-      sigma = out / scale_ + data_min_
-    - None: Sigmoid output rescaled via inv_transform_gamma (amp_par)
-
-    Parameters
-    ----------
-    sigma_out: torch.Tensor
-        Raw VariancePredFCNN output
-    var_model: torch.nn.Module
-        The variance estimator (provides inv_transform_gamma)
-    scaler_sigma: object
-        The sigma scaler saved by gen_var_dataset.py
-        (``scaler_logsigma.pkl`` or ``scaler_sigma.pkl``), or None
-    device: torch.device
-        Compute device
-
-    Returns
-    -------
-    torch.Tensor
-        Sigma in physical space, same shape as sigma_out
-    """
-    if isinstance(scaler_sigma, StandardScaler):
-        # Reverse z-scored log sigma: sigma = exp(z * scale + mean)
-        scale = torch.tensor(
-            scaler_sigma.scale_, dtype=torch.float32, device=device
-        )
-        mean = torch.tensor(
-            scaler_sigma.mean_, dtype=torch.float32, device=device
-        )
-        return torch.exp(sigma_out * scale + mean)
-    if scaler_sigma is not None:
-        # Reverse the MinMax transform: x_physical = x_scaled / scale + min
-        scale = torch.tensor(
-            scaler_sigma.scale_, dtype=torch.float32, device=device
-        )
-        min_val = torch.tensor(
-            scaler_sigma.data_min_, dtype=torch.float32, device=device
-        )
-        return sigma_out / scale + min_val
-    return var_model.inv_transform_gamma(
-        sigma_out, var_model.amp_par.to(device)
-    )
-
-
 def evaluate_sigma(
     P_scaled: np.ndarray,
     mu_scaled: np.ndarray,
     var_model: torch.nn.Module,
-    scaler_sigma,
     device: torch.device,
 ) -> np.ndarray:
     """Return physical sigma for all parameters at one (P_scaled, mu_scaled).
@@ -197,14 +141,13 @@ def evaluate_sigma(
     Parameters
     ----------
     P_scaled: np.ndarray
-        Protocol params in the variance estimator's MinMax space,
-        shape ``(n_prot,)``
+        Protocol params scaled with ``var_model.scaler_P``, shape
+        ``(n_prot,)``
     mu_scaled: np.ndarray
-        MinMax-scaled degradation param mean, shape ``(n_deg,)``
+        Degradation param mean scaled with ``var_model.scaler_Y``, shape
+        ``(n_deg,)``
     var_model: torch.nn.Module
         Trained VariancePredFCNN
-    scaler_sigma: object
-        Sigma scaler or None (see sigma_physical)
     device: torch.device
         Compute device
 
@@ -216,8 +159,8 @@ def evaluate_sigma(
     p_t = torch.from_numpy(P_scaled.reshape(1, -1)).to(device)
     mu_t = torch.from_numpy(mu_scaled.reshape(1, -1)).to(device)
     with torch.no_grad():
-        sigma_out = var_model(p_t, mu_t)
-        sigma_phys = sigma_physical(sigma_out, var_model, scaler_sigma, device)
+        sigma_scaled = var_model(p_t, mu_t)
+        sigma_phys = var_model.to_physical(sigma_scaled)
     return sigma_phys.cpu().numpy().flatten()
 
 
@@ -227,10 +170,9 @@ def optimize_protocol(
     param_idx: int,
     bounds: list,
     n_restarts: int,
-    scaler_sigma,
     device: torch.device,
 ) -> tuple:
-    """Find P_scaled that minimises sigma_physical[param_idx] for a fixed mu.
+    """Find P_scaled that minimises the physical sigma of one parameter.
 
     Runs L-BFGS-B (bounded quasi-Newton) with exact gradients
     restarted from n_restarts random initial points sampled
@@ -243,18 +185,17 @@ def optimize_protocol(
     Parameters
     ----------
     mu_scaled: np.ndarray
-        Fixed MinMax-scaled degradation param mean, shape ``(1, n_deg)``
+        Fixed degradation param mean scaled with ``var_model.scaler_Y``,
+        shape ``(1, n_deg)``
     var_model: torch.nn.Module
         Trained VariancePredFCNN
     param_idx: int
         Index of the degradation parameter whose sigma is minimised
     bounds: list
         List of ``(low, high)`` tuples in scaled protocol space, one per
-        protocol parameter
+        protocol parameter; ``(0, 1)`` is the full protocol range
     n_restarts: int
         Number of L-BFGS-B restarts
-    scaler_sigma: object
-        Sigma scaler or None (see sigma_physical)
     device: torch.device
         Compute device
 
@@ -273,8 +214,8 @@ def optimize_protocol(
             device=device,
             requires_grad=True,
         )
-        sigma_out = var_model(p_t, mu_t)
-        sigma_phys = sigma_physical(sigma_out, var_model, scaler_sigma, device)
+        sigma_scaled = var_model(p_t, mu_t)
+        sigma_phys = var_model.to_physical(sigma_scaled)
         obj = sigma_phys[0, param_idx]
         obj.backward()
         grad = p_t.grad.detach().cpu().numpy().flatten()
