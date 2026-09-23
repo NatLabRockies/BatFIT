@@ -111,6 +111,17 @@ def _buffer_like(
     return buffer
 
 
+def _readable_list(buffer: torch.Tensor) -> list:
+    """Nested list of a float32 buffer, rounded to float32 precision.
+
+    Used for the human-readable ``scaling.json`` export, so that e.g. ``0.1``
+    is written as ``0.1`` rather than ``0.10000000149011612``.
+    """
+    values = buffer.detach().cpu().numpy()
+    rounded = np.vectorize(lambda v: float(f"{v:.7g}"), otypes=[float])(values)
+    return rounded.tolist()
+
+
 class BoundedScaler(torch.nn.Module):
     """Affine scaler mapping physical bounds ``[low, high]`` onto ``[0, 1]``.
 
@@ -203,7 +214,10 @@ class BoundedScaler(torch.nn.Module):
 
     def to_dict(self) -> dict[str, list[float]]:
         """Return the bounds as plain lists, for a JSON export."""
-        return {"low": self.low.tolist(), "high": self.high.tolist()}
+        return {
+            "low": _readable_list(self.low),
+            "high": _readable_list(self.high),
+        }
 
 
 class ZScoreScaler(torch.nn.Module):
@@ -280,7 +294,10 @@ class ZScoreScaler(torch.nn.Module):
 
     def to_dict(self) -> dict[str, list]:
         """Return the statistics as nested lists, for a JSON export."""
-        return {"means": self.means.tolist(), "stds": self.stds.tolist()}
+        return {
+            "means": _readable_list(self.means),
+            "stds": _readable_list(self.stds),
+        }
 
 
 class MarginSigmoid(torch.nn.Module):
@@ -304,7 +321,7 @@ class MarginSigmoid(torch.nn.Module):
 
     def to_dict(self) -> dict[str, float]:
         """Return the margin, for a JSON export."""
-        return {"margin": float(self.margin)}
+        return {"margin": float(f"{float(self.margin):.7g}")}
 
 
 def _load_scaler(scaler_file: str):
@@ -430,3 +447,39 @@ def unscale_pred_std_from_scaler(
         "Std unscaling is only implemented for (x - mu) / sigma scalers "
         f"(StandardScaler); got {type(scaler).__name__}"
     )
+
+
+def scaling_to_dict(model: torch.nn.Module) -> dict:
+    """Collect the scalers and margin heads of a model into a plain dict.
+
+    Every :class:`BoundedScaler`, :class:`ZScoreScaler` and
+    :class:`MarginSigmoid` submodule is listed under its attribute path (e.g.
+    ``"scaler_Y"``), with its type and statistics. The parameter names of the
+    experiment configuration are added when the model holds them, so that the
+    bounds can be read per parameter.
+
+    Parameters
+    ----------
+    model : torch.nn.Module
+        Model holding scaler submodules.
+
+    Returns
+    -------
+    dict
+        JSON-serialisable summary; ``{"scalers": {}}`` when the model holds
+        no scaler.
+    """
+    summary: dict = {"scalers": {}}
+    for name, module in model.named_modules():
+        if isinstance(module, (BoundedScaler, ZScoreScaler, MarginSigmoid)):
+            summary["scalers"][name] = {
+                "type": type(module).__name__,
+                **module.to_dict(),
+            }
+    sim_params = getattr(model, "sim_params", None)
+    if sim_params is not None:
+        summary["sim_config"] = str(getattr(model, "sim_config", None))
+        for key in ("deg_param_names", "prot_param_names"):
+            if key in sim_params:
+                summary[key] = list(sim_params[key])
+    return summary
