@@ -482,4 +482,3 @@ def compute_test_loss_fm(
                 break
 
     return loss_sum / n_el
-

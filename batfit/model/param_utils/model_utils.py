@@ -404,7 +404,7 @@ class _ProbParamBase(_NPEBase, ABC):
         pass
 
 
-# Scale of the flow-matching space. 
+# Scale of the flow-matching space.
 # The flow transports samples of a source
 # (base) distribution, N(0, I) or the empirical prior, to the posterior target.
 # Parameters scaled to [0, 1] have mean 0.5 and std 1/sqrt(12) under a uniform
