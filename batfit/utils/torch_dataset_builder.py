@@ -12,6 +12,7 @@ from batfit.utils.dataset_scaling import (
     scale_surrogate_splits,
 )
 from batfit.utils.dataset_split import split_arrays, split_dataset_from_np
+from batfit.utils.signal_encoding import split_end_time
 
 
 def _make_loader(
@@ -46,18 +47,26 @@ def make_npe_dataset_from_np(
     val_split: float = 0.1,
     save_path: str = ".",
     random_state: int | None = None,
+    signal_scaling: str = "zscore",
 ) -> tuple[
     dict[str, torch.utils.data.DataLoader | None],
     dict[str, torch.nn.Module],
 ]:
     """Create scaled train/test/val DataLoaders for parameter inference (NPE).
 
-    The data is split (reusing ``data_split.npz`` when present), then X is
-    z-scored per channel (fitted on train) and the degradation parameters Y
-    (and protocol parameters P) are scaled to ``[0, 1]`` from the bounds of
-    ``sim_params``. Scaling is done in place on the split arrays and the scaled
-    data is not saved to disk. Batches are ``(X, Y)``, or ``(X, P, Y)`` when protocol
-    parameters are used.
+    The data is split (reusing ``data_split.npz`` when present), then the
+    signal is scaled (fitted on train) and the degradation parameters Y (and
+    protocol parameters P) are scaled to ``[0, 1]`` from the bounds of
+    ``sim_params``. 
+
+    With ``signal_scaling="zscore"`` the (time, voltage)
+    signal X is z-scored per channel and batches are ``(X, Y)``, or
+    ``(X, P, Y)`` with protocol parameters. 
+    With ``"time_dependent_zscore"`` X is the voltage, z-scored per time point,
+    and the end times T are a separate z-scored input: batches are
+    ``(X, T, Y)`` or ``(X, P, T, Y)``. Labels are always last. Scaling is
+    done in place on the split arrays and the scaled data is not saved to
+    disk.
 
     Parameters
     ----------
@@ -83,15 +92,21 @@ def make_npe_dataset_from_np(
         Folder of the split cache ``data_split.npz``.
     random_state : int | None
         Seed of the split.
+    signal_scaling : str
+        ``"zscore"`` or ``"time_dependent_zscore"`` (see above).
 
     Returns
     -------
     tuple
         ``(loaders, scalers)``: ``{"train", "test", "val"}`` DataLoaders
         (``"val"`` is None without a validation slice) and the scalers keyed
-        ``"X"``, ``"Y"`` (and ``"P"``), to be handed to the model.
+        ``"X"``, ``"Y"`` (and ``"T"``, ``"P"``), to be handed to the model.
     """
-    with_prot = np_prot_params is not None or "prot_param_names" in sim_params
+    if np_prot_params is not None or "prot_param_names" in sim_params:
+        with_prot = True
+        logger.info("Using protocol conditioning")
+    else:
+        with_prot = False
     arrays = {"X": np_data, "Y": np_data_label}
     if with_prot:
         arrays["P"] = np_prot_params
@@ -108,11 +123,34 @@ def make_npe_dataset_from_np(
             f"delete it to rebuild it with P"
         )
 
-    scalers = build_scalers(splits["X_train"], sim_params, with_prot)
+    if signal_scaling == "time_dependent_zscore":
+        with_end_time = True
+        logger.info("Using time-dependent scaling")
+    else:
+        with_end_time = False
+    if with_end_time:
+        for key in [k for k in splits if k.startswith("X_")]:
+            split_name = key[len("X_") :]
+            V, T = split_end_time(splits[key])
+            splits[key] = V
+            splits[f"T_{split_name}"] = np.ascontiguousarray(T)
+
+    scalers = build_scalers(
+        splits["X_train"],
+        sim_params,
+        with_prot,
+        signal_scaling=signal_scaling,
+        T_train=splits.get("T_train"),
+    )
     # in place: the split arrays become the scaled arrays (no copy)
     scaled = scale_splits(splits, scalers)
 
-    quantities = ["X", "P", "Y"] if with_prot else ["X", "Y"]
+    quantities = ["X"]
+    if with_prot:
+        quantities.append("P")
+    if with_end_time:
+        quantities.append("T")
+    quantities.append("Y")
     logger.info(f"Train on {scaled['X_train'].shape[0]} samples")
     logger.info(f"Test on {scaled['X_test'].shape[0]} samples")
     loaders: dict[str, torch.utils.data.DataLoader | None] = {
