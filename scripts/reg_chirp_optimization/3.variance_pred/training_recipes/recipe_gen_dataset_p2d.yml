@@ -11,8 +11,6 @@ data_path: ../1.gen_data/data_p2d_chirp
 n_points: 256                # HPC: 2048
 n_prot_params: 3
 noise_factor: 1.0
-scaler_path: ../1.gen_data/data_p2d_chirp/scaler_X.pkl
-scaler_P_path: ../1.gen_data/data_p2d_chirp/scaler_P.pkl
 target_mode: phi
 
 # FM sampling per noisy copy (via model.sample); these override the

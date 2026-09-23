@@ -1,10 +1,4 @@
-"""Evaluate a trained ProbParamFM (no protocol conditioning) on the val slice.
-
-Reports metrics on the held-out validation slice of ``data_split.npz`` in the
-training dataset (``inp.data_path``), matching 4.npe_gaussian/test_nn.py. Also
-includes the surrogate voltage-fit round-trip check, adapted to use the FM's
-real posterior samples directly (instead of resampling a Gaussian from
-mu/sigma, as the Gaussian NPE version does).
+"""Evaluate a trained ProbParamFM (no protocol conditioning) on the val split.
 """
 
 import os
@@ -24,7 +18,6 @@ from batfit.model.param_utils.noise_utils import apply_noise, make_noise_levels
 from batfit.model.param_utils.train_utils import create_model_from_log
 from batfit.model.surrogate_utils.losses import mae_loss as mae_loss_surr
 from batfit.model.surrogateNN import SurrogateFCNN
-from batfit.utils.data_utils import scale_input_from_scaler
 from batfit.utils.torch_utils import (
     find_best_model_file,
     get_device_type,
@@ -136,17 +129,20 @@ def test_perf(inp, mode: str = "val") -> None:
         logger.warning(f"Split file not found at {split_file}, skipping val")
         return
     A = np.load(split_file)
-    X_scaled = scale_input_from_scaler(
-        A["X_val"], os.path.join(data_path, "scaler_X.pkl")
-    )
     Y_test = A["Y_val"]
 
-    # Training uses scale_y=True, so model.sample() returns posterior samples
-    # in z-scored parameter space; scaler_Y brings them back to physical
-    # units. It's only ever fit on the training set (inp.data_path), so it's
-    # always loaded from there regardless of mode.
-    with open(os.path.join(inp.data_path, "scaler_Y.pkl"), "rb") as f:
-        scaler_Y = pickle.load(f)
+    # model.pkl was pickled (by train_fm_model) right after train_nn.py called
+    # set_prior_data(), so it already has the correct architecture and a
+    # correctly populated Y_prior buffer; load_state_dict then only needs to
+    # overwrite it with the trained weights -- no manual buffer reconstruction.
+    best_model_file = find_best_model_file(inp.models_dir)
+    model = create_model_from_log(
+        os.path.join(inp.models_dir, "model.pkl"), best_model_file
+    )
+
+    # the model carries its signal (and protocol) scalers
+    scaler_X = model.scaler_X
+    X_scaled = scaler_X.transform(A["X_val"])
 
     noise_levels, a_min, a_max = make_noise_levels(
         target_mode=inp.target_mode,
@@ -157,18 +153,8 @@ def test_perf(inp, mode: str = "val") -> None:
             2.01 * 2,
         ],
         cyc_mode=inp.cyc_mode,
-    )
-
-    with open(os.path.join(data_path, "scaler_X.pkl"), "rb") as f:
-        scaler_X = pickle.load(f)
-
-    # model.pkl was pickled (by train_fm_model) right after train_nn.py called
-    # set_prior_data(), so it already has the correct architecture and a
-    # correctly populated Y_prior buffer; load_state_dict then only needs to
-    # overwrite it with the trained weights -- no manual buffer reconstruction.
-    best_model_file = find_best_model_file(inp.models_dir)
-    model = create_model_from_log(
-        os.path.join(inp.models_dir, "model.pkl"), best_model_file
+        vmin=model.sim_params["vmin"],
+        vmax=model.sim_params["vmax"],
     )
 
     device = torch.device(get_device_type())
@@ -183,7 +169,7 @@ def test_perf(inp, mode: str = "val") -> None:
         shuffle=False,
     )
 
-    samples_z_all, truth_all, noisy_voltage_all = [], [], []
+    samples_phys_all, truth_all, noisy_voltage_all = [], [], []
 
     with torch.no_grad():
         for batch in test_loader:
@@ -199,26 +185,20 @@ def test_perf(inp, mode: str = "val") -> None:
                 n_samples=inp.n_samples,
                 n_steps=inp.n_ode_steps,
             )
-            samples_z_all.append(samps.cpu().numpy())
+            # flow-space samples -> physical units, clamped to the bounds
+            samples_phys = model.to_physical(samps)
+            samples_phys_all.append(samples_phys.cpu().numpy())
             truth_all.append(batch[1].numpy())
             noisy_voltage_all.append(
                 scaler_X.inverse_transform(batch_in.cpu()).numpy()
             )
 
-    samples_z = np.vstack(
-        samples_z_all
-    )  # (n_test, n_samples, n_params), z-scored
+    # (n_test, n_samples, n_params), physical
+    samples_physical = np.vstack(samples_phys_all)
     truth = np.vstack(truth_all)  # physical
     noisy_voltage = np.vstack(noisy_voltage_all)  # (n_test, 2, n_points)
 
-    # Inverse-transform every posterior sample (not mu/sigma separately) so
-    # sigma never gets the training-set mean incorrectly added to it.
-    n_test, n_samples, n_params = samples_z.shape
-    samples_physical = (
-        scaler_Y.inverse_transform(samples_z.reshape(-1, n_params))
-        .reshape(n_test, n_samples, n_params)
-        .astype("float32")
-    )
+    n_test, n_samples, n_params = samples_physical.shape
     mu_preds = samples_physical.mean(axis=1)
     sigma_preds = samples_physical.std(axis=1)
 
@@ -279,27 +259,9 @@ def test_perf(inp, mode: str = "val") -> None:
     forward_model = ForwardModel(surrogate, surrogate_scaler)
     voltage_error = np.zeros(samples_pred_params.shape[:2])
     logger.info("Computing voltage error")
-    # Clip samples to the physical bounds used when generating the discharge
-    # dataset (spm_discharge.yaml), to avoid feeding the surrogate
-    # out-of-distribution degradation parameters.
-    samples_pred_params[:, :, 0] = np.clip(
-        samples_pred_params[:, :, 0], 0.1, 4.0
-    )
-    samples_pred_params[:, :, 1] = np.clip(
-        samples_pred_params[:, :, 1], 0.2, 10.0
-    )
-    samples_pred_params[:, :, 2] = np.clip(
-        samples_pred_params[:, :, 2], 0.6, 1.077
-    )
-    samples_pred_params[:, :, 3] = np.clip(
-        samples_pred_params[:, :, 3], 0.88, 1.6
-    )
-    samples_pred_params[:, :, 4] = np.clip(
-        samples_pred_params[:, :, 4], 0.1, 1.6
-    )
-    samples_pred_params[:, :, 5] = np.clip(
-        samples_pred_params[:, :, 5], 0.7, 1.0
-    )
+    # Samples are already clamped to the prior bounds of the experiment config
+    # by model.to_physical, so the surrogate never sees out-of-distribution
+    # degradation parameters.
 
     for i in range(samples_pred_params.shape[0]):
         for j in range(samples_pred_params.shape[1]):

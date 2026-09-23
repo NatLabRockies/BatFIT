@@ -3,22 +3,19 @@
 import os
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
-import pickle
 import shutil
 import sys
-
-import numpy as np
-import torch
 
 from batfit import logger
 from batfit.basicutilityc import ReadInput as ri
 from batfit.model.param_utils.noise_utils import make_noise_levels
 from batfit.model.param_utils.train_fm_utils import train_fm_model
 from batfit.model.paramNN import ProbProtParamFM
+from batfit.preprocess.sim_setup import make_params
 from batfit.utils.data_utils import assemble_all_data
 from batfit.utils.torch_utils import (
     get_num_parameters,
-    make_protocol_dataset_from_np,
+    make_npe_dataset_from_np,
 )
 
 
@@ -38,22 +35,23 @@ def make_data_loaders(inp):
     )
 
     BATCH_SIZE = min(inp.batch_size, int(Y_data.shape[0] * 0.8))
-    loaders = make_protocol_dataset_from_np(
-        batch_size=BATCH_SIZE,
+    return make_npe_dataset_from_np(
+        make_params(inp.sim_config),
         np_data=X_data,
-        np_prot_params=P_data,
         np_data_label=Y_data,
+        np_prot_params=P_data,
+        batch_size=BATCH_SIZE,
         test_split=0.1,
         val_split=0.1,
-        scale=True,
-        scale_y=True,
         save_path=data_root_folder,
     )
-    return loaders
 
 
-def define_model(inp):
-    """Instantiate a ProbProtParamFM (protocol-conditioned flow matching)."""
+def define_model(inp, scaler_X=None):
+    """Instantiate a ProbProtParamFM (protocol-conditioned flow matching).
+
+    scaler_X=None leaves a placeholder that load_state_dict fills.
+    """
     input_shape = (2, inp.n_points)
     model = ProbProtParamFM(
         input_shape=input_shape,
@@ -61,22 +59,18 @@ def define_model(inp):
         fc_list=[inp.num_fc_units] * inp.num_fc_hidden,
         fc_prot_list=[inp.num_fc_prot_units] * inp.num_fc_prot_hidden,
         vf_hidden_list=[inp.num_vf_units] * inp.num_vf_hidden,
-        n_prot_params=inp.n_prot_params,
-        cyc_mode=inp.cyc_mode,
-        n_param_pred=inp.n_param_pred,
         sim_config=inp.sim_config,
+        cyc_mode=inp.cyc_mode,
+        scaler_X=scaler_X,
         use_prior_matching=inp.use_prior_matching,
     )
     num_parameters = get_num_parameters(model)
     logger.info(f"No. Trainable Parameters: {num_parameters}")
 
-    with open(inp.scaler_path, "rb") as f:
-        scaler_X = pickle.load(f)
-
-    return model, scaler_X
+    return model
 
 
-def do_training(inp, model, train_data_loader, test_data_loader, scaler_X):
+def do_training(inp, model, train_data_loader, test_data_loader):
     """Fit the FM model, selecting the best checkpoint on the test split."""
     noise_levels, a_min, a_max = make_noise_levels(
         target_mode=inp.target_mode,
@@ -87,6 +81,8 @@ def do_training(inp, model, train_data_loader, test_data_loader, scaler_X):
             2.01 * 2,
         ],
         cyc_mode=inp.cyc_mode,
+        vmin=model.sim_params["vmin"],
+        vmax=model.sim_params["vmax"],
     )
 
     train_fm_model(
@@ -95,7 +91,6 @@ def do_training(inp, model, train_data_loader, test_data_loader, scaler_X):
         test_data_loader=test_data_loader,
         learning_rate=inp.lr,
         num_epochs=inp.epochs,
-        scaler_X=scaler_X,
         noise_levels=noise_levels,
         a_min=a_min,
         a_max=a_max,
@@ -109,18 +104,17 @@ def do_training(inp, model, train_data_loader, test_data_loader, scaler_X):
 
 if __name__ == "__main__":
     inp = ri.basic_input(sys.argv[1])
-    loaders = make_data_loaders(inp)
-    model, scaler_X = define_model(inp)
+    loaders, scalers = make_data_loaders(inp)
+    model = define_model(inp, scaler_X=scalers["X"])
 
-    # Register scaled training labels as the empirical prior for prior matching.
-    # data_scaled_y.npz is written by make_data_loaders (scale_y=True). With
+    # Register the training labels (scaled to [0, 1], last tensor of the
+    # train loader) as the empirical prior for prior matching. With
     # use_prior_matching=False the prior is registered but unused.
-    data_scaled = np.load(os.path.join(inp.data_path, "data_scaled_y.npz"))
-    Y_train_scaled = torch.tensor(data_scaled["Y_train"], dtype=torch.float32)
+    Y_train_scaled = loaders["train"].dataset.tensors[-1]
     model.set_prior_data(Y_train_scaled)
     logger.info(
         f"Empirical prior registered: {Y_train_scaled.shape[0]} training samples"
     )
 
-    do_training(inp, model, loaders["train"], loaders["test"], scaler_X)
+    do_training(inp, model, loaders["train"], loaders["test"])
     shutil.copy(sys.argv[1], os.path.join(inp.models_dir, "recipe.yml"))

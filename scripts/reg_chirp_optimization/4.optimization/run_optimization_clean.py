@@ -35,7 +35,6 @@ from batfit.model.param_utils.optim_utils import (
     optimize_protocol,
     predict_mu_sigma,
 )
-from batfit.model.paramNN import ProbParamFM, ProbProtParamFM
 from batfit.preprocess.sim_setup import make_params
 from batfit.utils.data_utils import load_pickle
 from batfit.utils.torch_utils import get_device_type, load_frozen_model
@@ -77,18 +76,7 @@ def run_optimization_clean(inp) -> None:
     npe = load_frozen_model(inp.nochirp_npe_models_dir, device)
     chirp_npe = load_frozen_model(inp.chirp_npe_models_dir, device)
     var_model = load_frozen_model(inp.var_pred_models_dir, device)
-    scaler_x = load_pickle(os.path.join(inp.nochirp_data_path, "scaler_X.pkl"))
-    scaler_x_chirp = load_pickle(
-        os.path.join(inp.chirp_data_path, "scaler_X.pkl")
-    )
-    scaler_p_chirp = load_pickle(
-        os.path.join(inp.chirp_data_path, "scaler_P.pkl")
-    )
-    scaler_y_chirp = None
-    if isinstance(chirp_npe, ProbProtParamFM):
-        scaler_y_chirp = load_pickle(
-            os.path.join(inp.chirp_data_path, "scaler_Y.pkl")
-        )
+    # the NPEs carry their own signal/protocol/parameter scalers
     scaler_mu = load_pickle(
         os.path.join(inp.var_pred_save_path, "scaler_mu.pkl")
     )
@@ -120,13 +108,6 @@ def run_optimization_clean(inp) -> None:
     else:
         scaler_sigma = None
 
-    # scaler_Y only applies to a flow-matching nochirp NPE (scale_y=True)
-    scaler_y = None
-    if isinstance(npe, ProbParamFM):
-        scaler_y = load_pickle(
-            os.path.join(inp.nochirp_data_path, "scaler_Y.pkl")
-        )
-
     # --- Nochirp observations (val split, ground truth kept for plots) ---
     A = np.load(os.path.join(inp.nochirp_data_path, "data_split.npz"))
     assert "X_val" in A.files, (
@@ -157,18 +138,18 @@ def run_optimization_clean(inp) -> None:
             2.01 * 2,
         ],
         cyc_mode=inp.cyc_mode,
+        vmin=npe.sim_params["vmin"],
+        vmax=npe.sim_params["vmax"],
     )
-    X_scaled = scaler_x.transform(X_sel).astype("float32")
+    X_scaled = npe.scaler_X.transform(X_sel).astype("float32")
     mu_physical, sigma_nochirp = predict_mu_sigma(
         X_scaled,
         npe,
-        scaler_x,
         noise_levels,
         a_min,
         a_max,
         n_noise=inp.n_noise_npe,
         device=device,
-        scaler_Y=scaler_y,
         n_samples=getattr(inp, "n_samples", 1000),
         n_ode_steps=getattr(inp, "n_ode_steps", 100),
         batch_size=getattr(inp, "gen_batch_size", 256),
@@ -202,7 +183,9 @@ def run_optimization_clean(inp) -> None:
         sim_params["prot_length_max"],
         n_amp0_draws,
     )
-    P_amp0_scaled = scaler_p_chirp.transform(P_amp0_draws).astype("float32")
+    P_amp0_scaled = chirp_npe.scaler_P.transform(P_amp0_draws).astype(
+        "float32"
+    )
 
     noise_levels_chirp, a_min_chirp, a_max_chirp = make_noise_levels(
         target_mode=inp.target_mode,
@@ -213,6 +196,8 @@ def run_optimization_clean(inp) -> None:
             2.01 * 2,
         ],
         cyc_mode="chirp",
+        vmin=chirp_npe.sim_params["vmin"],
+        vmax=chirp_npe.sim_params["vmax"],
     )
     # The chirp NPE's input grid size is recorded in the recipe saved next
     # to its checkpoint at training time
@@ -220,7 +205,7 @@ def run_optimization_clean(inp) -> None:
         os.path.join(inp.chirp_npe_models_dir, "recipe.yml")
     )
     X_chirp = interp_signal(X_sel, int(chirp_npe_recipe.n_points))
-    X_chirp_scaled = scaler_x_chirp.transform(X_chirp).astype("float32")
+    X_chirp_scaled = chirp_npe.scaler_X.transform(X_chirp).astype("float32")
     sigma_amp0_draws = np.zeros(
         (n_amp0_draws, n_curves, n_deg), dtype="float32"
     )
@@ -234,14 +219,12 @@ def run_optimization_clean(inp) -> None:
         _, sigma_amp0_draws[j] = predict_mu_sigma(
             X_chirp_scaled,
             chirp_npe,
-            scaler_x_chirp,
             noise_levels_chirp,
             a_min_chirp,
             a_max_chirp,
             n_noise=inp.n_noise_npe,
             device=device,
             P_scaled=P_tiled,
-            scaler_Y=scaler_y_chirp,
             n_samples=getattr(inp, "n_samples", 1000),
             n_ode_steps=getattr(inp, "n_ode_steps", 100),
             batch_size=getattr(inp, "gen_batch_size", 256),

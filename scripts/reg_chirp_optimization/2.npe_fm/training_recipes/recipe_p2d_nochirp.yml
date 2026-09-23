@@ -1,7 +1,6 @@
 # DATA
 cyc_mode: chargecc
 data_path: ../1.gen_data/data_p2d_nochirp
-n_param_pred: 6
 n_points: 128                # HPC: 512 (must match gen -n_points_reduce)
 noise_factor: 1.0
 sim_config: p2d_nochirp.yaml

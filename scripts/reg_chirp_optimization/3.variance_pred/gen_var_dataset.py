@@ -26,7 +26,6 @@ from batfit.basicutilityc import ReadInput as ri
 from batfit.model.param_utils.noise_utils import apply_noise, make_noise_levels
 from batfit.model.param_utils.train_utils import create_model_from_log
 from batfit.model.paramNN import ProbProtParamFM
-from batfit.utils.data_utils import scale_input_from_scaler
 from batfit.utils.torch_utils import find_best_model_file, get_device_type
 
 
@@ -35,22 +34,16 @@ def _load_npe(inp):
     model_pkl = os.path.join(inp.npe_models_dir, "model.pkl")
     best_pt = find_best_model_file(inp.npe_models_dir)
     logger.info(f"Loading NPE from {best_pt}")
+    # the NPE carries its own signal/protocol/parameter scalers
     model = create_model_from_log(
         model_obj_file=model_pkl,
         model_state_dict_file=best_pt,
     )
-    with open(inp.scaler_path, "rb") as f:
-        scaler_X = pickle.load(f)
-
-    scaler_Y = None
-    if isinstance(model, ProbProtParamFM):
-        with open(os.path.join(inp.data_path, "scaler_Y.pkl"), "rb") as f:
-            scaler_Y = pickle.load(f)
 
     device = torch.device(get_device_type())
     model.to(device)
     model.eval()
-    return model, scaler_X, scaler_Y, device
+    return model, device
 
 
 def _process_split(
@@ -58,9 +51,6 @@ def _process_split(
     P_np: np.ndarray,
     Y_np: np.ndarray,
     model,
-    scaler_X,
-    scaler_Y,
-    scaler_P,
     noise_levels: torch.Tensor,
     a_min: torch.Tensor,
     a_max: torch.Tensor,
@@ -80,7 +70,7 @@ def _process_split(
         noisy copy directly.
       - For ProbProtParamFM: draws n_samples posterior samples per noisy
         copy via model.sample(...), then takes their mean/std (after
-        scaler_Y.inverse_transform) as that copy's (mu_k, sigma_k).
+        model.to_physical) as that copy's (mu_k, sigma_k).
       - Averages (mu_k, sigma_k) over the n_noise dimension.
     """
     N = X_np.shape[0]
@@ -97,11 +87,11 @@ def _process_split(
         B = X_batch.shape[0]
 
         # Scale X with the NPE's z-score scaler
-        X_scaled = scaler_X.transform(X_batch)  # (B, channels, time)
+        X_scaled = model.scaler_X.transform(X_batch)  # (B, channels, time)
         X_tensor = torch.from_numpy(X_scaled)  # float32
 
-        # Scale P with the NPE's MinMax scaler
-        P_scaled = scaler_P.transform(P_batch).astype("float32")
+        # Scale P to [0, 1] with the NPE's protocol scaler
+        P_scaled = model.scaler_P.transform(P_batch).astype("float32")
         P_tensor = torch.from_numpy(P_scaled)
 
         # Tile to (B * n_noise, …) for vectorised noise application
@@ -117,19 +107,20 @@ def _process_split(
         )  # (B*n_noise, n_prot)
 
         # Each of the B*n_noise copies gets independent noise
-        X_noisy = apply_noise(X_tiled, scaler_X, noise_levels, a_min, a_max)
+        X_noisy = apply_noise(
+            X_tiled, model.scaler_X, noise_levels, a_min, a_max
+        )
 
         with torch.no_grad():
             if isinstance(model, ProbProtParamFM):
-                samples_z = model.sample(
+                samples_flow = model.sample(
                     X_noisy.to(device),
                     P_tiled.to(device),
                     n_samples=n_samples,
                     n_steps=n_ode_steps,
-                )  # (B*n_noise, n_samples, n_deg), z-scored
-                samples_phys = scaler_Y.inverse_transform(
-                    samples_z.cpu().numpy().reshape(-1, n_deg)
-                ).reshape(B * n_noise, n_samples, n_deg)
+                )  # (B*n_noise, n_samples, n_deg), flow space
+                samples_phys = model.to_physical(samples_flow)
+                samples_phys = samples_phys.cpu().numpy()
                 mu_np = samples_phys.mean(axis=1)  # (B*n_noise, n_deg)
                 sigma_np = samples_phys.std(axis=1)  # (B*n_noise, n_deg)
             else:
@@ -177,11 +168,7 @@ def gen_var_dataset(inp) -> None:
         f"val={X_val.shape[0]}"
     )
 
-    # Load the NPE's P scaler (used inside _process_split to scale P before the NPE)
-    with open(inp.scaler_P_path, "rb") as f:
-        scaler_P_npe = pickle.load(f)
-
-    model, scaler_X, scaler_Y, device = _load_npe(inp)
+    model, device = _load_npe(inp)
 
     noise_levels, a_min, a_max = make_noise_levels(
         target_mode=inp.target_mode,
@@ -192,6 +179,8 @@ def gen_var_dataset(inp) -> None:
             2.01 * 2,
         ],
         cyc_mode=inp.cyc_mode,
+        vmin=model.sim_params["vmin"],
+        vmax=model.sim_params["vmax"],
     )
 
     # n_samples/n_ode_steps only apply to a ProbProtParamFM NPE; CNN recipes
@@ -210,9 +199,6 @@ def gen_var_dataset(inp) -> None:
 
     shared = dict(
         model=model,
-        scaler_X=scaler_X,
-        scaler_Y=scaler_Y,
-        scaler_P=scaler_P_npe,
         noise_levels=noise_levels,
         a_min=a_min,
         a_max=a_max,
