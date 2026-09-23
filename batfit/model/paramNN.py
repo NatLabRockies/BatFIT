@@ -28,7 +28,6 @@ class ProbParamCNN(_ProbParamBase):
         sim_config: str,
         leaky_relu_slope=0.2,
         cyc_mode="discharge",
-        n_param_pred=6,
         encoder_model=None,
         scaler_X: ZScoreScaler | None = None,
         param_margin: float = 0.05,
@@ -41,7 +40,6 @@ class ProbParamCNN(_ProbParamBase):
             sim_config=sim_config,
             scaler_X_shape=(1, input_shape[0], 1),
             cyc_mode=cyc_mode,
-            n_param_pred=n_param_pred,
             encoder_model=encoder_model,
             scaler_X=scaler_X,
             param_margin=param_margin,
@@ -111,7 +109,6 @@ class ProbParamFCNN(_ProbParamBase):
         loss_fn,
         sim_config: str,
         cyc_mode="discharge",
-        n_param_pred=6,
         encoder_model=None,
         scaler_X: ZScoreScaler | None = None,
         param_margin: float = 0.05,
@@ -122,7 +119,6 @@ class ProbParamFCNN(_ProbParamBase):
             sim_config=sim_config,
             scaler_X_shape=(1, input_shape[0]),
             cyc_mode=cyc_mode,
-            n_param_pred=n_param_pred,
             encoder_model=encoder_model,
             scaler_X=scaler_X,
             param_margin=param_margin,
@@ -192,11 +188,9 @@ class ProbProtParamCNN(_ProbParamBase):
         fc_mu_list: list[int],
         fc_gamma_list: list[int],
         loss_fn,
-        n_prot_params: int,
         sim_config: str,
         leaky_relu_slope: float = 0.2,
         cyc_mode: str = "chirp",
-        n_param_pred: int = 6,
         encoder_model=None,
         scaler_X: ZScoreScaler | None = None,
         param_margin: float = 0.05,
@@ -216,18 +210,15 @@ class ProbProtParamCNN(_ProbParamBase):
             sim_config=sim_config,
             scaler_X_shape=(1, input_shape[0], 1),
             cyc_mode=cyc_mode,
-            n_param_pred=n_param_pred,
             encoder_model=encoder_model,
             scaler_X=scaler_X,
             param_margin=param_margin,
             with_prot=True,
         )
-        assert self.scaler_P.low.shape[0] == n_prot_params
         self.leaky_relu_slope = leaky_relu_slope
         self.chan_list = chan_list
         self.fc_list = fc_list
         self.fc_prot_list = fc_prot_list
-        self.n_prot_params = n_prot_params
 
         assert len(chan_list) < int(np.log(input_shape[1]) / np.log(2))
 
@@ -244,7 +235,7 @@ class ProbProtParamCNN(_ProbParamBase):
         )
 
         # After CNN output + prot_params concatenation
-        prot_input_size = fc_list[-1] + n_prot_params
+        prot_input_size = fc_list[-1] + self.n_prot_params
         _prot_layers = []
         if fc_prot_list:
             prot_fc = _build_hidden_fcnn_layers(prot_input_size, fc_prot_list)

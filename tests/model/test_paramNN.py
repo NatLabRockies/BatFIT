@@ -1,11 +1,9 @@
+import numpy as np
 import pytest
 import torch
 import torch.nn as nn
 
-from batfit.model.param_utils.losses import (
-    correlated_normal_loss,
-    independent_normal_loss,
-)
+from batfit.model.param_utils.losses import independent_normal_loss
 from batfit.model.param_utils.model_utils import _SelfAttentionBlock
 from batfit.model.paramNN import (
     ProbParamCNN,
@@ -14,12 +12,14 @@ from batfit.model.paramNN import (
     ProbProtParamCNN,
     ProbProtParamFM,
 )
+from batfit.utils.scalers import ZScoreScaler
 
 
 def test_ProbParamCNN():
     batch = 4
     n_points = 64
-    n_param_pred = 3
+    n_param_pred = 6  # must match the YAML
+    sim_config = "batfit/default_exps/spm_discharge.yaml"
 
     model = ProbParamCNN(
         input_shape=(2, n_points),
@@ -28,68 +28,62 @@ def test_ProbParamCNN():
         fc_mu_list=[8],
         fc_gamma_list=[8],
         loss_fn=independent_normal_loss,
+        sim_config=sim_config,
         cyc_mode="discharge",
         n_param_pred=n_param_pred,
-        constrain_output=True,
+        param_margin=0.1,
     )
     x = torch.rand(batch, 2, n_points)
     mu, gamma = model(x)
     assert mu.shape == (batch, n_param_pred)
     assert gamma.shape == (batch, n_param_pred)
-    # constrain_output applies Sigmoid to mu -> values in (0, 1)
-    assert mu.min().item() >= 0.0
-    assert mu.max().item() <= 1.0
+    # scaled outputs: mu within [-margin, 1 + margin], sigma within (0, 1)
+    assert mu.min().item() >= -0.1
+    assert mu.max().item() <= 1.1
+    assert gamma.min().item() > 0.0
+    assert gamma.max().item() < 1.0
+    # scalers are submodules, saved in the state dict
+    keys = model.state_dict().keys()
+    assert {"scaler_X.means", "scaler_Y.low", "scaler_Y.high"} <= set(keys)
+    # without a fitted scaler_X, an identity placeholder is created
+    assert torch.all(model.scaler_X.means == 0.0)
+    assert torch.all(model.scaler_X.stds == 1.0)
 
-
-def test_ProbParamCNN_dependent_outputs():
-    batch = 4
-    n_points = 64
-    n_param_pred = 3
-    # dependent_outputs produces a full covariance matrix (batch, n, n)
-    model = ProbParamCNN(
-        input_shape=(2, n_points),
-        chan_list=[8],
-        fc_list=[16],
-        fc_mu_list=[8],
-        fc_gamma_list=[8],
-        loss_fn=correlated_normal_loss,
-        cyc_mode="discharge",
-        n_param_pred=n_param_pred,
-        dependent_outputs=True,
-        constrain_output=False,
-    )
-    x = torch.rand(batch, 2, n_points)
-    mu, cov = model(x)
-    assert mu.shape == (batch, n_param_pred)
-    assert cov.shape == (batch, n_param_pred, n_param_pred)
-
-
-def test_ProbParamCNN_discharge_chargecc():
-    batch = 4
-    n_points = 64
-    n_param_pred = 3
     # discharge-chargecc splits the 4-channel input into two 2-channel halves
-    model = ProbParamCNN(
+    model_dc = ProbParamCNN(
         input_shape=(4, n_points),
         chan_list=[8],
         fc_list=[16],
         fc_mu_list=[8],
         fc_gamma_list=[8],
         loss_fn=independent_normal_loss,
+        sim_config=sim_config,
         cyc_mode="discharge-chargecc",
         n_param_pred=n_param_pred,
-        constrain_output=False,
     )
-    x = torch.rand(batch, 4, n_points)
-    mu, gamma = model(x)
-    assert mu.shape == (batch, n_param_pred)
-    assert gamma.shape == (batch, n_param_pred)
+    mu_dc, gamma_dc = model_dc(torch.rand(batch, 4, n_points))
+    assert mu_dc.shape == (batch, n_param_pred)
+    assert gamma_dc.shape == (batch, n_param_pred)
+
+    # n_param_pred must match the parameters of the config
+    with pytest.raises(AssertionError):
+        ProbParamCNN(
+            input_shape=(2, n_points),
+            chan_list=[8],
+            fc_list=[16],
+            fc_mu_list=[8],
+            fc_gamma_list=[8],
+            loss_fn=independent_normal_loss,
+            sim_config=sim_config,
+            n_param_pred=3,
+        )
 
 
 def test_ProbParamFCNN():
     batch = 4
     input_dim = 32
-    n_param_pred = 3
+    n_param_pred = 6
+    sim_config = "batfit/default_exps/spm_discharge.yaml"
 
     model = ProbParamFCNN(
         input_shape=(input_dim,),
@@ -97,14 +91,16 @@ def test_ProbParamFCNN():
         fc_mu_list=[8],
         fc_gamma_list=[8],
         loss_fn=independent_normal_loss,
+        sim_config=sim_config,
         cyc_mode="discharge",
         n_param_pred=n_param_pred,
-        constrain_output=True,
     )
     x = torch.rand(batch, input_dim)
     mu, gamma = model(x)
     assert mu.shape == (batch, n_param_pred)
     assert gamma.shape == (batch, n_param_pred)
+    # flat input: the signal scaler has 2D statistics
+    assert tuple(model.scaler_X.means.shape) == (1, input_dim)
 
     # discharge-chargecc: input is 2*input_dim wide, split into two halves
     model_dc = ProbParamFCNN(
@@ -113,9 +109,9 @@ def test_ProbParamFCNN():
         fc_mu_list=[8],
         fc_gamma_list=[8],
         loss_fn=independent_normal_loss,
+        sim_config=sim_config,
         cyc_mode="discharge-chargecc",
         n_param_pred=n_param_pred,
-        constrain_output=False,
     )
     x_dc = torch.rand(batch, 2 * input_dim)
     mu_dc, gamma_dc = model_dc(x_dc)
@@ -123,8 +119,7 @@ def test_ProbParamFCNN():
     assert gamma_dc.shape == (batch, n_param_pred)
 
 
-def test_transform_output():
-    n_param_pred = 3
+def test_to_physical():
     model = ProbParamCNN(
         input_shape=(2, 64),
         chan_list=[8],
@@ -132,9 +127,71 @@ def test_transform_output():
         fc_mu_list=[8],
         fc_gamma_list=[8],
         loss_fn=independent_normal_loss,
-        cyc_mode="discharge",
+        sim_config="batfit/default_exps/spm_discharge.yaml",
+        n_param_pred=6,
+    )
+    low, high = model.scaler_Y.low, model.scaler_Y.high
+    # 0 -> lower bound, 1 -> upper bound, overshoot clipped to the bounds
+    mu = torch.stack([torch.zeros(6), torch.ones(6), torch.full((6,), 1.05)])
+    sigma = torch.full((3, 6), 0.1)
+    mu_phys, sigma_phys = model.to_physical(mu, sigma)
+    assert torch.allclose(mu_phys[0], low)
+    assert torch.allclose(mu_phys[1], high)
+    assert torch.allclose(mu_phys[2], high)
+    # sigma only picks up the range of each parameter
+    assert torch.allclose(sigma_phys, 0.1 * (high - low).expand(3, -1))
+
+
+def test_predict_physical():
+    torch.manual_seed(0)
+    batch = 4
+    n_points = 64
+    X = np.random.rand(10, 2, n_points).astype("float32") * 0.5 + 3.5
+    scaler_X = ZScoreScaler.fit(X, axis=(0, 2))
+    model = ProbProtParamCNN(
+        input_shape=(2, n_points),
+        chan_list=[8],
+        fc_list=[16],
+        fc_prot_list=[8],
+        fc_mu_list=[8],
+        fc_gamma_list=[8],
+        loss_fn=independent_normal_loss,
+        n_prot_params=3,
+        sim_config="batfit/default_exps/spm_chirp.yaml",
+        n_param_pred=6,
+        scaler_X=scaler_X,
+    )
+    model.eval()
+    x = torch.from_numpy(X[:batch])
+    # physical protocol parameters inside the configured bounds
+    p = model.scaler_P.inverse_transform(torch.rand(batch, 3))
+
+    with torch.no_grad():
+        mu, sigma = model.predict_physical(x, p)
+        # same result as scaling by hand then calling to_physical
+        mu_scaled, sigma_scaled = model(
+            scaler_X.transform(x), model.scaler_P.transform(p)
+        )
+        mu_ref, sigma_ref = model.to_physical(mu_scaled, sigma_scaled)
+    assert torch.allclose(mu, mu_ref)
+    assert torch.allclose(sigma, sigma_ref)
+    assert torch.all(mu >= model.scaler_Y.low)
+    assert torch.all(mu <= model.scaler_Y.high)
+
+    # protocol models require protocol parameters
+    with pytest.raises(AssertionError):
+        model.predict_physical(x)
+
+
+def test_transform_output():
+    # scaling mixin, still used by the flow-matching models
+    n_param_pred = 3
+    model = ProbParamFM(
+        input_shape=(2, 64),
+        chan_list=[8],
+        fc_list=[16],
+        vf_hidden_list=[32],
         n_param_pred=n_param_pred,
-        constrain_output=False,
     )
     min_par = torch.tensor([0.5, 0.6, 0.7])
     amp_par = torch.tensor([0.4, 0.3, 0.2])
@@ -150,8 +207,9 @@ def test_transform_output():
 def test_ProbProtParamCNN():
     batch = 4
     n_points = 64
-    n_param_pred = 3
+    n_param_pred = 6
     n_prot_params = 3
+    sim_config = "batfit/default_exps/spm_chirp.yaml"
 
     # With fc_prot_list: CNN out + prot_params -> fc_prot_list -> mu/gamma heads
     model = ProbProtParamCNN(
@@ -163,17 +221,19 @@ def test_ProbProtParamCNN():
         fc_gamma_list=[8],
         loss_fn=independent_normal_loss,
         n_prot_params=n_prot_params,
+        sim_config=sim_config,
         cyc_mode="chirp",
         n_param_pred=n_param_pred,
-        constrain_output=False,
     )
     x = torch.rand(batch, 2, n_points)
     prot_params = torch.rand(batch, n_prot_params)
     mu, gamma = model(x, prot_params)
     assert mu.shape == (batch, n_param_pred)
     assert gamma.shape == (batch, n_param_pred)
-    # gamma should be positive (Softplus output)
+    # gamma should be positive (Sigmoid output)
     assert gamma.min().item() > 0.0
+    # protocol scaler built from the config bounds
+    assert model.scaler_P.low.shape == (n_prot_params,)
 
     # Without fc_prot_list: CNN out + prot_params fed directly to mu/gamma heads
     model_noprot = ProbProtParamCNN(
@@ -185,9 +245,9 @@ def test_ProbProtParamCNN():
         fc_gamma_list=[8],
         loss_fn=independent_normal_loss,
         n_prot_params=n_prot_params,
+        sim_config=sim_config,
         cyc_mode="chirp",
         n_param_pred=n_param_pred,
-        constrain_output=False,
     )
     mu2, gamma2 = model_noprot(x, prot_params)
     assert mu2.shape == (batch, n_param_pred)
@@ -204,6 +264,7 @@ def test_ProbProtParamCNN():
             fc_gamma_list=[8],
             loss_fn=independent_normal_loss,
             n_prot_params=n_prot_params,
+            sim_config=sim_config,
             cyc_mode="discharge-chargecc",
             n_param_pred=n_param_pred,
         )
@@ -468,7 +529,8 @@ def test_ProbParamCNN_attention():
     """CNN NPE with a self-attention block produces correct output shapes."""
     batch = 4
     n_points = 64
-    n_param_pred = 3
+    n_param_pred = 6
+    sim_config = "batfit/default_exps/spm_discharge.yaml"
 
     model = ProbParamCNN(
         input_shape=(2, n_points),
@@ -477,9 +539,9 @@ def test_ProbParamCNN_attention():
         fc_mu_list=[8],
         fc_gamma_list=[8],
         loss_fn=independent_normal_loss,
+        sim_config=sim_config,
         cyc_mode="discharge",
         n_param_pred=n_param_pred,
-        constrain_output=False,
         num_attn_heads=4,
         attn_dropout=0.0,
     )
@@ -487,7 +549,7 @@ def test_ProbParamCNN_attention():
     mu, gamma = model(x)
     assert mu.shape == (batch, n_param_pred)
     assert gamma.shape == (batch, n_param_pred)
-    # Softplus output head must produce positive sigmas
+    # Sigmoid output head must produce positive sigmas
     assert gamma.min().item() > 0.0
 
     # num_attn_heads not dividing chan_list[-1] must raise during construction
@@ -499,6 +561,7 @@ def test_ProbParamCNN_attention():
             fc_mu_list=[8],
             fc_gamma_list=[8],
             loss_fn=independent_normal_loss,
+            sim_config=sim_config,
             n_param_pred=n_param_pred,
             num_attn_heads=3,
         )
@@ -508,8 +571,9 @@ def test_ProbProtParamCNN_attention():
     """Protocol CNN NPE with attention layer produces correct output shapes."""
     batch = 4
     n_points = 64
-    n_param_pred = 3
+    n_param_pred = 6
     n_prot_params = 3
+    sim_config = "batfit/default_exps/spm_chirp.yaml"
 
     model = ProbProtParamCNN(
         input_shape=(2, n_points),
@@ -520,9 +584,9 @@ def test_ProbProtParamCNN_attention():
         fc_gamma_list=[8],
         loss_fn=independent_normal_loss,
         n_prot_params=n_prot_params,
+        sim_config=sim_config,
         cyc_mode="chirp",
         n_param_pred=n_param_pred,
-        constrain_output=False,
         num_attn_heads=4,
         attn_dropout=0.0,
     )
@@ -544,6 +608,7 @@ def test_ProbProtParamCNN_attention():
             fc_gamma_list=[8],
             loss_fn=independent_normal_loss,
             n_prot_params=n_prot_params,
+            sim_config=sim_config,
             n_param_pred=n_param_pred,
             num_attn_heads=3,
         )
