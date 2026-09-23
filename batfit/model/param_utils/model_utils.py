@@ -7,13 +7,12 @@ from flow_matching.solver import ODESolver
 from flow_matching.utils import ModelWrapper
 
 from batfit.preprocess.sim_setup import make_params
+from batfit.utils.scalers import BoundedScaler, MarginSigmoid, ZScoreScaler
 
 from .losses import (
-    correlated_normal_loss,
     gumbel_loss,
     independent_gumbel_loss,
     independent_normal_loss,
-    mse_loss,
     nll_loss,
 )
 
@@ -201,10 +200,13 @@ def _build_output_heads(
     fc_mu_list: list[int],
     fc_gamma_list: list[int],
     output_dim: int,
-    dependent_outputs: bool,
-    constrain_output: bool,
+    param_margin: float,
 ) -> tuple[nn.Sequential, nn.Sequential]:
-    """Build the mu and gamma output heads for Gaussian parameter models.
+    """Build the mu and sigma output heads of the Gaussian parameter models.
+
+    Both heads predict in the ``[0, 1]`` space of the degradation parameters:
+    mu ends with a :class:`MarginSigmoid` spanning
+    ``[-param_margin, 1 + param_margin]`` and sigma with a ``Sigmoid``.
 
     Returns
     -------
@@ -212,34 +214,20 @@ def _build_output_heads(
         ``(model_mu_layers, model_gamma_layers)``
     """
     fc_mu = _build_hidden_fcnn_layers(fc_list_end, fc_mu_list)
-    fc_otpt_mu = nn.Linear(fc_mu_list[-1], output_dim)
-
     _mu_layers = []
     for layer in fc_mu:
         _mu_layers.append(layer)
         _mu_layers.append(nn.Tanh())
-    _mu_layers.append(fc_otpt_mu)
-    if constrain_output:
-        _mu_layers.append(nn.Sigmoid())
+    _mu_layers.append(nn.Linear(fc_mu_list[-1], output_dim))
+    _mu_layers.append(MarginSigmoid(param_margin))
 
     fc_gamma = _build_hidden_fcnn_layers(fc_list_end, fc_gamma_list)
-    if not dependent_outputs:
-        fc_otpt_gamma = nn.Linear(fc_gamma_list[-1], output_dim)
-    else:
-        fc_otpt_gamma = nn.Linear(
-            fc_gamma_list[-1], output_dim * (output_dim + 1) // 2
-        )
-
     _gamma_layers = []
     for layer in fc_gamma:
         _gamma_layers.append(layer)
         _gamma_layers.append(nn.Tanh())
-    _gamma_layers.append(fc_otpt_gamma)
-
-    if constrain_output and not dependent_outputs:
-        _gamma_layers.append(nn.Sigmoid())
-    elif not constrain_output and not dependent_outputs:
-        _gamma_layers.append(nn.Softplus(beta=1.0, threshold=20.0))
+    _gamma_layers.append(nn.Linear(fc_gamma_list[-1], output_dim))
+    _gamma_layers.append(nn.Sigmoid())
 
     return nn.Sequential(*_mu_layers), nn.Sequential(*_gamma_layers)
 
@@ -328,78 +316,141 @@ class _ParamScalingMixin:
         ), self.inv_transform_gamma(gamma_unscaled, amp_par)
 
 
-class _ProbParamBase(nn.Module, ABC, _ParamScalingMixin):
+class _ProbParamBase(nn.Module, ABC):
+    """Base class of the Gaussian parameter-inference (NPE) models.
+
+    The network maps a z-scored signal (and ``[0, 1]``-scaled protocol
+    parameters) to the posterior mean and standard deviation of the
+    degradation parameters, both in the ``[0, 1]`` space defined by the
+    parameter bounds of ``sim_config``. The model holds its scalers, so
+    :meth:`predict_physical` goes from physical inputs to physical outputs.
+
+    Parameters
+    ----------
+    loss_fn: Callable
+        Loss ``loss_fn(mu, sigma, target)`` computed in scaled space
+    sim_config: str
+        Experiment configuration providing the parameter bounds
+    scaler_X_shape: tuple[int, ...]
+        Shape of the signal-scaler statistics, e.g. ``(1, channels, 1)``
+    cyc_mode: str
+        Cycling mode of the signal
+    n_param_pred: int
+        Number of degradation parameters predicted
+    encoder_model: torch.nn.Module | None
+        Optional frozen encoder applied to the scaled signal
+    scaler_X: ZScoreScaler | None
+        Fitted signal scaler; None creates an identity placeholder, to be
+        filled by ``load_state_dict``
+    param_margin: float
+        Margin of the mu head beyond the ``[0, 1]`` parameter bounds
+    with_prot: bool
+        Build the protocol-parameter scaler
+    """
+
     def __init__(
         self,
         loss_fn,
-        cyc_mode="discharge",
-        n_param_pred=6,
-        dependent_outputs=False,
-        constrain_output=False,
-        encoder_model=None,
-        sim_config=None,
+        sim_config: str,
+        scaler_X_shape: tuple[int, ...],
+        cyc_mode: str = "discharge",
+        n_param_pred: int = 6,
+        encoder_model: nn.Module | None = None,
+        scaler_X: ZScoreScaler | None = None,
+        param_margin: float = 0.05,
+        with_prot: bool = False,
     ):
         super(_ProbParamBase, self).__init__()
+        assert loss_fn in [
+            gumbel_loss,
+            nll_loss,
+            independent_normal_loss,
+            independent_gumbel_loss,
+        ]
         self.loss_fn = loss_fn
         self.cyc_mode = cyc_mode
         self.n_param_pred = n_param_pred
-        self.constrain_output = constrain_output
-        self.dependent_outputs = dependent_outputs
-        self.encoder_model = encoder_model
         self.output_dim = self.n_param_pred
-        self._init_scaling(sim_config)
+        self.encoder_model = encoder_model
+        self.param_margin = param_margin
 
-        if self.dependent_outputs:
-            assert self.loss_fn == correlated_normal_loss
-        else:
-            assert self.loss_fn in [
-                mse_loss,
-                gumbel_loss,
-                nll_loss,
-                independent_normal_loss,
-                independent_gumbel_loss,
-            ]
+        self.sim_config = sim_config
+        self.sim_params = make_params(sim_config)
+        self.scaler_Y = BoundedScaler.from_sim_params(self.sim_params, "deg")
+        assert self.scaler_Y.low.shape[0] == n_param_pred, (
+            f"n_param_pred={n_param_pred} does not match the "
+            f"{self.scaler_Y.low.shape[0]} degradation parameters of "
+            f"{sim_config}"
+        )
+        self.scaler_P = (
+            BoundedScaler.from_sim_params(self.sim_params, "prot")
+            if with_prot
+            else None
+        )
+        if scaler_X is None:
+            # identity placeholder, overwritten when loading a checkpoint
+            scaler_X = ZScoreScaler(
+                np.zeros(scaler_X_shape), np.ones(scaler_X_shape)
+            )
+        self.scaler_X = scaler_X
 
-    def _cholesky_cov(self, gamma: torch.Tensor) -> torch.Tensor:
-        """Build a positive-definite covariance matrix via Cholesky decomposition.
+    def _encode(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply the optional encoder to a scaled signal."""
+        if self.encoder_model is None:
+            return x
+        encoded = self.encoder_model.encode(x)
+        # a VAE encoder returns (z, mu, logvar)
+        return encoded[0] if isinstance(encoded, tuple) else encoded
+
+    def to_physical(
+        self, mu: torch.Tensor, sigma: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Map scaled network outputs to physical parameter space.
 
         Parameters
         ----------
-        gamma: torch.Tensor
-            Flattened lower-triangular entries, shape ``(batch, n*(n+1)//2)``
+        mu: torch.Tensor
+            Posterior mean in scaled space, shape ``(batch, n_param_pred)``
+        sigma: torch.Tensor
+            Posterior standard deviation in scaled space
 
         Returns
         -------
-        torch.Tensor
-            Covariance matrices, shape ``(batch, n, n)``
+        tuple[torch.Tensor, torch.Tensor]
+            Physical ``(mu, sigma)``; mu is clipped to the parameter bounds
         """
-        # Create covariance matrix
-        L = torch.zeros(
-            gamma.size(0),
-            self.output_dim,
-            self.output_dim,
-            device=gamma.device,
+        mu_phys = self.scaler_Y.clip_physical(
+            self.scaler_Y.inverse_transform(mu)
         )
-        # Indices of the lower triangular matrix
-        # first row is row coordinates
-        # second row is col coordinates
-        tril_indices = torch.tril_indices(
-            row=self.output_dim, col=self.output_dim, offset=0
-        )
+        sigma_phys = self.scaler_Y.inverse_transform_std(sigma)
+        return mu_phys, sigma_phys
 
-        # Fill lower triangular
-        L[:, tril_indices[0], tril_indices[1]] = gamma
+    def predict_physical(
+        self,
+        x: torch.Tensor,
+        prot_params: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Predict the physical posterior mean and std from a physical signal.
 
-        # Apply softplus to diagonal for positive definiteness
-        diagonal_indices = torch.arange(self.output_dim)
-        L[:, diagonal_indices, diagonal_indices] = (
-            torch.nn.functional.softplus(
-                L[:, diagonal_indices, diagonal_indices],
-                beta=1.0,
-                threshold=20.0,
-            )
-        )
-        return L @ L.transpose(-1, -2)
+        Parameters
+        ----------
+        x: torch.Tensor
+            Unscaled signal, on the model's device
+        prot_params: torch.Tensor | None
+            Unscaled protocol parameters, required for protocol models
+
+        Returns
+        -------
+        tuple[torch.Tensor, torch.Tensor]
+            Physical ``(mu, sigma)``, shape ``(batch, n_param_pred)`` each
+        """
+        x_scaled = self._encode(self.scaler_X.transform(x))
+        if self.scaler_P is None:
+            mu, sigma = self(x_scaled)
+        else:
+            assert prot_params is not None, "prot_params is required"
+            mu, sigma = self(x_scaled, self.scaler_P.transform(prot_params))
+        return self.to_physical(mu, sigma)
 
     @abstractmethod
     def forward(self, x):
