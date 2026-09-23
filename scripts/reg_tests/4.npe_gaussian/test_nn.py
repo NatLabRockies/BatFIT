@@ -24,30 +24,23 @@ from batfit.utils.torch_utils import *
 
 
 class ForwardModel(torch.nn.Module):
-    def __init__(self, model: torch.nn.Module, scaler):
+    def __init__(self, model: torch.nn.Module):
         super(ForwardModel, self).__init__()
         self.model = model
         self.n_param_pred = model.n_param_pred
-        self.means = scaler.means
-        self.stds = 1.0 / scaler.stds
 
-    def forward(self, degradation_parameters: list, t_tens: torch.Tensor):
-        means = torch.tensor(self.means)
-        stds = torch.tensor(self.stds)
+    def forward(
+        self, degradation_parameters: np.ndarray, t_tens: torch.Tensor
+    ) -> torch.Tensor:
         degradation_parameters = torch.tensor(degradation_parameters).view(
             1, -1
         )
+        # same physical parameters at every time step of the grid
         degradation_parameters = degradation_parameters.expand(
             t_tens.shape[0], -1
         )
-        x_input = torch.cat((t_tens, degradation_parameters), dim=1)
-        x_input = (x_input - means) * stds
-        output = self.model(x_input)
-        if self.model.constrain_output:
-            output = self.model.inv_transform_output(
-                output, float(self.model.min_v), float(self.model.amp_v)
-            )
-        return output[:, 0]
+        voltage = self.model.predict_physical(t_tens, degradation_parameters)
+        return voltage[:, 0]
 
 
 def norm_coverage(n):
@@ -79,12 +72,12 @@ def load_model(inp):
 
 
 def load_surrogate_model(inp):
-    model, scaler = define_surrogate_model(inp)
+    model = define_surrogate_model(inp)
     best_model_file = find_best_model_file(inp.models_dir)
     logger.info(f"Loading {best_model_file}")
     model.load_state_dict(torch.load(best_model_file, weights_only=True))
     model.eval()
-    return model, scaler
+    return model
 
 
 def load_synthetic_data(inp):
@@ -285,8 +278,8 @@ def test_perf(inp, mode="val"):
     surr_base = os.path.dirname(os.path.dirname(inp.surrogate_model_recipe))
     surr_inp.models_dir = os.path.join(surr_base, surr_inp.models_dir)
     surr_inp.data_path = os.path.join(surr_base, surr_inp.data_path)
-    surrogate, surrogate_scaler = load_surrogate_model(surr_inp)
-    forward_model = ForwardModel(surrogate, surrogate_scaler)
+    surrogate = load_surrogate_model(surr_inp)
+    forward_model = ForwardModel(surrogate)
     voltage_error = np.zeros(samples_pred_params.shape[:2])
     logger.info("Voltage error")
     # Clip samples to the prior bounds of the experiment config

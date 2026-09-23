@@ -1,11 +1,9 @@
-"""Evaluate a trained ProbParamFM (no protocol conditioning) on the val split.
-"""
+"""Evaluate a trained ProbParamFM (no protocol conditioning) on the val split."""
 
 import os
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
-import pickle
 import sys
 
 import numpy as np
@@ -28,66 +26,51 @@ from batfit.utils.torch_utils import (
 class ForwardModel(torch.nn.Module):
     """Wraps a trained SurrogateFCNN so it can be called as v(t; degradation_params)."""
 
-    def __init__(self, model: torch.nn.Module, scaler):
+    def __init__(self, model: torch.nn.Module):
         super().__init__()
         self.model = model
         self.n_param_pred = model.n_param_pred
-        self.means = scaler.means
-        self.stds = 1.0 / scaler.stds
 
     def forward(
         self, degradation_parameters: np.ndarray, t_tens: torch.Tensor
     ) -> torch.Tensor:
-        means = torch.tensor(self.means)
-        stds = torch.tensor(self.stds)
         degradation_parameters = torch.tensor(degradation_parameters).view(
             1, -1
         )
+        # same physical parameters at every time step of the grid
         degradation_parameters = degradation_parameters.expand(
             t_tens.shape[0], -1
         )
-        x_input = torch.cat((t_tens, degradation_parameters), dim=1)
-        x_input = (x_input - means) * stds
-        output = self.model(x_input)
-        if self.model.constrain_output:
-            output = self.model.inv_transform_output(
-                output, float(self.model.min_v), float(self.model.amp_v)
-            )
-        return output[:, 0]
+        voltage = self.model.predict_physical(t_tens, degradation_parameters)
+        return voltage[:, 0]
 
 
-def define_surrogate_model(inp) -> tuple["SurrogateFCNN", object]:
-    """Instantiate the frozen surrogate and load its signal scaler.
+def define_surrogate_model(inp) -> "SurrogateFCNN":
+    """Instantiate the frozen surrogate; its scalers are filled by
+    load_state_dict.
 
     :param inp: parsed surrogate recipe (from inp.surrogate_model_recipe,
         not the FM recipe)
     """
     model = SurrogateFCNN(
         fc_list=inp.fc_units,
-        loss_fn=mae_loss_surr,
-        n_param_pred=inp.n_param_pred,
         sim_config=inp.sim_config,
+        loss_fn=mae_loss_surr,
         cyc_mode=inp.cyc_mode,
-        constrain_output=inp.constrain_output,
+        voltage_margin=getattr(inp, "voltage_margin", 0.5),
     )
     logger.info(f"Surrogate trainable parameters: {get_num_parameters(model)}")
-
-    with open(
-        os.path.join(inp.data_path, "scaler_surrogate_X.pkl"), "rb"
-    ) as f:
-        scaler_X = pickle.load(f)
-
-    return model, scaler_X
+    return model
 
 
 def load_surrogate_model(inp):
-    """Load the frozen, trained surrogate model and its scaler."""
-    model, scaler = define_surrogate_model(inp)
+    """Load the frozen, trained surrogate model (it carries its scalers)."""
+    model = define_surrogate_model(inp)
     best_model_file = find_best_model_file(inp.models_dir)
     logger.info(f"Loading {best_model_file}")
     model.load_state_dict(torch.load(best_model_file, weights_only=True))
     model.eval()
-    return model, scaler
+    return model
 
 
 def norm_coverage(n: float) -> float:
@@ -255,8 +238,8 @@ def test_perf(inp, mode: str = "val") -> None:
     surr_base = os.path.dirname(os.path.dirname(inp.surrogate_model_recipe))
     surr_inp.models_dir = os.path.join(surr_base, surr_inp.models_dir)
     surr_inp.data_path = os.path.join(surr_base, surr_inp.data_path)
-    surrogate, surrogate_scaler = load_surrogate_model(surr_inp)
-    forward_model = ForwardModel(surrogate, surrogate_scaler)
+    surrogate = load_surrogate_model(surr_inp)
+    forward_model = ForwardModel(surrogate)
     voltage_error = np.zeros(samples_pred_params.shape[:2])
     logger.info("Computing voltage error")
     # Samples are already clamped to the prior bounds of the experiment config

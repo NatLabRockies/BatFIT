@@ -1,7 +1,6 @@
 import os
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"  # Enable MPS fallback
-import pickle
 
 import numpy as np
 import torch
@@ -57,28 +56,19 @@ def make_data_loaders(inp):
 
 
 def define_surrogate_model(inp):
-    data_root_folder = inp.data_path
-    n_points = inp.n_points
-    n_param_pred = inp.n_param_pred
-    cyc_mode = inp.cyc_mode
-
+    """Build the frozen surrogate from its recipe; its scalers are filled by
+    load_state_dict."""
     model = SurrogateFCNN(
         fc_list=inp.fc_units,
-        loss_fn=mae_loss_surr,
-        n_param_pred=n_param_pred,
         sim_config=inp.sim_config,
-        cyc_mode=cyc_mode,
-        constrain_output=inp.constrain_output,
+        loss_fn=mae_loss_surr,
+        cyc_mode=inp.cyc_mode,
+        voltage_margin=getattr(inp, "voltage_margin", 0.5),
     )
     num_parameters = get_num_parameters(model)
     print(f"No. Trainable Parameters: {num_parameters}")
 
-    with open(
-        os.path.join(inp.data_path, "scaler_surrogate_X.pkl"), "rb"
-    ) as f:
-        scaler_X = pickle.load(f)
-
-    return model, scaler_X
+    return model
 
 
 def define_model(inp, scaler_X=None):
