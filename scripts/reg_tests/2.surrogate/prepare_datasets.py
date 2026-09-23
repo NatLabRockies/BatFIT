@@ -2,18 +2,18 @@ import os
 import sys
 
 from batfit.basicutilityc import ReadInput as ri
+from batfit.preprocess.sim_setup import make_params
 from batfit.utils.data_utils import *
 from batfit.utils.torch_utils import *
 
 
 def pre_proc_data(data_root_folder, cyc_mode, n_points):
     """
-    Fit the NPE and surrogate scaled datasets for a data folder.
+    Build the surrogate dataset of a data folder.
 
     The battery-level train/test/val split (``data_split.npz``) is created once
-    by ``1.gen_data`` and reused here (cache hit); this only fits the scalers
-    and, for the surrogate, explodes each split into per-timestep rows
-    (split-then-slice).
+    by ``1.gen_data`` and reused here; each split is exploded into per-timestep
+    rows (split-then-slice) and cached in ``data_surrogate_split.npz``.
     """
     X_npe_data, Y_npe_data = assemble_all_data(
         data_root_folder,
@@ -24,24 +24,12 @@ def pre_proc_data(data_root_folder, cyc_mode, n_points):
         cyc_mode=cyc_mode,
         save_path=data_root_folder,
     )
-    n_curves = Y_npe_data.shape[0]
-    batch_size = min(inp.batch_size, max(1, int(n_curves * 0.8)))
-    # NPE dataset: creates the battery-level data_split.npz
-    make_dataset_from_np(
-        batch_size=batch_size,
-        np_data=X_npe_data,
-        np_data_label=Y_npe_data,
-        scale=True,
-        scale_y=False,
-        save_path=data_root_folder,
-    )
-    # Surrogate dataset: split-then-slice, reusing the same battery split
+    # Surrogate dataset: split-then-slice, reusing the battery split
     make_surrogate_dataset_from_np(
-        batch_size=inp.batch_size,
+        make_params(inp.sim_config),
         np_data=X_npe_data,
         np_data_label=Y_npe_data,
-        scale=True,
-        scale_y=False,
+        batch_size=inp.batch_size,
         save_path=data_root_folder,
     )
 
