@@ -1,8 +1,6 @@
 # DATA
 cyc_mode: chirp
 data_path: ../1.gen_data/data_spm_chirp
-n_param_pred: 6
-n_prot_params: 3
 n_points: 256                # HPC: 2048 (must match gen -n_points_reduce)
 noise_factor: 1.0
 sim_config: spm_chirp.yaml

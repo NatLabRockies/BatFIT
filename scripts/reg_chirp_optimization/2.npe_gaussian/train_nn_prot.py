@@ -68,10 +68,8 @@ def define_model(inp, scaler_X=None):
         fc_mu_list=[inp.num_fc_gamma_mu_units] * inp.num_fc_gamma_mu_hidden,
         fc_gamma_list=[inp.num_fc_gamma_mu_units] * inp.num_fc_gamma_mu_hidden,
         loss_fn=independent_normal_loss_param,
-        n_prot_params=inp.n_prot_params,
         sim_config=inp.sim_config,
         cyc_mode=inp.cyc_mode,
-        n_param_pred=inp.n_param_pred,
         scaler_X=scaler_X,
         param_margin=getattr(inp, "param_margin", 0.05),
     )

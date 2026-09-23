@@ -50,7 +50,7 @@ def test_predict_mu_sigma():
         device=device,
     )
 
-    # --- CNN NPE without protocol conditioning (constrain_output path) ---
+    # --- CNN NPE without protocol conditioning ---
     n_deg = 6  # must match the sim_config YAML
     cnn = ProbParamCNN(
         input_shape=(2, n_points),
@@ -59,10 +59,8 @@ def test_predict_mu_sigma():
         fc_mu_list=[8],
         fc_gamma_list=[8],
         loss_fn=independent_normal_loss,
-        cyc_mode="chargecc",
-        n_param_pred=n_deg,
-        constrain_output=True,
         sim_config="batfit/default_exps/spm_nochirp.yaml",
+        cyc_mode="chargecc",
     )
     cnn.eval()
     mu, sigma = predict_mu_sigma(X_scaled, cnn, batch_size=2, **shared)
@@ -70,11 +68,9 @@ def test_predict_mu_sigma():
     assert sigma.shape == (n_curves, n_deg)
     assert mu.dtype == np.float32
     assert np.all(sigma > 0)
-    # constrain_output unscales mu into the physical prior range
-    min_par = cnn.min_par.numpy()
-    max_par = (cnn.min_par + cnn.amp_par).numpy()
-    assert np.all(mu >= min_par - 1e-5)
-    assert np.all(mu <= max_par + 1e-5)
+    # to_physical maps mu into the physical prior range
+    assert np.all(mu >= cnn.scaler_Y.low.numpy() - 1e-5)
+    assert np.all(mu <= cnn.scaler_Y.high.numpy() + 1e-5)
 
     # --- CNN NPE with protocol conditioning ---
     n_prot = 3
@@ -87,17 +83,15 @@ def test_predict_mu_sigma():
         fc_mu_list=[8],
         fc_gamma_list=[8],
         loss_fn=independent_normal_loss,
-        n_prot_params=n_prot,
+        sim_config="batfit/default_exps/spm_chirp.yaml",
         cyc_mode="chirp",
-        n_param_pred=3,
-        constrain_output=False,
     )
     prot_cnn.eval()
     mu_p, sigma_p = predict_mu_sigma(
         X_scaled, prot_cnn, P_scaled=P_scaled, **shared
     )
-    assert mu_p.shape == (n_curves, 3)
-    assert sigma_p.shape == (n_curves, 3)
+    assert mu_p.shape == (n_curves, n_deg)
+    assert sigma_p.shape == (n_curves, n_deg)
 
     # --- FM NPE (posterior samples -> mean/std in physical space) ---
     fm = ProbParamFM(
@@ -106,11 +100,11 @@ def test_predict_mu_sigma():
         fc_list=[8],
         vf_hidden_list=[8],
         cyc_mode="chargecc",
-        n_param_pred=3,
+        n_param_pred=n_deg,
     )
     fm.eval()
     scaler_y = MinMaxScaler()
-    scaler_y.fit(np.random.rand(20, 3).astype("float32"))
+    scaler_y.fit(np.random.rand(20, n_deg).astype("float32"))
     mu_fm, sigma_fm = predict_mu_sigma(
         X_scaled,
         fm,
@@ -119,8 +113,8 @@ def test_predict_mu_sigma():
         n_ode_steps=5,
         **shared,
     )
-    assert mu_fm.shape == (n_curves, 3)
-    assert sigma_fm.shape == (n_curves, 3)
+    assert mu_fm.shape == (n_curves, n_deg)
+    assert sigma_fm.shape == (n_curves, n_deg)
     assert np.all(np.isfinite(mu_fm))
     assert np.all(sigma_fm >= 0)
 

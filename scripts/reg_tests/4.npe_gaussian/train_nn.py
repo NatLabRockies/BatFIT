@@ -29,7 +29,6 @@ def make_data_loaders(inp):
     n_points = inp.n_points
     target_mode = inp.target_mode
     cyc_mode = inp.cyc_mode
-    n_param_pred = inp.n_param_pred
 
     X_data, Y_data = assemble_all_data(
         data_root_folder,
@@ -89,7 +88,6 @@ def define_model(inp, scaler_X=None):
     n_points = inp.n_points
     target_mode = inp.target_mode
     cyc_mode = inp.cyc_mode
-    n_param_pred = inp.n_param_pred
     if target_mode != "encoded":
         input_shape = (2, inp.n_points)
 
@@ -102,7 +100,6 @@ def define_model(inp, scaler_X=None):
         loss_fn=independent_normal_loss_param,
         sim_config=inp.sim_config,
         cyc_mode=cyc_mode,
-        n_param_pred=n_param_pred,
         scaler_X=scaler_X,
         param_margin=getattr(inp, "param_margin", 0.05),
     )

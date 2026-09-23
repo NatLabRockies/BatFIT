@@ -18,7 +18,7 @@ from batfit.utils.scalers import ZScoreScaler
 def test_ProbParamCNN():
     batch = 4
     n_points = 64
-    n_param_pred = 6  # must match the YAML
+    n_param_pred = 6  # parameters declared in the YAML
     sim_config = "batfit/default_exps/spm_discharge.yaml"
 
     model = ProbParamCNN(
@@ -30,7 +30,6 @@ def test_ProbParamCNN():
         loss_fn=independent_normal_loss,
         sim_config=sim_config,
         cyc_mode="discharge",
-        n_param_pred=n_param_pred,
         param_margin=0.1,
     )
     x = torch.rand(batch, 2, n_points)
@@ -59,24 +58,13 @@ def test_ProbParamCNN():
         loss_fn=independent_normal_loss,
         sim_config=sim_config,
         cyc_mode="discharge-chargecc",
-        n_param_pred=n_param_pred,
     )
     mu_dc, gamma_dc = model_dc(torch.rand(batch, 4, n_points))
     assert mu_dc.shape == (batch, n_param_pred)
     assert gamma_dc.shape == (batch, n_param_pred)
 
-    # n_param_pred must match the parameters of the config
-    with pytest.raises(AssertionError):
-        ProbParamCNN(
-            input_shape=(2, n_points),
-            chan_list=[8],
-            fc_list=[16],
-            fc_mu_list=[8],
-            fc_gamma_list=[8],
-            loss_fn=independent_normal_loss,
-            sim_config=sim_config,
-            n_param_pred=3,
-        )
+    # the number of predicted parameters is read from the config
+    assert model.n_param_pred == n_param_pred
 
 
 def test_ProbParamFCNN():
@@ -93,7 +81,6 @@ def test_ProbParamFCNN():
         loss_fn=independent_normal_loss,
         sim_config=sim_config,
         cyc_mode="discharge",
-        n_param_pred=n_param_pred,
     )
     x = torch.rand(batch, input_dim)
     mu, gamma = model(x)
@@ -111,7 +98,6 @@ def test_ProbParamFCNN():
         loss_fn=independent_normal_loss,
         sim_config=sim_config,
         cyc_mode="discharge-chargecc",
-        n_param_pred=n_param_pred,
     )
     x_dc = torch.rand(batch, 2 * input_dim)
     mu_dc, gamma_dc = model_dc(x_dc)
@@ -128,7 +114,6 @@ def test_to_physical():
         fc_gamma_list=[8],
         loss_fn=independent_normal_loss,
         sim_config="batfit/default_exps/spm_discharge.yaml",
-        n_param_pred=6,
     )
     low, high = model.scaler_Y.low, model.scaler_Y.high
     # 0 -> lower bound, 1 -> upper bound, overshoot clipped to the bounds
@@ -156,9 +141,7 @@ def test_predict_physical():
         fc_mu_list=[8],
         fc_gamma_list=[8],
         loss_fn=independent_normal_loss,
-        n_prot_params=3,
         sim_config="batfit/default_exps/spm_chirp.yaml",
-        n_param_pred=6,
         scaler_X=scaler_X,
     )
     model.eval()
@@ -191,7 +174,6 @@ def test_transform_output():
         chan_list=[8],
         fc_list=[16],
         vf_hidden_list=[32],
-        n_param_pred=n_param_pred,
     )
     min_par = torch.tensor([0.5, 0.6, 0.7])
     amp_par = torch.tensor([0.4, 0.3, 0.2])
@@ -220,10 +202,8 @@ def test_ProbProtParamCNN():
         fc_mu_list=[8],
         fc_gamma_list=[8],
         loss_fn=independent_normal_loss,
-        n_prot_params=n_prot_params,
         sim_config=sim_config,
         cyc_mode="chirp",
-        n_param_pred=n_param_pred,
     )
     x = torch.rand(batch, 2, n_points)
     prot_params = torch.rand(batch, n_prot_params)
@@ -232,8 +212,23 @@ def test_ProbProtParamCNN():
     assert gamma.shape == (batch, n_param_pred)
     # gamma should be positive (Sigmoid output)
     assert gamma.min().item() > 0.0
-    # protocol scaler built from the config bounds
+    # protocol scaler and parameter counts built from the config
     assert model.scaler_P.low.shape == (n_prot_params,)
+    assert model.n_prot_params == n_prot_params
+    assert model.n_param_pred == n_param_pred
+
+    # a config without protocol parameters is rejected
+    with pytest.raises(AssertionError):
+        ProbProtParamCNN(
+            input_shape=(2, n_points),
+            chan_list=[8],
+            fc_list=[16],
+            fc_prot_list=[],
+            fc_mu_list=[8],
+            fc_gamma_list=[8],
+            loss_fn=independent_normal_loss,
+            sim_config="batfit/default_exps/spm_discharge.yaml",
+        )
 
     # Without fc_prot_list: CNN out + prot_params fed directly to mu/gamma heads
     model_noprot = ProbProtParamCNN(
@@ -244,10 +239,8 @@ def test_ProbProtParamCNN():
         fc_mu_list=[8],
         fc_gamma_list=[8],
         loss_fn=independent_normal_loss,
-        n_prot_params=n_prot_params,
         sim_config=sim_config,
         cyc_mode="chirp",
-        n_param_pred=n_param_pred,
     )
     mu2, gamma2 = model_noprot(x, prot_params)
     assert mu2.shape == (batch, n_param_pred)
@@ -263,10 +256,8 @@ def test_ProbProtParamCNN():
             fc_mu_list=[8],
             fc_gamma_list=[8],
             loss_fn=independent_normal_loss,
-            n_prot_params=n_prot_params,
             sim_config=sim_config,
             cyc_mode="discharge-chargecc",
-            n_param_pred=n_param_pred,
         )
 
 
@@ -541,7 +532,6 @@ def test_ProbParamCNN_attention():
         loss_fn=independent_normal_loss,
         sim_config=sim_config,
         cyc_mode="discharge",
-        n_param_pred=n_param_pred,
         num_attn_heads=4,
         attn_dropout=0.0,
     )
@@ -562,7 +552,6 @@ def test_ProbParamCNN_attention():
             fc_gamma_list=[8],
             loss_fn=independent_normal_loss,
             sim_config=sim_config,
-            n_param_pred=n_param_pred,
             num_attn_heads=3,
         )
 
@@ -583,10 +572,8 @@ def test_ProbProtParamCNN_attention():
         fc_mu_list=[8],
         fc_gamma_list=[8],
         loss_fn=independent_normal_loss,
-        n_prot_params=n_prot_params,
         sim_config=sim_config,
         cyc_mode="chirp",
-        n_param_pred=n_param_pred,
         num_attn_heads=4,
         attn_dropout=0.0,
     )
@@ -607,9 +594,7 @@ def test_ProbProtParamCNN_attention():
             fc_mu_list=[8],
             fc_gamma_list=[8],
             loss_fn=independent_normal_loss,
-            n_prot_params=n_prot_params,
             sim_config=sim_config,
-            n_param_pred=n_param_pred,
             num_attn_heads=3,
         )
 

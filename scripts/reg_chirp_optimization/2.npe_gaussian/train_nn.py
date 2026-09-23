@@ -71,7 +71,6 @@ def define_model(inp, scaler_X=None):
         loss_fn=independent_normal_loss_param,
         sim_config=inp.sim_config,
         cyc_mode=inp.cyc_mode,
-        n_param_pred=inp.n_param_pred,
         scaler_X=scaler_X,
         param_margin=getattr(inp, "param_margin", 0.05),
     )

@@ -28,7 +28,7 @@ def test_plot_loss():
 
 
 def test_check_on_test():
-    n_channels, n_points, n_param_pred = 2, 64, 3
+    n_channels, n_points, n_param_pred = 2, 64, 6
     model = ProbParamCNN(
         input_shape=(n_channels, n_points),
         chan_list=[8],
@@ -36,9 +36,8 @@ def test_check_on_test():
         fc_mu_list=[8],
         fc_gamma_list=[8],
         loss_fn=independent_normal_loss,
+        sim_config="batfit/default_exps/spm_discharge.yaml",
         cyc_mode="discharge",
-        n_param_pred=n_param_pred,
-        constrain_output=False,
     )
 
     X_test = np.random.randn(2, n_channels, n_points).astype("float32")
