@@ -456,6 +456,27 @@ def make_params(filename, parallel_env=None):
     return params
 
 
+def cc_step_duration(C_rate: float) -> float:
+    """Duration of a constant-current step run until a voltage cutoff.
+
+    The step lasts 1.2 times the nominal full (dis)charge time
+    ``3600 / |C_rate|``, so that cells whose (dis)charge exceeds the nominal
+    time still reach the voltage cutoff before the step ends.
+
+    Parameters
+    ----------
+    C_rate : float
+        C rate of the step (sign ignored).
+
+    Returns
+    -------
+    float
+        Step duration in seconds.
+    """
+    nominal_duration = 3600.0 / abs(C_rate)
+    return 1.2 * nominal_duration
+
+
 def set_discretization(sim, sim_params: dict):
     sim.an.Nr = sim_params["Nr_a"]
     sim.ca.Nr = sim_params["Nr_c"]

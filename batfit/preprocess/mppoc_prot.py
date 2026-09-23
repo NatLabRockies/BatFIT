@@ -1,5 +1,7 @@
 from bmlite import Experiment
 
+from .sim_setup import cc_step_duration
+
 
 def define_chirp_experiment(
     sim_params,
@@ -21,7 +23,7 @@ def define_chirp_experiment(
     assert background_C_rate < 0.0
 
     # Run until chirp
-    t_fin = min(3600.0 / abs(background_C_rate), chirp_beg_time)
+    t_fin = min(cc_step_duration(background_C_rate), chirp_beg_time)
     t_step = t_fin / 200.0
     expr.add_step(
         "current_C",
@@ -60,8 +62,9 @@ def define_chirp_experiment(
     )
 
     # Finish charge
-    t_fin = 3600.0 / abs(background_C_rate)
-    t_step = t_fin / 200.0
+    t_fin = cc_step_duration(background_C_rate)
+    # output spacing of the nominal charge, independent of the time budget
+    t_step = 3600.0 / abs(background_C_rate) / 200.0
     expr.add_step(
         "current_C",
         background_C_rate,
@@ -95,7 +98,7 @@ def define_ramp_chirp_experiment(
     assert background_C_rate < 0.0
 
     # Run until chirp
-    t_fin = min(3600.0 / abs(background_C_rate), chirp_beg_time)
+    t_fin = min(cc_step_duration(background_C_rate), chirp_beg_time)
     t_step = t_fin / 200.0
     expr.add_step(
         "current_C",
@@ -185,8 +188,9 @@ def define_ramp_chirp_experiment(
     )
 
     # Finish charge
-    t_fin = 3600.0 / abs(background_C_rate)
-    t_step = t_fin / 200.0
+    t_fin = cc_step_duration(background_C_rate)
+    # output spacing of the nominal charge, independent of the time budget
+    t_step = 3600.0 / abs(background_C_rate) / 200.0
     expr.add_step(
         "current_C",
         background_C_rate,

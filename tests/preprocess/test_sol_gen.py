@@ -1,7 +1,10 @@
 import os
 import pickle
 import tempfile
+from types import SimpleNamespace
 from unittest import mock
+
+import numpy as np
 
 from batfit import BATFIT_EXP
 from batfit.preprocess.pickledb import PickleDB
@@ -10,6 +13,7 @@ from batfit.preprocess.sol_gen import (
     merge_combined_sols,
     multi_run,
     multi_run_ser,
+    warn_if_cutoff_not_reached,
 )
 
 
@@ -174,3 +178,17 @@ def test_merge_combined_sols():
             [2, 1],
             [3, 0],
         ]
+
+
+def test_warn_if_cutoff_not_reached():
+    # last output point a couple of mV before the cutoff: no warning
+    sol = SimpleNamespace(vars={"voltage_V": np.array([3.5, 3.9, 4.098])})
+    assert not warn_if_cutoff_not_reached(sol, cutoff=4.1)
+    # P2D-like 2D voltage stopped short of the cutoff: warning
+    sol = SimpleNamespace(vars={"voltage_V": np.array([[3.5], [4.08]])})
+    assert warn_if_cutoff_not_reached(sol, cutoff=4.1)
+    # discharge cutoff within the tolerance
+    sol = SimpleNamespace(vars={"voltage_V": np.array([3.6, 3.0005])})
+    assert not warn_if_cutoff_not_reached(sol, cutoff=3.0)
+    # failed simulation: nothing to check
+    assert not warn_if_cutoff_not_reached(None, cutoff=4.1)

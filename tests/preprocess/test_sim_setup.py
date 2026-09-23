@@ -4,7 +4,11 @@ import tempfile
 import numpy as np
 
 from batfit import BATFIT_EXP
-from batfit.preprocess.sim_setup import resolve_sim_config, set_interc
+from batfit.preprocess.sim_setup import (
+    cc_step_duration,
+    resolve_sim_config,
+    set_interc,
+)
 
 
 def test_resolve_sim_config():
@@ -109,3 +113,10 @@ def test_set_interc():
     assert np.isclose(C_rate, -0.25)
     assert np.isclose(sim.ca.x_0, 0.4 * 0.8)
     assert np.isclose(sim.an.x_0, 0.7 * 1.2)
+
+
+def test_cc_step_duration():
+    # 1.2 x the nominal full (dis)charge time, whatever the current sign
+    assert np.isclose(cc_step_duration(-0.1), 1.2 * 36000.0)
+    assert np.isclose(cc_step_duration(0.5), 1.2 * 7200.0)
+    assert np.isclose(cc_step_duration(0.5), cc_step_duration(-0.5))
