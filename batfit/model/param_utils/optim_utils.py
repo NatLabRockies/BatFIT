@@ -14,14 +14,12 @@ from .noise_utils import apply_noise
 def predict_mu_sigma(
     X_scaled: np.ndarray,
     npe_model: torch.nn.Module,
-    scaler_x,
     noise_levels: torch.Tensor,
     a_min: torch.Tensor,
     a_max: torch.Tensor,
     n_noise: int,
     device: torch.device,
     P_scaled: np.ndarray = None,
-    scaler_Y=None,
     n_samples: int = 1000,
     n_ode_steps: int = 100,
     batch_size: int = None,
@@ -35,9 +33,9 @@ def predict_mu_sigma(
     - CNN-style NPE (``ProbParamCNN`` / ``ProbProtParamCNN``): one forward
       pass gives scaled (mu, gamma), mapped to physical space by
       ``npe_model.to_physical``.
-    - Flow-matching NPE (``ProbParamFM`` / ``ProbProtParamFM``): draws n_samples posterior
-      samples per noisy copy (z-scored) whose mean/std after
-      ``scaler_Y.inverse_transform`` are used instead.
+    - Flow-matching NPE (``ProbParamFM`` / ``ProbProtParamFM``): draws
+      n_samples posterior samples per noisy copy, mapped to physical space by
+      ``npe_model.to_physical``; their mean/std are used instead.
     - ``P_scaled=None`` selects the protocol-free call signature
       (``forward(x)`` / ``sample(x, ...)``); otherwise protocol parameters
       are passed as the second argument.
@@ -45,11 +43,11 @@ def predict_mu_sigma(
     Parameters
     ----------
     X_scaled: np.ndarray
-        Z-scored signal, shape ``(n_curves, channels, time)``
+        Signal z-scored with ``npe_model.scaler_X``, shape
+        ``(n_curves, channels, time)``
     npe_model: torch.nn.Module
-        Frozen NPE model
-    scaler_x: CustomScaler
-        The NPE's CustomScaler (needed by apply_noise)
+        Frozen NPE model; its ``scaler_X`` is used to apply noise in physical
+        space
     noise_levels: torch.Tensor
         Per-channel noise levels from make_noise_levels
     a_min: torch.Tensor
@@ -61,11 +59,9 @@ def predict_mu_sigma(
     device: torch.device
         Compute device
     P_scaled: np.ndarray, optional
-        MinMax-scaled protocol params, shape ``(n_curves, n_prot)``; None
-        for an NPE trained without protocol conditioning
-    scaler_Y: object, optional
-        FM only — inverse-transforms posterior samples from z-scored to
-        physical space; required for a flow-matching NPE
+        Protocol params scaled with ``npe_model.scaler_P``, shape
+        ``(n_curves, n_prot)``; None for an NPE trained without protocol
+        conditioning
     n_samples: int
         FM only — posterior samples drawn per noisy copy
     n_ode_steps: int
@@ -81,8 +77,6 @@ def predict_mu_sigma(
     n_curves = X_scaled.shape[0]
     n_deg = npe_model.n_param_pred
     is_fm = isinstance(npe_model, _ProbParamFMBase)
-    if is_fm:
-        assert scaler_Y is not None, "scaler_Y is required for an FM NPE"
     if batch_size is None:
         batch_size = n_curves
 
@@ -98,7 +92,9 @@ def predict_mu_sigma(
             .expand(-1, n_noise, -1, -1)
             .reshape(B * n_noise, x_t.shape[1], x_t.shape[2])
         )
-        x_noisy = apply_noise(x_tiled, scaler_x, noise_levels, a_min, a_max)
+        x_noisy = apply_noise(
+            x_tiled, npe_model.scaler_X, noise_levels, a_min, a_max
+        )
         args = [x_noisy.to(device)]
         if P_scaled is not None:
             p_t = torch.from_numpy(P_scaled[start:end])  # (B, n_prot)
@@ -111,12 +107,12 @@ def predict_mu_sigma(
 
         with torch.no_grad():
             if is_fm:
-                samples_z = npe_model.sample(
+                # args is [x] or [x, p], matching the model's sample
+                samples_flow = npe_model.sample(
                     *args, n_samples=n_samples, n_steps=n_ode_steps
-                )  # (B*n_noise, n_samples, n_deg), z-scored
-                samples_phys = scaler_Y.inverse_transform(
-                    samples_z.cpu().numpy().reshape(-1, n_deg)
-                ).reshape(B * n_noise, n_samples, n_deg)
+                )  # (B*n_noise, n_samples, n_deg), flow space
+                samples_phys = npe_model.to_physical(samples_flow)
+                samples_phys = samples_phys.cpu().numpy()
                 mu_np = samples_phys.mean(axis=1)
                 sigma_np = samples_phys.std(axis=1)
             else:
