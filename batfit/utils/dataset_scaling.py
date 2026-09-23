@@ -3,36 +3,62 @@ import torch
 
 from batfit import logger
 from batfit.utils.scalers import BoundedScaler, ZScoreScaler
+from batfit.utils.signal_encoding import SIGNAL_SCALINGS
 
 
 def build_scalers(
     X_train: np.ndarray,
     sim_params: dict,
     with_prot: bool = False,
+    signal_scaling: str = "zscore",
+    T_train: np.ndarray | None = None,
+    min_voltage_std: float = 1e-3,
 ) -> dict[str, torch.nn.Module]:
     """Build the scalers of a parameter-inference dataset.
 
     Parameters
     ----------
     X_train : numpy.ndarray
-        Training signal of shape ``(N, channels, time)``; the per-channel
-        z-score of X is fitted on it.
+        Training signal: ``(N, channels, time)`` (time, voltage) for
+        ``"zscore"``, the voltage ``(N, 1, time)`` for
+        ``"time_dependent_zscore"``.
     sim_params : dict
         Parsed experiment config (output of ``make_params``) providing the
         degradation (and protocol) parameter bounds.
     with_prot : bool
         Also build the protocol-parameter scaler.
+    signal_scaling : str
+        ``"zscore"``: X is z-scored per channel. ``"time_dependent_zscore"``:
+        X is z-scored per channel and time point, and the end times T are
+        z-scored.
+    T_train : numpy.ndarray | None
+        Training end times of shape ``(N, 1)``; required for
+        ``"time_dependent_zscore"``.
+    min_voltage_std : float
+        Lower clip (V) of the per-time-point standard deviations of
+        ``"time_dependent_zscore"``.
 
     Returns
     -------
     dict[str, torch.nn.Module]
-        ``{"X": ZScoreScaler, "Y": BoundedScaler}`` plus ``"P"``
+        ``{"X": ZScoreScaler, "Y": BoundedScaler}``, plus ``"T"``
+        (``ZScoreScaler``) for ``"time_dependent_zscore"`` and ``"P"``
         (``BoundedScaler``) when ``with_prot`` is True.
     """
-    scalers: dict[str, torch.nn.Module] = {
-        "X": ZScoreScaler.fit(X_train, axis=(0, 2)),
-        "Y": BoundedScaler.from_sim_params(sim_params, kind="deg"),
-    }
+    assert (
+        signal_scaling in SIGNAL_SCALINGS
+    ), f"Unknown signal_scaling {signal_scaling}, use one of {SIGNAL_SCALINGS}"
+    scalers: dict[str, torch.nn.Module] = {}
+    if signal_scaling == "zscore":
+        scalers["X"] = ZScoreScaler.fit(X_train, axis=(0, 2))
+    else:
+        assert T_train is not None, "T_train is required"
+        # one mean/std per time point of the rescaled grid
+        scalers["X"] = ZScoreScaler.fit(
+            X_train, axis=0, min_std=min_voltage_std
+        )
+        scalers["T"] = ZScoreScaler.fit(T_train, axis=0)
+    scalers["Y"] = BoundedScaler.from_sim_params(sim_params, kind="deg")
     if with_prot:
         scalers["P"] = BoundedScaler.from_sim_params(sim_params, kind="prot")
     return scalers
@@ -55,7 +81,7 @@ def scale_splits(
     splits : dict[str, numpy.ndarray | None]
         Unscaled float32 split arrays, overwritten with their scaled values.
     scalers : dict[str, torch.nn.Module]
-        Scalers keyed by quantity (``"X"``, ``"Y"``, ``"P"``), each providing
+        Scalers keyed by quantity (``"X"``, ``"T"``, ``"Y"``, ``"P"``), each providing
         an in-place ``transform_``.
 
     Returns
