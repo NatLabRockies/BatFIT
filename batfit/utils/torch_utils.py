@@ -1,3 +1,4 @@
+import json
 import os
 import pickle
 from pathlib import Path
@@ -6,6 +7,7 @@ import numpy as np
 import torch
 
 from batfit import logger
+from batfit.utils.scalers import scaling_to_dict
 from batfit.utils.torch_dataset_builder import (
     make_dataset_from_np,
     make_npe_dataset_from_np,
@@ -205,7 +207,8 @@ def save_model(
     bypass: int or str or None
         When not None, replaces ``step`` in the filename suffix
     save_model_obj: bool
-        Also pickle the full model object to ``model.pkl``
+        Also pickle the full model object to ``model.pkl``, and write its
+        scalers to ``scaling.json`` for inspection
     save_model_weights: bool
         Save the model state dict
     save_model_opt: bool
@@ -263,6 +266,11 @@ def save_model(
     if save_model_obj:
         with open(os.path.join(log_folder, "model.pkl"), "wb") as f:
             pickle.dump(model, f)
+        # human-readable copy of the model's scalers, never read back
+        scaling = scaling_to_dict(model)
+        if scaling["scalers"]:
+            with open(os.path.join(log_folder, "scaling.json"), "w") as f:
+                json.dump(scaling, f, indent=2)
 
     model = model.to(current_device)
 
