@@ -6,10 +6,11 @@ import numpy as np
 
 from batfit.utils.dataset_scaling import (
     build_scalers,
+    build_surrogate_scalers,
     scale_dataset_from_np,
     scale_protocol_dataset_from_np,
     scale_splits,
-    scale_surrogate_dataset_from_np,
+    scale_surrogate_splits,
 )
 from batfit.utils.scalers import BoundedScaler, CustomScaler, ZScoreScaler
 
@@ -175,59 +176,6 @@ def test_scale_protocol_dataset_from_np():
         assert not os.path.isfile(os.path.join(tmp_dir, "data_scaled.npz"))
 
 
-def test_scale_surrogate_dataset_from_np():
-    N, n_features, n_params = 200, 5, 1
-    X_train = np.random.randn(N, n_features).astype("float32")
-    X_test = np.random.randn(50, n_features).astype("float32")
-    X_val = np.random.randn(30, n_features).astype("float32")
-    Y_train = np.random.randn(N, n_params).astype("float32")
-    Y_test = np.random.randn(50, n_params).astype("float32")
-    Y_val = np.random.randn(30, n_params).astype("float32")
-
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        X_tr_sc, Y_tr_sc, X_te_sc, Y_te_sc, X_va_sc, Y_va_sc = (
-            scale_surrogate_dataset_from_np(
-                X_train,
-                X_test,
-                Y_train,
-                Y_test,
-                X_val=X_val,
-                Y_val=Y_val,
-                save_path=tmp_dir,
-            )
-        )
-        assert os.path.isfile(os.path.join(tmp_dir, "scaler_surrogate_X.pkl"))
-        assert os.path.isfile(
-            os.path.join(tmp_dir, "data_surrogate_scaled.npz")
-        )
-        assert np.allclose(X_tr_sc.mean(axis=0), 0.0, atol=1e-5)
-        assert np.allclose(X_tr_sc.std(axis=0), 1.0, atol=1e-5)
-        assert np.allclose(Y_tr_sc, Y_train)
-        assert X_va_sc.shape == X_val.shape
-
-        # cache-hit: second call returns identical arrays including val
-        X_tr_sc2, _, _, _, X_va_sc2, _ = scale_surrogate_dataset_from_np(
-            X_train,
-            X_test,
-            Y_train,
-            Y_test,
-            X_val=X_val,
-            Y_val=Y_val,
-            save_path=tmp_dir,
-        )
-        assert np.allclose(X_tr_sc, X_tr_sc2)
-        assert np.allclose(X_va_sc, X_va_sc2)
-
-        # scale_y=True recomputes and reuses the SAME npz filename
-        X_tr_sc_y, Y_tr_sc_y, _, _, _, _ = scale_surrogate_dataset_from_np(
-            X_train, X_test, Y_train, Y_test, save_path=tmp_dir, scale_y=True
-        )
-        assert os.path.isfile(os.path.join(tmp_dir, "scaler_surrogate_Y.pkl"))
-
-    assert np.allclose(Y_tr_sc_y.mean(axis=0), 0.0, atol=1e-5)
-    assert np.allclose(Y_tr_sc_y.std(axis=0), 1.0, atol=1e-5)
-
-
 def test_build_scalers():
     X_train = np.random.randn(20, 2, 30).astype("float32") * 2.0 + 1.0
     sim_params = {
@@ -284,3 +232,53 @@ def test_scale_splits():
     assert scaled["X_train"].dtype == np.float32
     # quantities without a scaler are left untouched
     assert np.allclose(splits["P_train"], 1.0)
+
+
+def test_build_surrogate_scalers():
+    rng = np.random.default_rng(0)
+    # rows (time, deg_params...): time in seconds, params inside the bounds
+    X_train = np.column_stack(
+        [rng.uniform(0.0, 3600.0, 50), rng.uniform(0.5, 1.5, 50)]
+    ).astype("float32")
+    sim_params = {
+        "deg_param_names": ["i0_a"],
+        "deg_i0_a_min": 0.5,
+        "deg_i0_a_max": 1.5,
+        "vmin": 3.0,
+        "vmax": 4.2,
+    }
+
+    scalers = build_surrogate_scalers(X_train, sim_params)
+    assert set(scalers) == {"t", "Y", "V"}
+    assert isinstance(scalers["t"], ZScoreScaler)
+    # time z-score fitted on the time column only
+    t_scaled = scalers["t"].transform(X_train[:, :1])
+    assert np.allclose(t_scaled.mean(), 0.0, atol=1e-5)
+    assert np.allclose(t_scaled.std(), 1.0, atol=1e-5)
+    # parameters and voltage from the config bounds
+    assert scalers["Y"].to_dict() == {"low": [0.5], "high": [1.5]}
+    assert np.allclose(scalers["V"].to_dict()["low"], [3.0])
+    assert np.allclose(scalers["V"].to_dict()["high"], [4.2])
+
+
+def test_scale_surrogate_splits():
+    scalers = {
+        "t": ZScoreScaler(np.array([[100.0]]), np.array([[50.0]])),
+        "Y": BoundedScaler([0.0, 10.0], [2.0, 30.0]),
+        "V": BoundedScaler([3.0], [4.0]),
+    }
+    X_train = np.array(
+        [[100.0, 0.0, 10.0], [150.0, 2.0, 30.0]], dtype="float32"
+    )
+    Y_train = np.array([[3.0], [3.5]], dtype="float32")
+    splits = {"X_train": X_train, "Y_train": Y_train, "X_val": None}
+
+    scaled = scale_surrogate_splits(splits, scalers)
+    assert set(scaled) == {"X_train", "Y_train"}
+    # time column z-scored, parameter columns and voltage scaled to [0, 1]
+    assert np.allclose(scaled["X_train"][:, 0], [0.0, 1.0])
+    assert np.allclose(scaled["X_train"][:, 1:], [[0.0, 0.0], [1.0, 1.0]])
+    assert np.allclose(scaled["Y_train"], [[0.0], [0.5]])
+    # scaling is in place: no copy of the dataset
+    assert scaled["X_train"] is X_train
+    assert scaled["Y_train"] is Y_train
