@@ -18,6 +18,7 @@ from batfit.model.param_utils.noise_utils import (
     apply_noise_unscaled,
     make_noise_levels,
 )
+from batfit.preprocess.sim_setup import make_params
 from batfit.utils.data_utils import *
 from batfit.utils.torch_utils import *
 
@@ -69,12 +70,12 @@ def from_mom_to_samples(mu, sigma, n=500):
 
 
 def load_model(inp):
-    model, scaler = define_model(inp)
+    model = define_model(inp)
     best_model_file = find_best_model_file(inp.models_dir)
     logger.info(f"Loading {best_model_file}")
     model.load_state_dict(torch.load(best_model_file, weights_only=True))
     model.eval()
-    return model, scaler
+    return model
 
 
 def load_surrogate_model(inp):
@@ -90,6 +91,7 @@ def load_synthetic_data(inp):
     t = {}
     phi = {}
     truth = {}
+    sim_params = make_params(inp.sim_config)
     noise_levels, a_min, a_max = make_noise_levels(
         target_mode=inp.target_mode,
         noise_levels=[
@@ -99,6 +101,8 @@ def load_synthetic_data(inp):
             2.01 * 2,
         ],
         cyc_mode=inp.cyc_mode,
+        vmin=sim_params["vmin"],
+        vmax=sim_params["vmax"],
     )
     data_path = inp.data_path_discharge
     tmp = np.load(os.path.join(data_path, "assembled_data.npz"))
@@ -125,26 +129,21 @@ def test_perf(inp, mode="val"):
     if not os.path.isfile(os.path.join(data_path, "data_split.npz")):
         return
     A = np.load(os.path.join(data_path, "data_split.npz"))
-    X_scaled = scale_input_from_scaler(
-        A["X_val"],
-        os.path.join(data_path, "scaler_X.pkl"),
-    )
+
+    # Make model (the checkpoint carries the signal scaler)
+    model = load_model(inp)
+    scaler = model.scaler_X
+
+    X_scaled = scaler.transform(A["X_val"])
     Y_test = A["Y_val"]
 
     input_data = torch.Tensor(X_scaled)
     output_data = torch.Tensor(Y_test)
-    shape_in = input_data[0].shape
     test_data_loader = torch.utils.data.DataLoader(
         torch.utils.data.TensorDataset(input_data, output_data),
         batch_size=min(X_scaled.shape[0], 256),
         shuffle=False,
     )
-
-    # Make model
-    model, scaler = define_model(inp)
-    best_model_file = find_best_model_file(inp.models_dir)
-    logger.info(f"Loading {best_model_file}")
-    model.load_state_dict(torch.load(best_model_file, weights_only=True))
 
     noise_levels, a_min, a_max = make_noise_levels(
         target_mode=inp.target_mode,
@@ -155,6 +154,8 @@ def test_perf(inp, mode="val"):
             2.01 * 2,
         ],
         cyc_mode=inp.cyc_mode,
+        vmin=model.sim_params["vmin"],
+        vmax=model.sim_params["vmax"],
     )
 
     device = torch.device(get_device_type())
@@ -173,19 +174,13 @@ def test_perf(inp, mode="val"):
                 a_min=a_min,
                 a_max=a_max,
             )
-            tmpmu_preds, tmpsigma_preds = model(batch_in.to(device))
-            if model.constrain_output:
-                tmpmu_preds = model.inv_transform_mu(
-                    tmpmu_preds.cpu(),
-                    model.min_par.numpy(),
-                    model.amp_par.numpy(),
-                )
-                tmpsigma_preds = model.inv_transform_gamma(
-                    tmpsigma_preds.cpu(), model.amp_par.numpy()
-                )
+            mu_scaled, sigma_scaled = model(batch_in.to(device))
+            tmpmu_preds, tmpsigma_preds = model.to_physical(
+                mu_scaled, sigma_scaled
+            )
 
-            tmpsigma_preds = tmpsigma_preds.numpy()
-            tmpmu_preds = tmpmu_preds.numpy()
+            tmpsigma_preds = tmpsigma_preds.cpu().numpy()
+            tmpmu_preds = tmpmu_preds.cpu().numpy()
 
             tmptruth = batch[1].cpu().numpy()
 
@@ -294,25 +289,9 @@ def test_perf(inp, mode="val"):
     forward_model = ForwardModel(surrogate, surrogate_scaler)
     voltage_error = np.zeros(samples_pred_params.shape[:2])
     logger.info("Voltage error")
-    # Clip samples to avoid issues
-    samples_pred_params_clip = samples_pred_params
-    samples_pred_params_clip[:, :, 0] = np.clip(
-        samples_pred_params[:, :, 0], 0.1, 4.0
-    )
-    samples_pred_params_clip[:, :, 1] = np.clip(
-        samples_pred_params[:, :, 1], 0.2, 10.0
-    )
-    samples_pred_params_clip[:, :, 2] = np.clip(
-        samples_pred_params[:, :, 2], 0.6, 1.077
-    )
-    samples_pred_params_clip[:, :, 3] = np.clip(
-        samples_pred_params[:, :, 3], 0.88, 1.6
-    )
-    samples_pred_params_clip[:, :, 4] = np.clip(
-        samples_pred_params[:, :, 4], 0.1, 1.6
-    )
-    samples_pred_params_clip[:, :, 5] = np.clip(
-        samples_pred_params[:, :, 5], 0.7, 1.0
+    # Clip samples to the prior bounds of the experiment config
+    samples_pred_params_clip = model.scaler_Y.clip_physical(
+        samples_pred_params.astype("float32")
     )
 
     for i in range(samples_pred_params.shape[0]):
