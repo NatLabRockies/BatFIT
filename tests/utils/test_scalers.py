@@ -116,6 +116,19 @@ def test_ZScoreScaler():
     assert np.allclose(X_fit_scaled.mean(axis=(0, 2)), 0.0, atol=1e-5)
     assert np.allclose(X_fit_scaled.std(axis=(0, 2)), 1.0, atol=1e-5)
 
+    # per-time-point fit: stds below min_std (coinciding curves) are clipped
+    V = np.random.randn(30, 1, 16).astype("float32") * 0.1 + 3.5
+    V[:, :, -1] = 4.1
+    fitted_t = ZScoreScaler.fit(V, axis=0, min_std=1e-3)
+    assert tuple(fitted_t.means.shape) == (1, 1, 16)
+    assert np.isclose(float(fitted_t.stds[0, 0, -1]), 1e-3)
+    assert np.allclose(
+        fitted_t.stds[0, 0, :-1].numpy(), V[:, 0, :-1].std(axis=0), rtol=1e-5
+    )
+    V_scaled = fitted_t.transform(V)
+    assert np.allclose(V_scaled[:, 0, :-1].mean(axis=0), 0.0, atol=1e-4)
+    assert np.all(np.isfinite(V_scaled))
+
     # statistics are buffers and exportable
     assert set(scaler.state_dict().keys()) == {"means", "stds"}
     assert scaler.to_dict() == {
