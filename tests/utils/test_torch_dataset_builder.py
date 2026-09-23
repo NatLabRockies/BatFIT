@@ -154,3 +154,46 @@ def test_make_npe_dataset_from_np():
     assert p_batch.shape == (batch_size, n_prot)
     assert torch.all((p_batch >= 0.0) & (p_batch <= 1.0))
     assert loaders_p["val"] is None
+
+    # time-dependent z-score: (time, voltage) signals on linspace(0, t_end)
+    t_end = rng.uniform(1000.0, 5000.0, n_samples).astype("float32")
+    grid = np.linspace(0.0, 1.0, T, dtype="float32")
+    voltage = 3.0 + grid + rng.normal(scale=0.05, size=(n_samples, T))
+    voltage[:, -1] = 4.1  # all curves end at the cutoff
+    X_td = np.stack((t_end[:, None] * grid, voltage.astype("float32")), axis=1)
+    for sp, P_in, n_batch_items in (
+        (sim_params, None, 3),
+        (sim_params_prot, P, 4),
+    ):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            loaders_td, scalers_td = make_npe_dataset_from_np(
+                sp,
+                np_data=X_td.copy(),
+                np_data_label=Y,
+                np_prot_params=P_in,
+                batch_size=batch_size,
+                save_path=tmp_dir,
+                random_state=0,
+                signal_scaling="time_dependent_zscore",
+            )
+            # the split cache keeps the (time, voltage) signal
+            cached = np.load(os.path.join(tmp_dir, "data_split.npz"))
+            assert cached["X_train"].shape[1] == 2
+        assert "T" in scalers_td
+        # one voltage mean/std per time point, the flat end clipped
+        assert tuple(scalers_td["X"].means.shape) == (1, 1, T)
+        assert np.isclose(float(scalers_td["X"].stds[0, 0, -1]), 1e-3)
+        batch = next(iter(loaders_td["train"]))
+        assert len(batch) == n_batch_items
+        # batches (X, T, Y) or (X, P, T, Y): voltage only, end time second
+        # to last, labels last
+        assert batch[0].shape == (batch_size, 1, T)
+        assert batch[-2].shape == (batch_size, 1)
+        assert batch[-1].shape == (batch_size, 2)
+        x_train = loaders_td["train"].dataset.tensors[0]
+        t_train = loaders_td["train"].dataset.tensors[-2]
+        assert torch.allclose(
+            x_train.mean(dim=0)[0, :-1], torch.tensor(0.0), atol=1e-4
+        )
+        assert abs(float(t_train.mean())) < 1e-4
+        assert abs(float(t_train.std(unbiased=False)) - 1.0) < 1e-4

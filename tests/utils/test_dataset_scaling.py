@@ -38,6 +38,25 @@ def test_build_scalers():
         "high": [10.0, 200.0],
     }
 
+    # time-dependent z-score: per-time-point voltage stats, z-scored T
+    V_train = np.random.randn(20, 1, 30).astype("float32") * 0.1 + 3.5
+    V_train[:, :, 0] = 3.0  # identical start: std clipped to 1e-3
+    T_train = np.random.uniform(1000.0, 5000.0, (20, 1)).astype("float32")
+    scalers_td = build_scalers(
+        V_train,
+        sim_params,
+        signal_scaling="time_dependent_zscore",
+        T_train=T_train,
+    )
+    assert set(scalers_td) == {"X", "T", "Y"}
+    assert tuple(scalers_td["X"].means.shape) == (1, 1, 30)
+    assert np.isclose(float(scalers_td["X"].stds[0, 0, 0]), 1e-3)
+    V_scaled = scalers_td["X"].transform(V_train)
+    assert np.allclose(V_scaled.mean(axis=0), 0.0, atol=1e-4)
+    T_scaled = scalers_td["T"].transform(T_train)
+    assert np.isclose(T_scaled.mean(), 0.0, atol=1e-5)
+    assert np.isclose(T_scaled.std(), 1.0, atol=1e-5)
+
 
 def test_scale_splits():
     scalers = {
