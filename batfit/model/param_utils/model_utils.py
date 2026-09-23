@@ -232,98 +232,66 @@ def _build_output_heads(
     return nn.Sequential(*_mu_layers), nn.Sequential(*_gamma_layers)
 
 
-class _ParamScalingMixin:
-    """Physical parameter space scaling/unscaling utilities.
+class _NPEBase(nn.Module):
+    """Base class of all parameter-inference (NPE) models.
 
-    Both Gaussian and flow matching base classes inherit from this
+    Shared by the Gaussian and FM models: builds the scalers and
+    parameter counts from the experiment configuration. Sets ``sim_config``,
+    ``sim_params``, ``scaler_Y`` (degradation parameters, ``[0, 1]``),
+    ``n_param_pred``, ``scaler_X`` and, for protocol models, ``scaler_P`` and
+    ``n_prot_params``.
+
+    Parameters
+    ----------
+    sim_config: str
+        Experiment configuration providing the parameter bounds
+    scaler_X: ZScoreScaler | None
+        Fitted signal scaler; None creates an identity placeholder, to be
+        filled by ``load_state_dict``
+    scaler_X_shape: tuple[int, ...] | None
+        Shape of the placeholder signal-scaler statistics, e.g.
+        ``(1, channels, 1)``; required when ``scaler_X`` is None
+    with_prot: bool
+        Build the protocol-parameter scaler
     """
 
-    def _init_scaling(self, sim_config: str | None) -> None:
-        """Initialise physical parameter bounds from a sim_config
-
-        Parameters
-        ----------
-        sim_config: str | None
-            Path to a YAML experiment configuration file, or None
-        """
+    def __init__(
+        self,
+        sim_config: str,
+        scaler_X: ZScoreScaler | None,
+        scaler_X_shape: tuple[int, ...] | None,
+        with_prot: bool,
+    ) -> None:
+        super().__init__()
         self.sim_config = sim_config
-        if self.sim_config is not None:
-            self.sim_params = make_params(self.sim_config)
-            self.max_par = torch.from_numpy(
-                np.array(
-                    [
-                        self.sim_params["deg_" + var_name + "_max"]
-                        for var_name in self.sim_params["deg_param_names"]
-                    ]
-                ).astype("float32")
+        self.sim_params = make_params(sim_config)
+        # one output per degradation parameter of the config
+        self.scaler_Y = BoundedScaler.from_sim_params(self.sim_params, "deg")
+        self.n_param_pred = len(self.sim_params["deg_param_names"])
+        if with_prot:
+            assert (
+                "prot_param_names" in self.sim_params
+            ), f"{sim_config} declares no protocol parameters"
+            self.scaler_P = BoundedScaler.from_sim_params(
+                self.sim_params, "prot"
             )
-            self.min_par = torch.from_numpy(
-                np.array(
-                    [
-                        self.sim_params["deg_" + var_name + "_min"]
-                        for var_name in self.sim_params["deg_param_names"]
-                    ]
-                ).astype("float32")
+            self.n_prot_params = len(self.sim_params["prot_param_names"])
+        else:
+            self.scaler_P = None
+        if scaler_X is None:
+            assert scaler_X_shape is not None, (
+                "scaler_X is required when the signal shape is unknown "
+                "(e.g. with an external encoder)"
             )
-            self.amp_par = self.max_par - self.min_par
-
-    def inv_transform_mu(
-        self,
-        mu_unscaled: torch.Tensor,
-        min_par: torch.Tensor,
-        amp_par: torch.Tensor,
-    ) -> torch.Tensor:
-        return mu_unscaled * amp_par + min_par
-
-    def inv_transform_gamma(
-        self, gamma_unscaled: torch.Tensor, amp_par: torch.Tensor
-    ) -> torch.Tensor:
-        return gamma_unscaled * amp_par
-
-    def transform_mu(
-        self,
-        mu_scaled: torch.Tensor,
-        min_par: torch.Tensor,
-        amp_par: torch.Tensor,
-    ) -> torch.Tensor:
-        return (mu_scaled - min_par) / amp_par
-
-    def transform_gamma(
-        self, gamma_scaled: torch.Tensor, amp_par: torch.Tensor
-    ) -> torch.Tensor:
-        return gamma_scaled / amp_par
-
-    def transform_output(
-        self,
-        mu_scaled: torch.Tensor,
-        gamma_scaled: torch.Tensor,
-        min_par: torch.Tensor,
-        amp_par: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        return self.transform_mu(
-            mu_scaled, min_par, amp_par
-        ), self.transform_gamma(gamma_scaled, amp_par)
-
-    def inv_transform_output(
-        self,
-        mu_unscaled: torch.Tensor,
-        gamma_unscaled: torch.Tensor,
-        min_par: torch.Tensor,
-        amp_par: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        return self.inv_transform_mu(
-            mu_unscaled, min_par, amp_par
-        ), self.inv_transform_gamma(gamma_unscaled, amp_par)
+            # identity placeholder, overwritten when loading a checkpoint
+            scaler_X = ZScoreScaler(
+                np.zeros(scaler_X_shape), np.ones(scaler_X_shape)
+            )
+        self.scaler_X = scaler_X
 
 
-class _ProbParamBase(nn.Module, ABC):
+class _ProbParamBase(_NPEBase, ABC):
     """Base class of the Gaussian parameter-inference (NPE) models.
-
-    The network maps a z-scored signal (and ``[0, 1]``-scaled protocol
-    parameters) to the posterior mean and standard deviation of the
-    degradation parameters, both in the ``[0, 1]`` space defined by the
-    parameter bounds of ``sim_config``. The model holds its scalers, so
-    :meth:`predict_physical` goes from physical inputs to physical outputs.
 
     Parameters
     ----------
@@ -360,7 +328,7 @@ class _ProbParamBase(nn.Module, ABC):
         param_margin: float = 0.05,
         with_prot: bool = False,
     ):
-        super(_ProbParamBase, self).__init__()
+        super().__init__(sim_config, scaler_X, scaler_X_shape, with_prot)
         assert loss_fn in [
             gumbel_loss,
             nll_loss,
@@ -371,29 +339,7 @@ class _ProbParamBase(nn.Module, ABC):
         self.cyc_mode = cyc_mode
         self.encoder_model = encoder_model
         self.param_margin = param_margin
-
-        self.sim_config = sim_config
-        self.sim_params = make_params(sim_config)
-        # one output per degradation parameter of the config
-        self.scaler_Y = BoundedScaler.from_sim_params(self.sim_params, "deg")
-        self.n_param_pred = len(self.sim_params["deg_param_names"])
         self.output_dim = self.n_param_pred
-        if with_prot:
-            assert (
-                "prot_param_names" in self.sim_params
-            ), f"{sim_config} declares no protocol parameters"
-            self.scaler_P = BoundedScaler.from_sim_params(
-                self.sim_params, "prot"
-            )
-            self.n_prot_params = len(self.sim_params["prot_param_names"])
-        else:
-            self.scaler_P = None
-        if scaler_X is None:
-            # identity placeholder, overwritten when loading a checkpoint
-            scaler_X = ZScoreScaler(
-                np.zeros(scaler_X_shape), np.ones(scaler_X_shape)
-            )
-        self.scaler_X = scaler_X
 
     def _encode(self, x: torch.Tensor) -> torch.Tensor:
         """Apply the optional encoder to a scaled signal."""
@@ -458,31 +404,125 @@ class _ProbParamBase(nn.Module, ABC):
         pass
 
 
-class _ProbParamFMBase(nn.Module, ABC, _ParamScalingMixin):
+# Scale of the flow-matching space. 
+# The flow transports samples of a source
+# (base) distribution, N(0, I) or the empirical prior, to the posterior target.
+# Parameters scaled to [0, 1] have mean 0.5 and std 1/sqrt(12) under a uniform
+# prior, so ``(u - 0.5) * sqrt(12)`` gives the target zero mean and unit
+# variance: the target then sits close to the N(0, I) source, which keeps the
+# transport paths short and the learned velocities of order one.
+_FLOW_SCALE = float(np.sqrt(12.0))
+
+
+class _ProbParamFMBase(_NPEBase, ABC):
     """Abstract base class for flow matching parameter estimation models.
+
+    The data loaders provide degradation parameters ``u`` scaled to
+    ``[0, 1]`` by ``scaler_Y``. The flow operates in the space
+    ``(u - 0.5) * sqrt(12)``; the conversions between ``u`` and the flow
+    space are internal to this class. :meth:`to_physical` maps posterior
+    samples back to physical units, clamped to the parameter bounds.
 
     Subclasses must assign self.vf_layers (an nn.Sequential) in their
     __init__. Its input dimension must be (n_param_pred + 1 + context_dim)
     and its output dimension must be n_param_pred.
+
+    Parameters
+    ----------
+    sim_config: str
+        Experiment configuration providing the parameter bounds
+    scaler_X_shape: tuple[int, ...] | None
+        Shape of the placeholder signal-scaler statistics; None requires
+        ``scaler_X``
+    cyc_mode: str
+        Cycling mode of the signal
+    scaler_X: ZScoreScaler | None
+        Fitted signal scaler; None creates an identity placeholder, to be
+        filled by ``load_state_dict``
+    use_prior_matching: bool
+        Start the flow from the empirical training labels (registered with
+        :meth:`set_prior_data`) instead of N(0, I)
+    with_prot: bool
+        Build the protocol-parameter scaler
     """
 
     def __init__(
         self,
+        sim_config: str,
+        scaler_X_shape: tuple[int, ...] | None,
         cyc_mode: str = "discharge",
-        n_param_pred: int = 6,
-        sim_config: str | None = None,
+        scaler_X: ZScoreScaler | None = None,
         use_prior_matching: bool = False,
+        with_prot: bool = False,
     ):
-        super().__init__()
+        super().__init__(sim_config, scaler_X, scaler_X_shape, with_prot)
         self.cyc_mode = cyc_mode
-        self.n_param_pred = n_param_pred
         self.use_prior_matching = use_prior_matching
-        self._init_scaling(sim_config)
-        if use_prior_matching and sim_config is None:
-            raise ValueError(
-                "use_prior_matching=True requires sim_config so that "
-                "min_par and amp_par are available for prior sampling."
+
+    def _u_to_flow(self, u: torch.Tensor) -> torch.Tensor:
+        """Map ``[0, 1]``-scaled parameters to the flow space."""
+        # centre and rescale so the posterior target is close to the source
+        # distribution of the flow (see _FLOW_SCALE)
+        return (u - 0.5) * _FLOW_SCALE
+
+    def _flow_to_u(self, z: torch.Tensor) -> torch.Tensor:
+        """Map flow-space points back to ``[0, 1]``-scaled parameters."""
+        return z / _FLOW_SCALE + 0.5
+
+    def to_physical(self, samples: torch.Tensor) -> torch.Tensor:
+        """Map flow-space posterior samples to physical parameter space.
+
+        Parameters
+        ----------
+        samples: torch.Tensor
+            Samples returned by :meth:`sample`, shape
+            ``(batch, n_samples, n_param_pred)``
+
+        Returns
+        -------
+        torch.Tensor
+            Physical samples, same shape, clamped to the parameter bounds
+        """
+        u = torch.clamp(self._flow_to_u(samples), min=0.0, max=1.0)
+        return self.scaler_Y.inverse_transform(u)
+
+    def sample_physical(
+        self,
+        x: torch.Tensor,
+        prot_params: torch.Tensor | None = None,
+        n_samples: int = 1000,
+        n_steps: int = 100,
+    ) -> torch.Tensor:
+        """Draw physical posterior samples from a physical signal.
+
+        Parameters
+        ----------
+        x: torch.Tensor
+            Unscaled signal, on the model's device
+        prot_params: torch.Tensor | None
+            Unscaled protocol parameters, required for protocol models
+        n_samples: int
+            Number of posterior samples per observation
+        n_steps: int
+            Number of ODE integration steps
+
+        Returns
+        -------
+        torch.Tensor
+            Physical samples, shape ``(batch, n_samples, n_param_pred)``
+        """
+        x_scaled = self.scaler_X.transform(x)
+        if self.scaler_P is None:
+            samples = self.sample(
+                x_scaled, n_samples=n_samples, n_steps=n_steps
             )
+        else:
+            assert prot_params is not None, "prot_params is required"
+            p_scaled = self.scaler_P.transform(prot_params)
+            samples = self.sample(
+                x_scaled, p_scaled, n_samples=n_samples, n_steps=n_steps
+            )
+        return self.to_physical(samples)
 
     @property
     def vf_layers(self) -> nn.Sequential:
@@ -530,25 +570,28 @@ class _ProbParamFMBase(nn.Module, ABC, _ParamScalingMixin):
         vf_input = torch.cat([z_t, t_exp, context], dim=-1)
         return self.vf_layers(vf_input)
 
-    def set_prior_data(self, Y_train: torch.Tensor) -> None:
-        """Register scaled training labels as the empirical base distribution.
+    def set_prior_data(self, Y_train_scaled: torch.Tensor) -> None:
+        """Register the training labels as the empirical base distribution.
 
-        Once set, :meth:`sample_prior` draws random rows from this buffer
-        instead of the parametric U(min_par, max_par) prior.
-        The buffer is persisted in both ``model.pkl`` (full pickle) and every ``.pt``
-        checkpoint (state dict), so it is automatically available at inference
-        time without any extra files. **This might create memory issues though**
+        The labels are stored in the flow space; :meth:`sample_prior` then
+        draws random rows from this buffer. The buffer is persisted in both
+        ``model.pkl`` (full pickle) and every ``.pt`` checkpoint (state dict),
+        so it is available at inference time without any extra files.
+        **This might create memory issues though**
 
-        Call this after constructing the model but before training, passing the
-        **scaled** Y_train that matches the DataLoader label space (e.g.
-        z-scored when ``scale_y=True``).
+        Call this after constructing the model but before training.
 
         Parameters
         ----------
-        Y_train: torch.Tensor
-            Scaled training labels, shape ``(n_train, n_param_pred)``
+        Y_train_scaled: torch.Tensor
+            Training labels scaled to ``[0, 1]`` (as in the DataLoader),
+            shape ``(n_train, n_param_pred)``
         """
-        self.register_buffer("Y_prior", Y_train.float())
+        # stored in the flow space, like the targets x_1 of the training loop,
+        # so source and target distributions share the same coordinates
+        self.register_buffer(
+            "Y_prior", self._u_to_flow(Y_train_scaled.float())
+        )
 
     def sample_prior(self, n: int, device: torch.device) -> torch.Tensor:
         """Sample n points from the empirical base distribution.
@@ -573,7 +616,7 @@ class _ProbParamFMBase(nn.Module, ABC, _ParamScalingMixin):
         if not (hasattr(self, "Y_prior") and self.Y_prior is not None):
             raise RuntimeError(
                 "sample_prior() requires set_prior_data() to be called first "
-                "with the scaled Y_train tensor."
+                "with the [0, 1]-scaled Y_train tensor."
             )
         idx = torch.randint(
             0, self.Y_prior.shape[0], (n,), device=self.Y_prior.device
@@ -588,7 +631,8 @@ class _ProbParamFMBase(nn.Module, ABC, _ParamScalingMixin):
         n_steps: int,
         device: torch.device,
     ) -> torch.Tensor:
-        """Integrate the learned ODE from N(0, I) to the posterior."""
+        """Integrate the learned ODE from the base distribution to the
+        posterior; samples are returned in the flow space."""
         context_rep = context.repeat_interleave(n_samples, dim=0)
         n_particles = batch_size * n_samples
         if self.use_prior_matching:
