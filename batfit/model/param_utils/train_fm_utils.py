@@ -8,7 +8,6 @@ from flow_matching.path.scheduler import CondOTScheduler
 from prettyPlot.progressBar import print_progress_bar
 
 from batfit import logger
-from batfit.model.param_utils.model_utils import _ProbParamFMBase
 from batfit.model.paramNN import ProbParamFM, ProbProtParamFM
 from batfit.utils.torch_utils import (
     get_device_type,
@@ -22,9 +21,8 @@ from batfit.utils.torch_utils import (
 )
 
 from .losses import flow_matching_loss
-from .metrics import rel_accuracy
 from .noise_utils import apply_noise
-from .train_utils import learning_rate_schedule
+from .train_utils import _reshape_noise_args, learning_rate_schedule
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -62,23 +60,6 @@ def _forward_fm(
         raise TypeError("_forward_fm should only be used for FM models")
 
 
-def _sample_fm(
-    model: torch.nn.Module,
-    x_signal: torch.Tensor,
-    batch: list[torch.Tensor],
-    n_samples: int,
-    n_steps: int,
-    device: torch.device,
-) -> torch.Tensor:
-    """Draw posterior samples from an FM model."""
-    if isinstance(model, ProbProtParamFM):
-        return model.sample(x_signal, batch[1].to(device), n_samples, n_steps)
-    elif isinstance(model, ProbParamFM):
-        return model.sample(x_signal, n_samples, n_steps)
-    else:
-        raise TypeError("_sample_fm should only be used for FM models")
-
-
 # ---------------------------------------------------------------------------
 # Training loop
 # ---------------------------------------------------------------------------
@@ -102,11 +83,8 @@ def train_fm_model(
     trial=None,
     noise_levels: torch.Tensor | None = torch.tensor([0, 0.010, 0.04, 1]),
     bias_tensor: torch.Tensor | None = None,
-    scaler_X=None,
-    a_min: torch.Tensor | None = torch.tensor(
-        [-torch.inf, 3, -torch.inf, -torch.inf]
-    ),
-    a_max: torch.Tensor | None = torch.tensor([torch.inf, 4.1, 0, 0]),
+    a_min: torch.Tensor | None = None,
+    a_max: torch.Tensor | None = None,
 ) -> tuple[torch.nn.Module, np.ndarray]:
     """Train a flow matching model (``ProbParamFM`` or ``ProbProtParamFM``).
 
@@ -114,7 +92,8 @@ def train_fm_model(
 
     1. Apply measurement noise to the signal (same as for CNN models).
     2. Sample the base point ``x_0`` from N(0, I) or, when
-       ``model.use_prior_matching=True``, from the prior U(min_par, max_par).
+       ``model.use_prior_matching=True``, from the empirical prior (training
+       labels registered with ``set_prior_data``).
     3. Draw flow time ``t ~ Uniform(0, 1)``.
     4. Compute the interpolated position ``x_t`` and target velocity ``u_t``
        via ``AffineProbPath(CondOTScheduler())``.
@@ -163,12 +142,11 @@ def train_fm_model(
         Measurement noise levels passed to ``apply_noise``
     bias_tensor: torch.Tensor, optional
         Measurement bias passed to ``apply_noise``
-    scaler_X: CustomScaler, optional
-        Signal scaler (needed by ``apply_noise``)
-    a_min: torch.Tensor, optional
-        Lower clip for signal channels after noise injection
-    a_max: torch.Tensor, optional
-        Upper clip for signal channels after noise injection
+    a_min: torch.Tensor
+        Lower clip for signal channels after noise injection (physical
+        units, from :func:`make_noise_levels`); required
+    a_max: torch.Tensor
+        Upper clip for signal channels after noise injection; required
 
     Returns
     -------
@@ -189,12 +167,9 @@ def train_fm_model(
         save_model_opt=False,
     )
 
-    if noise_levels is not None and len(noise_levels.shape) == 1:
-        noise_levels = noise_levels.reshape(1, noise_levels.shape[0], 1)
-    if a_min is not None and len(a_min.shape) == 1:
-        a_min = a_min.reshape(1, a_min.shape[0], 1)
-    if a_max is not None and len(a_max.shape) == 1:
-        a_max = a_max.reshape(1, a_max.shape[0], 1)
+    noise_levels, a_min, a_max = _reshape_noise_args(
+        noise_levels, a_min, a_max
+    )
 
     if learning_rate_end is None:
         learning_rate_end = learning_rate / 100.0
@@ -231,7 +206,6 @@ def train_fm_model(
                 enable_mps=enable_mps,
                 verbose=False,
                 noise_levels=noise_levels,
-                scaler_X=scaler_X,
                 a_min=a_min,
                 a_max=a_max,
             )
@@ -280,7 +254,7 @@ def train_fm_model(
 
             batch_in = apply_noise(
                 batch_in=batch[0],
-                scaler_X=scaler_X,
+                scaler_X=model.scaler_X,
                 noise_levels=noise_levels,
                 a_min=a_min,
                 a_max=a_max,
@@ -288,8 +262,9 @@ def train_fm_model(
             )
             x_signal = batch_in.to(device)
 
-            # x_1 = degradation parameter labels (target for the flow)
-            x_1 = batch[labels_idx].to(device)
+            # x_1 = degradation parameter labels (target for the flow), from
+            # [0, 1] to the flow space where the target is close to the source
+            x_1 = model._u_to_flow(batch[labels_idx].to(device))
             batch_size = x_1.shape[0]
 
             # Base point: prior or standard Gaussian
@@ -358,7 +333,6 @@ def train_fm_model(
                 enable_mps=enable_mps,
                 verbose=False,
                 noise_levels=noise_levels,
-                scaler_X=scaler_X,
                 a_min=a_min,
                 a_max=a_max,
             )
@@ -406,11 +380,8 @@ def compute_test_loss_fm(
     verbose: bool = True,
     noise_levels: torch.Tensor | None = torch.tensor([0, 0.010, 0.04, 1]),
     bias_tensor: torch.Tensor | None = None,
-    scaler_X=None,
-    a_min: torch.Tensor | None = torch.tensor(
-        [-torch.inf, 3, -torch.inf, -torch.inf]
-    ),
-    a_max: torch.Tensor | None = torch.tensor([torch.inf, 4.1, 0, 0]),
+    a_min: torch.Tensor | None = None,
+    a_max: torch.Tensor | None = None,
 ) -> float:
     """Evaluate the velocity-MSE loss on a held-out set.
 
@@ -432,12 +403,10 @@ def compute_test_loss_fm(
         Measurement noise levels
     bias_tensor: torch.Tensor, optional
         Measurement bias
-    scaler_X: CustomScaler, optional
-        Signal scaler
-    a_min: torch.Tensor, optional
-        Lower clip for noisy signal
-    a_max: torch.Tensor, optional
-        Upper clip for noisy signal
+    a_min: torch.Tensor
+        Lower clip for noisy signal (physical units); required
+    a_max: torch.Tensor
+        Upper clip for noisy signal; required
 
     Returns
     -------
@@ -449,12 +418,9 @@ def compute_test_loss_fm(
     )
     device = torch.device(device_type)
 
-    if noise_levels is not None and len(noise_levels.shape) == 1:
-        noise_levels = noise_levels.reshape(1, noise_levels.shape[0], 1)
-    if a_min is not None and len(a_min.shape) == 1:
-        a_min = a_min.reshape(1, a_min.shape[0], 1)
-    if a_max is not None and len(a_max.shape) == 1:
-        a_max = a_max.reshape(1, a_max.shape[0], 1)
+    noise_levels, a_min, a_max = _reshape_noise_args(
+        noise_levels, a_min, a_max
+    )
 
     model = model.to(device)
     prob_path = AffineProbPath(scheduler=CondOTScheduler())
@@ -478,14 +444,15 @@ def compute_test_loss_fm(
         for step, batch in enumerate(test_data_loader):
             batch_in = apply_noise(
                 batch_in=batch[0],
-                scaler_X=scaler_X,
+                scaler_X=model.scaler_X,
                 noise_levels=noise_levels,
                 a_min=a_min,
                 a_max=a_max,
                 bias=bias_tensor,
             )
             x_signal = batch_in.to(device)
-            x_1 = batch[labels_idx].to(device)
+            # labels from [0, 1] to the flow space, as in training
+            x_1 = model._u_to_flow(batch[labels_idx].to(device))
             batch_size = x_1.shape[0]
 
             if model.use_prior_matching:
@@ -516,141 +483,3 @@ def compute_test_loss_fm(
 
     return loss_sum / n_el
 
-
-# ---------------------------------------------------------------------------
-# Sample-based accuracy — works for both CNN and FM
-# ---------------------------------------------------------------------------
-
-
-def compute_post_sample_based(
-    model: torch.nn.Module,
-    test_data_loader: torch.utils.data.DataLoader,
-    n_samples: int,
-    n_ode_steps: int = 100,
-    num_steps: int | None = None,
-    enable_cuda: bool = True,
-    enable_mps: bool = True,
-    verbose: bool = True,
-    noise_levels: torch.Tensor | None = torch.tensor([0, 0.010, 0.04, 1]),
-    bias_tensor: torch.Tensor | None = None,
-    scaler_X=None,
-    a_min: torch.Tensor | None = torch.tensor(
-        [-torch.inf, 3, -torch.inf, -torch.inf]
-    ),
-    a_max: torch.Tensor | None = torch.tensor([torch.inf, 4.1, 0, 0]),
-    post_fn=rel_accuracy,
-) -> torch.Tensor:
-    """Sample-based accuracy metric
-
-    Parameters
-    ----------
-    model: torch.nn.Module
-        CNN or FM model
-    test_data_loader: torch.utils.data.DataLoader
-        Held-out DataLoader
-    n_samples: int
-        Posterior samples per observation
-    n_ode_steps: int
-        ODE integration steps (FM only)
-    num_steps: int, optional
-        Cap the number of evaluated batches (None = all)
-    enable_cuda: bool
-        Allow CUDA
-    enable_mps: bool
-        Allow MPS
-    verbose: bool
-        Print a progress bar
-    noise_levels: torch.Tensor, optional
-        Measurement noise levels
-    bias_tensor: torch.Tensor, optional
-        Measurement bias
-    scaler_X: CustomScaler, optional
-        Signal scaler
-    a_min: torch.Tensor, optional
-        Lower clip for noisy signal
-    a_max: torch.Tensor, optional
-        Upper clip for noisy signal
-    post_fn: Callable
-        Metric function, one of :func:`accuracy` or :func:`rel_accuracy`
-
-    Returns
-    -------
-    torch.Tensor
-        Per-parameter metric, shape ``(n_params,)``
-    """
-    device_type = get_device_type(
-        enable_cuda=enable_cuda, enable_mps=enable_mps
-    )
-    device = torch.device(device_type)
-
-    if noise_levels is not None and len(noise_levels.shape) == 1:
-        noise_levels = noise_levels.reshape(1, noise_levels.shape[0], 1)
-    if a_min is not None and len(a_min.shape) == 1:
-        a_min = a_min.reshape(1, a_min.shape[0], 1)
-    if a_max is not None and len(a_max.shape) == 1:
-        a_max = a_max.reshape(1, a_max.shape[0], 1)
-
-    if not isinstance(model, _ProbParamFMBase):
-        raise TypeError(
-            f"compute_post_sample_based is for FM models only. "
-            f"For CNN models use compute_post from train_utils. "
-            f"Got {type(model).__name__}."
-        )
-
-    model = model.to(device)
-    labels_idx = _get_labels_idx(model)
-    total_steps = num_steps if num_steps is not None else len(test_data_loader)
-
-    post_sum = None
-    n_el = 0
-
-    model.eval()
-    if verbose:
-        print_progress_bar(
-            0,
-            total_steps,
-            prefix=f"Sample post = ? Step 0 / {total_steps} ",
-            suffix="Complete",
-            length=50,
-        )
-
-    with torch.no_grad():
-        for step, batch in enumerate(test_data_loader):
-            batch_in = apply_noise(
-                batch_in=batch[0],
-                scaler_X=scaler_X,
-                noise_levels=noise_levels,
-                a_min=a_min,
-                a_max=a_max,
-                bias=bias_tensor,
-            )
-            x_signal = batch_in.to(device)
-            y_true = batch[labels_idx].to(device)
-
-            # Integrate n_samples ODE trajectories and average to estimate the
-            # posterior mean
-            samples = _sample_fm(
-                model, x_signal, batch, n_samples, n_ode_steps, device
-            )
-            mu_est = samples.mean(dim=1)  # (batch, n_params)
-
-            batch_post = post_fn(mu_est, y_true)  # (n_params,)
-            post_sum = (
-                batch_post * y_true.shape[0]
-                if post_sum is None
-                else post_sum + batch_post * y_true.shape[0]
-            )
-            n_el += y_true.shape[0]
-
-            if verbose:
-                print_progress_bar(
-                    step + 1,
-                    total_steps,
-                    prefix=f"Sample post Step {step + 1} / {total_steps} ",
-                    suffix="Complete",
-                    length=50,
-                )
-            if step + 1 >= total_steps:
-                break
-
-    return post_sum / n_el
