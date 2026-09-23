@@ -2,8 +2,6 @@
 # NPE-agnostic: operates only on var_pred_dataset.npz (from gen_var_dataset.py).
 
 # DATA
-n_param_pred: 6
-n_prot_params: 3
 sim_config: p2d_chirp.yaml
 var_pred_save_path: var_pred_data_p2d
 

@@ -14,12 +14,10 @@ import os
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
-import pickle
 import sys
 
 import numpy as np
 import torch
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 from batfit import logger
 from batfit.basicutilityc import ReadInput as ri
@@ -217,92 +215,33 @@ def gen_var_dataset(inp) -> None:
     logger.info("Processing val split …")
     P_va, mu_va, sigma_va = _process_split(X_val, P_val, Y_val, **shared)
 
-    # Fit scalers on train only
-    scaler_P_vp = MinMaxScaler()
-    scaler_P_vp.fit(P_tr)
-    scaler_mu = MinMaxScaler()
-    scaler_mu.fit(mu_tr)
-
-    save_path = inp.var_pred_save_path
-    with open(os.path.join(save_path, "scaler_P_varpred.pkl"), "wb") as f:
-        pickle.dump(scaler_P_vp, f)
-    with open(os.path.join(save_path, "scaler_mu.pkl"), "wb") as f:
-        pickle.dump(scaler_mu, f)
-
-    # Two optional (mutually exclusive) sigma target reparameterisations:
-    #   scale_sigma — MinMax per parameter to [0, 1]; Sigmoid head trained
-    #     directly on the scaled sigma (historical behaviour).
-    #   log_sigma — z-scored log(sigma) (StandardScaler on log(sigma_train));
-    #     MSE then acts as a relative-error loss, removing the constant
-    #     absolute-error floor that inflates relative error at small sigma,
-    #     and each parameter contributes with unit variance to the loss.
-    #     train_var_pred.py detects scaler_logsigma.pkl and switches the
-    #     model to a linear output head.
-    log_sigma: bool = getattr(inp, "log_sigma", False)
-    assert not (
-        inp.scale_sigma and log_sigma
-    ), "scale_sigma and log_sigma are mutually exclusive"
-    if inp.scale_sigma:
-        scaler_sigma = MinMaxScaler()
-        scaler_sigma.fit(sigma_tr)
-        with open(os.path.join(save_path, "scaler_sigma.pkl"), "wb") as f:
-            pickle.dump(scaler_sigma, f)
-        sigma_tr = scaler_sigma.transform(sigma_tr).astype("float32")
-        sigma_te = scaler_sigma.transform(sigma_te).astype("float32")
-        sigma_va = scaler_sigma.transform(sigma_va).astype("float32")
-        logger.info("sigma MinMax-scaled per parameter (scale_sigma=true)")
-    elif log_sigma:
-        assert (
-            sigma_tr.min() > 0 and sigma_te.min() > 0 and sigma_va.min() > 0
-        ), "sigma must be strictly positive to train on log sigma"
-        scaler_logsigma = StandardScaler()
-        scaler_logsigma.fit(np.log(sigma_tr))
-        with open(os.path.join(save_path, "scaler_logsigma.pkl"), "wb") as f:
-            pickle.dump(scaler_logsigma, f)
-        sigma_tr = scaler_logsigma.transform(np.log(sigma_tr)).astype(
-            "float32"
-        )
-        sigma_te = scaler_logsigma.transform(np.log(sigma_te)).astype(
-            "float32"
-        )
-        sigma_va = scaler_logsigma.transform(np.log(sigma_va)).astype(
-            "float32"
-        )
-        logger.info(
-            "sigma log-transformed and z-scored per parameter (log_sigma=true)"
-        )
-
-    logger.info(f"Scalers saved to {save_path}")
-
-    P_tr_sc = scaler_P_vp.transform(P_tr).astype("float32")
-    mu_tr_sc = scaler_mu.transform(mu_tr).astype("float32")
-    P_te_sc = scaler_P_vp.transform(P_te).astype("float32")
-    mu_te_sc = scaler_mu.transform(mu_te).astype("float32")
-    P_va_sc = scaler_P_vp.transform(P_va).astype("float32")
-    mu_va_sc = scaler_mu.transform(mu_va).astype("float32")
-
-    dataset_file = os.path.join(save_path, "var_pred_dataset.npz")
+    # Physical values: the variance estimator holds its own scalers (bounds of
+    # the config for P and mu, log-sigma z-score fitted by train_var_pred.py)
+    assert (
+        sigma_tr.min() > 0 and sigma_te.min() > 0 and sigma_va.min() > 0
+    ), "sigma must be strictly positive to train on log sigma"
+    dataset_file = os.path.join(inp.var_pred_save_path, "var_pred_dataset.npz")
     np.savez(
         dataset_file,
-        P_train=P_tr_sc,
-        Mu_train=mu_tr_sc,
+        P_train=P_tr,
+        Mu_train=mu_tr,
         Sigma_train=sigma_tr,
-        P_test=P_te_sc,
-        Mu_test=mu_te_sc,
+        P_test=P_te,
+        Mu_test=mu_te,
         Sigma_test=sigma_te,
-        P_val=P_va_sc,
-        Mu_val=mu_va_sc,
+        P_val=P_va,
+        Mu_val=mu_va,
         Sigma_val=sigma_va,
     )
     logger.info(f"Variance predictor dataset saved to {dataset_file}")
     logger.info(
-        f"  train: P={P_tr_sc.shape}, mu={mu_tr_sc.shape}, sigma={sigma_tr.shape}"
+        f"  train: P={P_tr.shape}, mu={mu_tr.shape}, sigma={sigma_tr.shape}"
     )
     logger.info(
-        f"  test:  P={P_te_sc.shape}, mu={mu_te_sc.shape}, sigma={sigma_te.shape}"
+        f"  test:  P={P_te.shape}, mu={mu_te.shape}, sigma={sigma_te.shape}"
     )
     logger.info(
-        f"  val:   P={P_va_sc.shape}, mu={mu_va_sc.shape}, sigma={sigma_va.shape}"
+        f"  val:   P={P_va.shape}, mu={mu_va.shape}, sigma={sigma_va.shape}"
     )
 
 

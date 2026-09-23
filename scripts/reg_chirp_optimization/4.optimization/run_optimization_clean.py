@@ -36,7 +36,6 @@ from batfit.model.param_utils.optim_utils import (
     predict_mu_sigma,
 )
 from batfit.preprocess.sim_setup import make_params
-from batfit.utils.data_utils import load_pickle
 from batfit.utils.torch_utils import get_device_type, load_frozen_model
 
 
@@ -76,37 +75,8 @@ def run_optimization_clean(inp) -> None:
     npe = load_frozen_model(inp.nochirp_npe_models_dir, device)
     chirp_npe = load_frozen_model(inp.chirp_npe_models_dir, device)
     var_model = load_frozen_model(inp.var_pred_models_dir, device)
-    # the NPEs carry their own signal/protocol/parameter scalers
-    scaler_mu = load_pickle(
-        os.path.join(inp.var_pred_save_path, "scaler_mu.pkl")
-    )
-    scaler_p_vp = load_pickle(
-        os.path.join(inp.var_pred_save_path, "scaler_P_varpred.pkl")
-    )
-    # Sigma target scaler: scaler_logsigma.pkl (log_sigma mode, StandardScaler
-    # on log sigma) takes precedence over scaler_sigma.pkl (scale_sigma mode,
-    # MinMax); sigma_physical dispatches on the scaler type. None = amp_par.
-    scaler_logsigma_path = os.path.join(
-        inp.var_pred_save_path, "scaler_logsigma.pkl"
-    )
-    scaler_sigma_path = os.path.join(
-        inp.var_pred_save_path, "scaler_sigma.pkl"
-    )
-    assert not (
-        os.path.isfile(scaler_logsigma_path)
-        and os.path.isfile(scaler_sigma_path)
-    ), (
-        f"Both scaler_logsigma.pkl and scaler_sigma.pkl found in "
-        f"{inp.var_pred_save_path}: target parameterisation is ambiguous. "
-        "Regenerate the dataset in a fresh var_pred_save_path."
-    )
-    if os.path.isfile(scaler_logsigma_path):
-        scaler_sigma = load_pickle(scaler_logsigma_path)
-        logger.info("Using log-sigma parameterisation (scaler_logsigma.pkl)")
-    elif os.path.isfile(scaler_sigma_path):
-        scaler_sigma = load_pickle(scaler_sigma_path)
-    else:
-        scaler_sigma = None
+    # the NPEs and the variance estimator carry their own scalers; the
+    # estimator scales P and mu to [0, 1] from the bounds of the config
 
     # --- Nochirp observations (val split, ground truth kept for plots) ---
     A = np.load(os.path.join(inp.nochirp_data_path, "data_split.npz"))
@@ -154,13 +124,12 @@ def run_optimization_clean(inp) -> None:
         n_ode_steps=getattr(inp, "n_ode_steps", 100),
         batch_size=getattr(inp, "gen_batch_size", 256),
     )
-    # scaler_mu was fitted on chirp-NPE mus; nochirp mus may fall slightly
-    # outside [0, 1]
-    mu_scaled = scaler_mu.transform(mu_physical).astype("float32")
+    # NPE means are clamped to the prior, so they scale inside [0, 1]
+    mu_scaled = var_model.scaler_Y.transform(mu_physical).astype("float32")
     # Ground-truth parameters in the same space: optimizing with these
     # instead of the NPE estimate isolates the effect of mu inaccuracy on
     # the recommended chirp
-    mu_true_scaled = scaler_mu.transform(Y_sel).astype("float32")
+    mu_true_scaled = var_model.scaler_Y.transform(Y_sel).astype("float32")
 
     # --- Chirp NPE on the same signals at amplitude 0 ---
     # A chargecc charge is physically identical to a chirp charge with
@@ -232,6 +201,7 @@ def run_optimization_clean(inp) -> None:
     sigma_amp0 = sigma_amp0_draws.mean(axis=0)  # (n_curves, n_deg)
 
     # --- Optimize the chirp for each target parameter and curve ---
+    # [0, 1] in the estimator's protocol space is exactly the protocol bounds
     bounds_full = [(0.0, 1.0)] * n_prot
 
     P_opt = np.zeros((n_deg, n_curves, n_prot), dtype="float32")
@@ -268,12 +238,11 @@ def run_optimization_clean(inp) -> None:
                     k,
                     bounds_full,
                     inp.n_restarts,
-                    scaler_sigma,
                     device,
                 )
                 P_dst[k, i] = p_opt
                 sigma_dst[k, i] = evaluate_sigma(
-                    p_opt, mu_i.flatten(), var_model, scaler_sigma, device
+                    p_opt, mu_i.flatten(), var_model, device
                 )
             print_progress_bar(
                 i + 1,
@@ -305,13 +274,13 @@ def run_optimization_clean(inp) -> None:
             f"{red_npe_true.mean():.1f}% (vs nochirp NPE, true params)"
         )
 
-    # Unscale optimised protocols to physical units
-    P_opt_physical = scaler_p_vp.inverse_transform(
-        P_opt.reshape(-1, n_prot)
-    ).reshape(P_opt.shape)
-    P_opt_true_physical = scaler_p_vp.inverse_transform(
-        P_opt_true.reshape(-1, n_prot)
-    ).reshape(P_opt_true.shape)
+    # Unscale optimised protocols to physical units, clipped to the protocol
+    # bounds to absorb floating-point round-off at the box edges
+    scaler_P = var_model.scaler_P
+    P_opt_physical = scaler_P.clip_physical(scaler_P.inverse_transform(P_opt))
+    P_opt_true_physical = scaler_P.clip_physical(
+        scaler_P.inverse_transform(P_opt_true)
+    )
 
     results_file = os.path.join(
         inp.save_path, "optimization_clean_results.npz"
