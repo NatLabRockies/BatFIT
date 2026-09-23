@@ -169,34 +169,6 @@ def gumbel_loss(
     return independent_gumbel_loss(mu, sigma, target)
 
 
-def correlated_normal_loss(
-    mu: torch.Tensor, sigma: torch.Tensor, target: torch.Tensor
-) -> torch.Tensor:
-    """Negative log-likelihood under a full-covariance Gaussian.
-
-    Unlike :func:`independent_normal_loss`, ``sigma`` is the full covariance
-    matrix rather than per-parameter standard deviations.
-
-    Parameters
-    ----------
-    mu: torch.Tensor
-        Predicted mean per parameter, shape (batch, n_params)
-    sigma: torch.Tensor
-        Predicted covariance matrix, shape (batch, n_params, n_params)
-    target: torch.Tensor
-        Ground-truth values, shape (batch, n_params)
-
-    Returns
-    -------
-    torch.Tensor
-        Scalar mean negative log-likelihood
-    """
-    mvn = dist.MultivariateNormal(mu, covariance_matrix=sigma)
-    nll = -mvn.log_prob(target)
-
-    return nll.mean()  # Average over the batch
-
-
 def flow_matching_loss(
     predicted_velocity: torch.Tensor, target_velocity: torch.Tensor
 ) -> torch.Tensor:
