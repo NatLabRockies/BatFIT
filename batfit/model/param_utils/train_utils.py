@@ -1,5 +1,4 @@
 import pickle
-from typing import Callable
 
 import numpy as np
 import optuna
@@ -7,14 +6,7 @@ import torch
 from prettyPlot.progressBar import print_progress_bar
 
 from batfit import logger
-from batfit.model.ae import AECNN
-from batfit.model.paramNN import ProbParamCNN, ProbParamFCNN, ProbProtParamCNN
-from batfit.model.vae import VAECNN
-from batfit.utils.data_utils import (
-    scale_input_from_scaler,
-    unscale_dataset_from_scaler,
-)
-from batfit.utils.scalers import CustomScaler
+from batfit.model.paramNN import ProbProtParamCNN
 from batfit.utils.torch_utils import (
     get_device_type,
     get_num_parameters,
@@ -27,7 +19,6 @@ from batfit.utils.torch_utils import (
     update_best_model,
 )
 
-from .metrics import accuracy, identifiability, rel_accuracy
 from .noise_utils import apply_noise
 
 
@@ -62,8 +53,6 @@ def create_model_from_log(
         )
     with open(model_obj_file, "rb") as f:
         model = pickle.load(f)
-    if not hasattr(model, "dependent_outputs"):
-        model.dependent_outputs = False
     num_parameters = get_num_parameters(model)
     if verbose:
         print(f"\tNo. Trainable Parameters: {num_parameters}")
@@ -74,104 +63,65 @@ def create_model_from_log(
     return model
 
 
-def forward_pass(
+def _noisy_input(
     model: torch.nn.Module,
-    np_data_in: np.ndarray,
-    scaler_X_file: str,
-    scaler_Y_file: str,
-    scale_y: bool,
-    np_prot_params: np.ndarray | None = None,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Run a forward pass and return unscaled (mu, gamma).
+    signal: torch.Tensor,
+    noise_levels: torch.Tensor,
+    a_min: torch.Tensor,
+    a_max: torch.Tensor,
+    bias_tensor: torch.Tensor | None,
+    target_mode: str | None,
+    device: torch.device,
+) -> torch.Tensor:
+    """Noise a scaled signal batch in physical space and encode it.
 
-    Parameters
-    ----------
-    np_prot_params: np.ndarray | None
-        Required when ``model`` is :class:`ProbProtParamCNN`; protocol
-        parameter array of shape ``(N, n_prot)``.
+    Noise is skipped when ``target_mode == "encoded"`` (pre-encoded data).
     """
-    model.eval()
-    model.to("cpu")
+    if target_mode != "encoded":
+        signal = apply_noise(
+            batch_in=signal,
+            scaler_X=model.scaler_X,
+            noise_levels=noise_levels,
+            a_min=a_min,
+            a_max=a_max,
+            bias=bias_tensor,
+        )
+    return model._encode(signal.to(device))
 
-    X_scaled = scale_input_from_scaler(np_data_in, scaler_X_file)
-    with torch.no_grad():
-        if isinstance(model, ProbProtParamCNN):
-            assert (
-                np_prot_params is not None
-            ), "np_prot_params must be provided for ProbProtParamCNN"
-            pred_scaled, gamma_scaled = model(
-                torch.from_numpy(X_scaled),
-                torch.from_numpy(np_prot_params.astype("float32")),
-            )
-            if model.constrain_output and not model.dependent_outputs:
-                pred_unscaled, gamma_unscaled = model.inv_transform_output(
-                    pred_scaled,
-                    gamma_scaled,
-                    model.min_par.to("cpu"),
-                    model.amp_par.to("cpu"),
-                )
-            elif model.constrain_output and model.dependent_outputs:
-                pred_unscaled = model.inv_transform_mu(
-                    pred_scaled,
-                    model.min_par.to("cpu"),
-                    model.amp_par.to("cpu"),
-                )
-                gamma_unscaled = torch.sqrt(
-                    gamma_scaled.diagonal(dim1=1, dim2=2)
-                )
-            elif not scale_y:
-                pred_unscaled = pred_scaled
-                gamma_unscaled = gamma_scaled
-            else:
-                raise NotImplementedError
-            pred_unscaled = pred_unscaled.numpy()
-            gamma_unscaled = gamma_unscaled.numpy()
-            inp_unscaled, _ = unscale_dataset_from_scaler(
-                X_scaled, pred_scaled, scaler_X_file, scaler_Y_file
-            )
-            probabilistic = True
-        elif isinstance(model, ProbParamCNN) or isinstance(
-            model, ProbParamFCNN
-        ):
-            pred_scaled, gamma_scaled = model(torch.from_numpy(X_scaled))
-            if model.constrain_output and not model.dependent_outputs:
-                pred_unscaled, gamma_unscaled = model.inv_transform_output(
-                    pred_scaled,
-                    gamma_scaled,
-                    model.min_par.to("cpu"),
-                    model.amp_par.to("cpu"),
-                )
 
-            elif model.constrain_output and model.dependent_outputs:
-                pred_unscaled = model.inv_transform_mu(
-                    pred_scaled,
-                    model.min_par.to("cpu"),
-                    model.amp_par.to("cpu"),
-                )
-                # gamma_unscaled = gamma_scaled
-                gamma_unscaled = torch.sqrt(
-                    gamma_scaled.diagonal(dim1=1, dim2=2)
-                )
-            elif not scale_y:
-                pred_unscaled = pred_scaled
-                gamma_unscaled = gamma_scaled
-            elif scale_y:
-                raise NotImplementedError
-            else:
-                raise NotImplementedError
-            pred_unscaled = pred_unscaled.numpy()
-            gamma_unscaled = gamma_unscaled.numpy()
-            inp_unscaled, _ = unscale_dataset_from_scaler(
-                X_scaled, pred_scaled, scaler_X_file, scaler_Y_file
-            )
-            probabilistic = True
-        else:
-            raise NotImplementedError
+def _gauss_npe_batch_loss(
+    model: torch.nn.Module,
+    batch: list[torch.Tensor],
+    batch_in: torch.Tensor,
+    device: torch.device,
+) -> torch.Tensor:
+    """Compute the loss of one batch in the scaled parameter space.
 
-    if probabilistic:
-        return (pred_unscaled, gamma_unscaled)
+    Batches are ``(X, Y)``, or ``(X, P, Y)`` for :class:`ProbProtParamCNN`.
+    """
+    if isinstance(model, ProbProtParamCNN):
+        mu, gamma = model(batch_in, batch[1].to(device))
     else:
-        return pred_unscaled
+        mu, gamma = model(batch_in)
+    return model.loss_fn(mu, gamma, batch[-1].to(device))
+
+
+def _reshape_noise_args(
+    noise_levels: torch.Tensor,
+    a_min: torch.Tensor,
+    a_max: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Reshape 1D per-channel noise levels and clip bounds to ``(1, C, 1)``."""
+    assert a_min is not None and a_max is not None, (
+        "a_min/a_max are required: build them with make_noise_levels and "
+        "the vmin/vmax of the experiment config"
+    )
+    reshaped = []
+    for tens in (noise_levels, a_min, a_max):
+        if len(tens.shape) == 1:
+            tens = torch.reshape(tens, (1, tens.shape[0], 1))
+        reshaped.append(tens)
+    return tuple(reshaped)
 
 
 def learning_rate_schedule(
@@ -260,13 +210,9 @@ def train_model(
     trial: optuna.trial.Trial | None = None,
     noise_levels: torch.Tensor | None = torch.tensor([0, 0.010, 0.04, 1]),
     bias_tensor: torch.Tensor | None = None,
-    scaler_X: CustomScaler | None = None,
-    a_min: torch.Tensor | None = torch.tensor(
-        [-torch.inf, 3, -torch.inf, -torch.inf]
-    ),
-    a_max: torch.Tensor | None = torch.tensor([torch.inf, 4.1, 0, 0]),
+    a_min: torch.Tensor | None = None,
+    a_max: torch.Tensor | None = None,
     target_mode: None | str = None,
-    prior=None,
 ) -> tuple[torch.nn.Module, np.ndarray]:
     """Train NPE with noise augmentation.
 
@@ -308,10 +254,9 @@ def train_model(
         Per-channel noise levels for :func:`apply_noise`
     bias_tensor: torch.Tensor | None
         Optional per-channel bias added during augmentation
-    scaler_X: CustomScaler | None
-        Signal scaler used to apply noise in physical space
     a_min: torch.Tensor | None
-        Per-channel lower clip applied after adding noise
+        Per-channel lower clip applied after adding noise (physical units,
+        from :func:`make_noise_levels`); required unless the data is encoded
     a_max: torch.Tensor | None
         Per-channel upper clip applied after adding noise
     target_mode: str | None
@@ -341,14 +286,9 @@ def train_model(
     )
 
     if target_mode != "encoded":
-        if len(noise_levels.shape) == 1:
-            noise_levels = torch.reshape(
-                noise_levels, (1, noise_levels.shape[0], 1)
-            )
-        if len(a_min.shape) == 1:
-            a_min = torch.reshape(a_min, (1, a_min.shape[0], 1))
-        if len(a_max.shape) == 1:
-            a_max = torch.reshape(a_max, (1, a_max.shape[0], 1))
+        noise_levels, a_min, a_max = _reshape_noise_args(
+            noise_levels, a_min, a_max
+        )
 
     if learning_rate_end is None:
         learning_rate_end = learning_rate / 100.0
@@ -384,11 +324,9 @@ def train_model(
                 enable_mps=enable_mps,
                 verbose=False,
                 noise_levels=noise_levels,
-                scaler_X=scaler_X,
                 a_min=a_min,
                 a_max=a_max,
                 target_mode=target_mode,
-                prior=prior,
             )
             best_test_loss = update_best_model(
                 seed_loss,
@@ -435,67 +373,20 @@ def train_model(
             current_step = epoch * num_batch + (step + 1)
             # Reinitialize grads
             optimizer.zero_grad()
-            # Add noise to batch
+            batch_in = _noisy_input(
+                model,
+                batch[0],
+                noise_levels,
+                a_min,
+                a_max,
+                bias_tensor,
+                target_mode,
+                device,
+            )
 
-            if target_mode != "encoded":
-                batch_in = apply_noise(
-                    batch_in=batch[0],
-                    scaler_X=scaler_X,
-                    noise_levels=noise_levels,
-                    a_min=a_min,
-                    a_max=a_max,
-                    bias=bias_tensor,
-                )
-            else:
-                batch_in = batch[0]
-            if model.encoder_model is not None:
-                if isinstance(model.encoder_model, VAECNN):
-                    batch_in, _, _ = model.encoder_model.encode(
-                        batch_in.to(device)
-                    )
-                elif isinstance(model.encoder_model, AECNN):
-                    batch_in = model.encoder_model.encode(batch_in.to(device))
-
-            # Compute loss
+            # Compute loss in the scaled parameter space
             try:
-                if isinstance(model, ProbProtParamCNN):
-                    mu, gamma = model(batch_in.to(device), batch[1].to(device))
-                    if model.constrain_output and model.dependent_outputs:
-                        mu = model.inv_transform_mu(
-                            mu,
-                            model.min_par.to(device),
-                            model.amp_par.to(device),
-                        )
-                    elif (
-                        model.constrain_output and not model.dependent_outputs
-                    ):
-                        mu, gamma = model.inv_transform_output(
-                            mu,
-                            gamma,
-                            model.min_par.to(device),
-                            model.amp_par.to(device),
-                        )
-                    loss = model.loss_fn(mu, gamma, batch[2].to(device))
-                elif isinstance(model, ProbParamCNN) or isinstance(
-                    model, ProbParamFCNN
-                ):
-                    mu, gamma = model(batch_in.to(device))
-                    if model.constrain_output and model.dependent_outputs:
-                        mu = model.inv_transform_mu(
-                            mu,
-                            model.min_par.to(device),
-                            model.amp_par.to(device),
-                        )
-                    elif (
-                        model.constrain_output and not model.dependent_outputs
-                    ):
-                        mu, gamma = model.inv_transform_output(
-                            mu,
-                            gamma,
-                            model.min_par.to(device),
-                            model.amp_par.to(device),
-                        )
-                    loss = model.loss_fn(mu, gamma, batch[1].to(device))
+                loss = _gauss_npe_batch_loss(model, batch, batch_in, device)
                 # Do backprop and optimizer step
                 if ~(torch.isnan(loss) | torch.isinf(loss)):
                     loss.backward()
@@ -555,11 +446,9 @@ def train_model(
                 enable_mps=enable_mps,
                 verbose=False,
                 noise_levels=noise_levels,
-                scaler_X=scaler_X,
                 a_min=a_min,
                 a_max=a_max,
                 target_mode=target_mode,
-                prior=prior,
             )
             log_training(
                 current_step,
@@ -603,13 +492,9 @@ def compute_test_loss(
     verbose: bool = True,
     noise_levels: torch.Tensor | None = torch.tensor([0, 0.010, 0.04, 1]),
     bias_tensor: torch.Tensor | None = None,
-    scaler_X: CustomScaler | None = None,
-    a_min: torch.Tensor | None = torch.tensor(
-        [-torch.inf, 3, -torch.inf, -torch.inf]
-    ),
-    a_max: torch.Tensor | None = torch.tensor([torch.inf, 4.1, 0, 0]),
+    a_min: torch.Tensor | None = None,
+    a_max: torch.Tensor | None = None,
     target_mode: None | str = None,
-    prior=None,
 ) -> float:
     """Compute mean test loss.
     Use same input-noise augmentation as training
@@ -632,10 +517,9 @@ def compute_test_loss(
         Per-channel noise levels for :func:`apply_noise`
     bias_tensor: torch.Tensor | None
         Optional per-channel bias added during augmentation
-    scaler_X: CustomScaler | None
-        Signal scaler used to apply noise in physical space
     a_min: torch.Tensor | None
-        Per-channel lower clip applied after adding noise
+        Per-channel lower clip applied after adding noise (physical units,
+        from :func:`make_noise_levels`); required unless the data is encoded
     a_max: torch.Tensor | None
         Per-channel upper clip applied after adding noise
     target_mode: str | None
@@ -655,14 +539,9 @@ def compute_test_loss(
         print("Device = ", device)
 
     if target_mode != "encoded":
-        if len(noise_levels.shape) == 1:
-            noise_levels = torch.reshape(
-                noise_levels, (1, noise_levels.shape[0], 1)
-            )
-        if len(a_min.shape) == 1:
-            a_min = torch.reshape(a_min, (1, a_min.shape[0], 1))
-        if len(a_max.shape) == 1:
-            a_max = torch.reshape(a_max, (1, a_max.shape[0], 1))
+        noise_levels, a_min, a_max = _reshape_noise_args(
+            noise_levels, a_min, a_max
+        )
 
     model = model.to(device)
     if model.encoder_model is not None:
@@ -689,60 +568,17 @@ def compute_test_loss(
     with torch.no_grad():
         for step, batch in enumerate(test_data_loader):
             current_step = step + 1
-            # Add noise to batch
-            if target_mode != "encoded":
-                batch_in = apply_noise(
-                    batch_in=batch[0],
-                    scaler_X=scaler_X,
-                    noise_levels=noise_levels,
-                    a_min=a_min,
-                    a_max=a_max,
-                    bias=bias_tensor,
-                )
-            else:
-                batch_in = batch[0]
-            if model.encoder_model is not None:
-                if isinstance(model.encoder_model, AECNN):
-                    batch_in = model.encoder_model.encode(batch_in.to(device))
-                elif isinstance(model.encoder_model, VAECNN):
-                    batch_in, _, _ = model.encoder_model.encode(
-                        batch_in.to(device)
-                    )
-            # Compute loss
-            if isinstance(model, ProbProtParamCNN):
-                mu, gamma = model(batch_in.to(device), batch[1].to(device))
-                if model.constrain_output and model.dependent_outputs:
-                    mu = model.inv_transform_mu(
-                        mu,
-                        model.min_par.to(device),
-                        model.amp_par.to(device),
-                    )
-                elif model.constrain_output and not model.dependent_outputs:
-                    mu, gamma = model.inv_transform_output(
-                        mu,
-                        gamma,
-                        model.min_par.to(device),
-                        model.amp_par.to(device),
-                    )
-                loss = model.loss_fn(mu, gamma, batch[2].to(device))
-            elif isinstance(model, ProbParamCNN) or isinstance(
-                model, ProbParamFCNN
-            ):
-                mu, gamma = model(batch_in.to(device))
-                if model.constrain_output and model.dependent_outputs:
-                    mu = model.inv_transform_mu(
-                        mu,
-                        model.min_par.to(device),
-                        model.amp_par.to(device),
-                    )
-                elif model.constrain_output and not model.dependent_outputs:
-                    mu, gamma = model.inv_transform_output(
-                        mu,
-                        gamma,
-                        model.min_par.to(device),
-                        model.amp_par.to(device),
-                    )
-                loss = model.loss_fn(mu, gamma, batch[1].to(device))
+            batch_in = _noisy_input(
+                model,
+                batch[0],
+                noise_levels,
+                a_min,
+                a_max,
+                bias_tensor,
+                target_mode,
+                device,
+            )
+            loss = _gauss_npe_batch_loss(model, batch, batch_in, device)
             loss_ave += loss.item() * batch_in.shape[0]
             num_el += batch_in.shape[0]
             if verbose:
@@ -757,171 +593,3 @@ def compute_test_loss(
                 break
         loss_ave /= num_el
     return loss_ave
-
-
-def compute_post(
-    model: torch.nn.Module,
-    test_data_loader: torch.utils.data.DataLoader,
-    num_steps: int | None = None,
-    enable_cuda: bool = True,
-    enable_mps: bool = True,
-    verbose: bool = True,
-    noise_levels: torch.Tensor | None = torch.tensor([0, 0.010, 0.04, 1]),
-    scaler_X: CustomScaler | None = None,
-    a_min: torch.Tensor | None = torch.tensor(
-        [-torch.inf, 3, -torch.inf, -torch.inf]
-    ),
-    a_max: torch.Tensor | None = torch.tensor([torch.inf, 4.1, 0, 0]),
-    post_fn: Callable = rel_accuracy,
-    target_mode: str | None = None,
-) -> float:
-    """Compute posterior diagnostic metrics.
-
-    The metric is given by ``post_fn``, one of:
-
-    - :func:`accuracy` — mean absolute error between the predicted mean and
-      the target
-    - :func:`rel_accuracy` — mean relative absolute error
-    - :func:`identifiability` — mean ``1 / std`` of the predicted marginals
-
-    Parameters
-    ----------
-    model: torch.nn.Module
-        Probabilistic model to evaluate
-    test_data_loader: torch.utils.data.DataLoader
-        Test batches
-    num_steps: int | None
-        Cap on the number of batches evaluated; all batches when None
-    enable_cuda: bool
-        Allow evaluating on CUDA when available
-    enable_mps: bool
-        Allow evaluating on MPS when available
-    verbose: bool
-        Display a progress bar
-    noise_levels: torch.Tensor | None
-        Per-channel noise levels for :func:`apply_noise`
-    scaler_X: CustomScaler | None
-        Signal scaler used to apply noise in physical space
-    a_min: torch.Tensor | None
-        Per-channel lower clip applied after adding noise
-    a_max: torch.Tensor | None
-        Per-channel upper clip applied after adding noise
-    post_fn: Callable
-        The metric to compute
-    target_mode: str | None
-        When ``"encoded"``, skip signal-space noise augmentation
-
-    Returns
-    -------
-    float
-        Sample-weighted aggregate of ``post_fn`` over the evaluated batches
-    """
-    # Device set up
-    device_type = get_device_type(
-        enable_cuda=enable_cuda, enable_mps=enable_mps
-    )
-    device = torch.device(device_type)
-    if verbose:
-        print("Device = ", device)
-
-    if target_mode != "encoded":
-        if len(noise_levels.shape) == 1:
-            noise_levels = torch.reshape(
-                noise_levels, (1, noise_levels.shape[0], 1)
-            )
-        if len(a_min.shape) == 1:
-            a_min = torch.reshape(a_min, (1, a_min.shape[0], 1))
-        if len(a_max.shape) == 1:
-            a_max = torch.reshape(a_max, (1, a_max.shape[0], 1))
-
-    model = model.to(device)
-    num_batch_test = len(test_data_loader)
-
-    model.eval()
-    if num_steps is not None:
-        total_steps = num_steps
-    else:
-        total_steps = num_batch_test
-    # eval loop
-    if verbose:
-        print_progress_bar(
-            0,
-            total_steps,
-            prefix=f"Post = ? Step 0 / {total_steps} ",
-            suffix="Complete",
-            length=50,
-        )
-
-    post_val_ave = 0
-    num_el = 0
-    with torch.no_grad():
-        for step, batch in enumerate(test_data_loader):
-            current_step = step + 1
-            if target_mode != "encoded":
-                # Add noise to batch
-                batch_in = apply_noise(
-                    batch_in=batch[0],
-                    scaler_X=scaler_X,
-                    noise_levels=noise_levels,
-                    a_min=a_min,
-                    a_max=a_max,
-                )
-            else:
-                batch_in = batch[0]
-            # Compute loss
-            if isinstance(model, ProbProtParamCNN):
-                mu, gamma = model(batch_in.to(device), batch[1].to(device))
-                if model.constrain_output and model.dependent_outputs:
-                    mu = model.inv_transform_mu(
-                        mu,
-                        model.min_par.to(device),
-                        model.amp_par.to(device),
-                    )
-                elif model.constrain_output and not model.dependent_outputs:
-                    mu, gamma = model.inv_transform_output(
-                        mu,
-                        gamma,
-                        model.min_par.to(device),
-                        model.amp_par.to(device),
-                    )
-                if post_fn in [accuracy, rel_accuracy]:
-                    post_val = post_fn(mu, batch[2].to(device))
-                elif post_fn in [identifiability]:
-                    post_val = 1.0 / post_fn(gamma)
-            elif isinstance(model, ProbParamCNN) or isinstance(
-                model, ProbParamFCNN
-            ):
-                mu, gamma = model(batch_in.to(device))
-                if model.constrain_output and model.dependent_outputs:
-                    mu = model.inv_transform_mu(
-                        mu,
-                        model.min_par.to(device),
-                        model.amp_par.to(device),
-                    )
-                elif model.constrain_output and not model.dependent_outputs:
-                    mu, gamma = model.inv_transform_output(
-                        mu,
-                        gamma,
-                        model.min_par.to(device),
-                        model.amp_par.to(device),
-                    )
-                if post_fn in [accuracy, rel_accuracy]:
-                    post_val = post_fn(mu, batch[1].to(device))
-                elif post_fn in [identifiability]:
-                    post_val = 1.0 / post_fn(gamma)
-            post_val_ave += post_val * batch_in.shape[0]
-            num_el += batch_in.shape[0]
-            if verbose:
-                print_progress_bar(
-                    current_step,
-                    total_steps,
-                    prefix=f"Post, Step {current_step} / {total_steps} ",
-                    suffix="Complete",
-                    length=50,
-                )
-            if current_step >= total_steps:
-                break
-    post_val_ave /= num_el
-    if post_fn in [identifiability]:
-        post_val_ave = 1.0 / post_val_ave
-    return post_val_ave
