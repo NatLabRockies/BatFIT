@@ -1,6 +1,5 @@
 import numpy as np
 import torch
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 from batfit.model.param_utils.losses import independent_normal_loss
 from batfit.model.param_utils.noise_utils import make_noise_levels
@@ -8,7 +7,6 @@ from batfit.model.param_utils.optim_utils import (
     evaluate_sigma,
     optimize_protocol,
     predict_mu_sigma,
-    sigma_physical,
 )
 from batfit.model.paramNN import ProbParamCNN, ProbParamFM, ProbProtParamCNN
 from batfit.model.varianceNN import VariancePredFCNN
@@ -17,8 +15,6 @@ from batfit.utils.scalers import ZScoreScaler
 
 def _tiny_var_model():
     return VariancePredFCNN(
-        n_prot=3,
-        n_deg=6,
         hidden_list=[8],
         sim_config="batfit/default_exps/spm_chirp.yaml",
     )
@@ -123,45 +119,6 @@ def test_predict_mu_sigma():
     assert np.all(mu_fm <= fm.scaler_Y.high.numpy() + 1e-5)
 
 
-def test_sigma_physical():
-    torch.manual_seed(0)
-    device = torch.device("cpu")
-    batch = 4
-    var_model = _tiny_var_model()
-    sigma_out = torch.rand(batch, 6)
-
-    # scaler_sigma=None -> amp_par unscaling via inv_transform_gamma
-    out = sigma_physical(sigma_out, var_model, None, device)
-    ref = var_model.inv_transform_gamma(sigma_out, var_model.amp_par)
-    assert torch.allclose(out, ref, atol=1e-6)
-
-    # scaler_sigma provided -> differentiable inverse MinMax transform
-    scaler_sigma = MinMaxScaler()
-    scaler_sigma.fit(np.random.rand(20, 6).astype("float32") * 0.1)
-    sigma_in = torch.rand(batch, 6, requires_grad=True)
-    out_sc = sigma_physical(sigma_in, var_model, scaler_sigma, device)
-    ref_sc = scaler_sigma.inverse_transform(sigma_in.detach().numpy())
-    assert np.allclose(out_sc.detach().numpy(), ref_sc, atol=1e-5)
-    # gradients must flow through the inverse transform
-    out_sc.sum().backward()
-    assert sigma_in.grad is not None
-
-    # StandardScaler (log_sigma mode) -> differentiable exp(z * scale + mean)
-    scaler_logsigma = StandardScaler()
-    scaler_logsigma.fit(
-        np.log(np.random.rand(20, 6).astype("float32") * 0.1 + 1e-3)
-    )
-    z_in = torch.randn(batch, 6, requires_grad=True)
-    out_log = sigma_physical(z_in, var_model, scaler_logsigma, device)
-    ref_log = np.exp(scaler_logsigma.inverse_transform(z_in.detach().numpy()))
-    assert np.allclose(out_log.detach().numpy(), ref_log, rtol=1e-5)
-    # physical sigma is strictly positive by construction
-    assert out_log.min().item() > 0.0
-    # gradients must flow through the exp inverse transform
-    out_log.sum().backward()
-    assert z_in.grad is not None
-
-
 def test_evaluate_sigma():
     torch.manual_seed(0)
     np.random.seed(0)
@@ -170,7 +127,7 @@ def test_evaluate_sigma():
     P_scaled = np.random.rand(3).astype("float32")
     mu_scaled = np.random.rand(6).astype("float32")
 
-    sigma = evaluate_sigma(P_scaled, mu_scaled, var_model, None, device)
+    sigma = evaluate_sigma(P_scaled, mu_scaled, var_model, device)
     assert sigma.shape == (6,)
     assert np.all(np.isfinite(sigma))
     assert np.all(sigma > 0)
@@ -186,20 +143,18 @@ def test_optimize_protocol():
 
     bounds = [(0.0, 1.0)] * 3
     p_opt, sigma_opt = optimize_protocol(
-        mu_scaled, var_model, param_idx, bounds, 2, None, device
+        mu_scaled, var_model, param_idx, bounds, 2, device
     )
     assert p_opt.shape == (3,)
     assert np.all(p_opt >= 0.0) and np.all(p_opt <= 1.0)
     # reported optimum must match a direct evaluation at p_opt
-    sigma_eval = evaluate_sigma(
-        p_opt, mu_scaled.flatten(), var_model, None, device
-    )
+    sigma_eval = evaluate_sigma(p_opt, mu_scaled.flatten(), var_model, device)
     assert np.isclose(sigma_eval[param_idx], sigma_opt, atol=1e-5)
 
     # clamped dimension (e.g. amplitude fixed to 0) must be respected
     bounds_clamped = [(0.0, 1.0), (0.0, 0.0), (0.0, 1.0)]
     p_clamped, sigma_clamped = optimize_protocol(
-        mu_scaled, var_model, param_idx, bounds_clamped, 2, None, device
+        mu_scaled, var_model, param_idx, bounds_clamped, 2, device
     )
     assert p_clamped[1] == 0.0
     # the constrained optimum cannot beat the unconstrained one
