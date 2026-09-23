@@ -14,6 +14,7 @@ from batfit.utils.scalers import (
     scale_dataset_from_scaler,
     scale_input_from_scaler,
     scale_output_from_scaler,
+    scaling_to_dict,
     unscale_dataset_from_scaler,
     unscale_input_from_scaler,
     unscale_output_from_scaler,
@@ -373,3 +374,35 @@ def test_unscale_pred_std_from_scaler():
         unscale_pred_std_from_scaler(std_scaled, "does_not_exist.pkl"),
         std_scaled,
     )
+
+
+def test_scaling_to_dict():
+    import json
+
+    model = torch.nn.Module()
+    model.scaler_Y = BoundedScaler([0.5], [1.5])
+    model.scaler_X = ZScoreScaler(np.array([[1.0]]), np.array([[2.0]]))
+    model.head = torch.nn.Sequential(torch.nn.Linear(2, 1), MarginSigmoid(0.1))
+    model.sim_config = "spm_chirp.yaml"
+    model.sim_params = {
+        "deg_param_names": ["i0_a"],
+        "prot_param_names": ["amplitude"],
+    }
+
+    summary = scaling_to_dict(model)
+    # every scaler and margin head, under its attribute path
+    assert set(summary["scalers"]) == {"scaler_Y", "scaler_X", "head.1"}
+    assert summary["scalers"]["scaler_Y"] == {
+        "type": "BoundedScaler",
+        "low": [0.5],
+        "high": [1.5],
+    }
+    assert summary["scalers"]["head.1"]["type"] == "MarginSigmoid"
+    assert summary["deg_param_names"] == ["i0_a"]
+    assert summary["prot_param_names"] == ["amplitude"]
+    assert summary["sim_config"] == "spm_chirp.yaml"
+    # JSON-serialisable
+    json.dumps(summary)
+
+    # a model without scalers gives an empty summary
+    assert scaling_to_dict(torch.nn.Linear(2, 1)) == {"scalers": {}}
