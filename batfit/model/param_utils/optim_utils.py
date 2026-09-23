@@ -33,8 +33,8 @@ def predict_mu_sigma(
     Dispatches on the NPE architecture and conditioning:
 
     - CNN-style NPE (``ProbParamCNN`` / ``ProbProtParamCNN``): one forward
-      pass gives (mu, gamma); ``inv_transform_output`` is applied when the
-      model was trained with ``constrain_output``.
+      pass gives scaled (mu, gamma), mapped to physical space by
+      ``npe_model.to_physical``.
     - Flow-matching NPE (``ProbParamFM`` / ``ProbProtParamFM``): draws n_samples posterior
       samples per noisy copy (z-scored) whose mean/std after
       ``scaler_Y.inverse_transform`` are used instead.
@@ -120,14 +120,9 @@ def predict_mu_sigma(
                 mu_np = samples_phys.mean(axis=1)
                 sigma_np = samples_phys.std(axis=1)
             else:
-                mu_s, sigma_s = npe_model(*args)
-                if npe_model.constrain_output:
-                    mu_s, sigma_s = npe_model.inv_transform_output(
-                        mu_s,
-                        sigma_s,
-                        npe_model.min_par.to(device),
-                        npe_model.amp_par.to(device),
-                    )
+                # args is [x] or [x, p], matching the model's forward
+                mu_scaled, sigma_scaled = npe_model(*args)
+                mu_s, sigma_s = npe_model.to_physical(mu_scaled, sigma_scaled)
                 mu_np = mu_s.cpu().numpy()
                 sigma_np = sigma_s.cpu().numpy()
 
