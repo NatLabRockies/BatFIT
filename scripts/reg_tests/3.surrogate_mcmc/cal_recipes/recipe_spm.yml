@@ -24,7 +24,6 @@ n_val_mcmc: 4
 model_discharge_recipe: ../2.surrogate/training_recipes/recipe_spm.yml
 
 # DATA
-n_param_pred: 6
 n_points: 256
 
 # models
