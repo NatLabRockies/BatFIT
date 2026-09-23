@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 import torch
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
@@ -13,7 +12,7 @@ from batfit.model.param_utils.optim_utils import (
 )
 from batfit.model.paramNN import ProbParamCNN, ProbParamFM, ProbProtParamCNN
 from batfit.model.varianceNN import VariancePredFCNN
-from batfit.utils.scalers import CustomScaler
+from batfit.utils.scalers import ZScoreScaler
 
 
 def _tiny_var_model():
@@ -34,15 +33,17 @@ def test_predict_mu_sigma():
     n_noise = 2
 
     X = np.random.rand(n_curves, 2, n_points).astype("float32") + 3.0
-    scaler_x = CustomScaler.fit(X, axis=(0, 2))
-    X_scaled = scaler_x.transform(X).astype("float32")
+    # every NPE below carries this signal scaler, used to apply the noise
+    scaler_x = ZScoreScaler.fit(X, axis=(0, 2))
+    X_scaled = scaler_x.transform(X)
     noise_levels, a_min, a_max = make_noise_levels(
         target_mode="phi",
         noise_levels=[0, 0.001, 0.001, 2.0],
         cyc_mode="chargecc",
+        vmin=3.0,
+        vmax=4.2,
     )
     shared = dict(
-        scaler_x=scaler_x,
         noise_levels=noise_levels,
         a_min=a_min,
         a_max=a_max,
@@ -61,6 +62,7 @@ def test_predict_mu_sigma():
         loss_fn=independent_normal_loss,
         sim_config="batfit/default_exps/spm_nochirp.yaml",
         cyc_mode="chargecc",
+        scaler_X=scaler_x,
     )
     cnn.eval()
     mu, sigma = predict_mu_sigma(X_scaled, cnn, batch_size=2, **shared)
@@ -85,6 +87,7 @@ def test_predict_mu_sigma():
         loss_fn=independent_normal_loss,
         sim_config="batfit/default_exps/spm_chirp.yaml",
         cyc_mode="chirp",
+        scaler_X=scaler_x,
     )
     prot_cnn.eval()
     mu_p, sigma_p = predict_mu_sigma(
@@ -99,16 +102,14 @@ def test_predict_mu_sigma():
         chan_list=[4],
         fc_list=[8],
         vf_hidden_list=[8],
+        sim_config="batfit/default_exps/spm_nochirp.yaml",
         cyc_mode="chargecc",
-        n_param_pred=n_deg,
+        scaler_X=scaler_x,
     )
     fm.eval()
-    scaler_y = MinMaxScaler()
-    scaler_y.fit(np.random.rand(20, n_deg).astype("float32"))
     mu_fm, sigma_fm = predict_mu_sigma(
         X_scaled,
         fm,
-        scaler_Y=scaler_y,
         n_samples=5,
         n_ode_steps=5,
         **shared,
@@ -117,10 +118,9 @@ def test_predict_mu_sigma():
     assert sigma_fm.shape == (n_curves, n_deg)
     assert np.all(np.isfinite(mu_fm))
     assert np.all(sigma_fm >= 0)
-
-    # FM NPE without scaler_Y must raise
-    with pytest.raises(AssertionError):
-        predict_mu_sigma(X_scaled, fm, **shared)
+    # posterior samples are clamped to the prior, so the mean is inside it
+    assert np.all(mu_fm >= fm.scaler_Y.low.numpy() - 1e-5)
+    assert np.all(mu_fm <= fm.scaler_Y.high.numpy() + 1e-5)
 
 
 def test_sigma_physical():

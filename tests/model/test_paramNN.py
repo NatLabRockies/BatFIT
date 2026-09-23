@@ -166,26 +166,6 @@ def test_predict_physical():
         model.predict_physical(x)
 
 
-def test_transform_output():
-    # scaling mixin, still used by the flow-matching models
-    n_param_pred = 3
-    model = ProbParamFM(
-        input_shape=(2, 64),
-        chan_list=[8],
-        fc_list=[16],
-        vf_hidden_list=[32],
-    )
-    min_par = torch.tensor([0.5, 0.6, 0.7])
-    amp_par = torch.tensor([0.4, 0.3, 0.2])
-    mu = torch.rand(4, n_param_pred)
-    gamma = torch.rand(4, n_param_pred)
-
-    mu_s, gamma_s = model.transform_output(mu, gamma, min_par, amp_par)
-    mu_r, gamma_r = model.inv_transform_output(mu_s, gamma_s, min_par, amp_par)
-    assert torch.allclose(mu, mu_r, atol=1e-5)
-    assert torch.allclose(gamma, gamma_r, atol=1e-5)
-
-
 def test_ProbProtParamCNN():
     batch = 4
     n_points = 64
@@ -265,8 +245,9 @@ def test_ProbParamFM():
     batch = 4
     n_points = 64
     n_channels = 2
-    n_param_pred = 3
+    n_param_pred = 6  # parameters declared in the YAML
     n_samples = 5
+    sim_config = "batfit/default_exps/spm_discharge.yaml"
 
     # --- CNN mode ---
     model = ProbParamFM(
@@ -274,9 +255,11 @@ def test_ProbParamFM():
         chan_list=[8],
         fc_list=[16],
         vf_hidden_list=[32],
+        sim_config=sim_config,
         cyc_mode="discharge",
-        n_param_pred=n_param_pred,
     )
+    assert model.n_param_pred == n_param_pred
+    assert {"scaler_X.means", "scaler_Y.low"} <= set(model.state_dict())
 
     x = torch.rand(batch, n_channels, n_points)
     z_t = torch.rand(batch, n_param_pred)
@@ -294,8 +277,8 @@ def test_ProbParamFM():
         chan_list=[8],
         fc_list=[16],
         vf_hidden_list=[32],
+        sim_config=sim_config,
         cyc_mode="discharge-chargecc",
-        n_param_pred=n_param_pred,
     )
     x_dc = torch.rand(batch, 2 * n_channels, n_points)
     velocity_dc = model_dc(
@@ -307,7 +290,7 @@ def test_ProbParamFM():
 
     # missing CNN args must raise
     with pytest.raises(ValueError):
-        ProbParamFM(vf_hidden_list=[32], n_param_pred=n_param_pred)
+        ProbParamFM(vf_hidden_list=[32], sim_config=sim_config)
 
     # --- External encoder mode ---
     class _DummyEncoder(nn.Module):
@@ -320,11 +303,16 @@ def test_ProbParamFM():
             logvar = torch.zeros(x.shape[0], self.latent_dim)
             return mu, logvar
 
+    # the signal shape is unknown with an external encoder: pass scaler_X
+    scaler_X = ZScoreScaler(
+        np.zeros((1, n_channels, 1)), np.ones((1, n_channels, 1))
+    )
     enc = _DummyEncoder()
     model_vae = ProbParamFM(
         vf_hidden_list=[32],
+        sim_config=sim_config,
         encoder_model=enc,
-        n_param_pred=n_param_pred,
+        scaler_X=scaler_X,
     )
 
     # encoder weights must be frozen
@@ -338,32 +326,37 @@ def test_ProbParamFM():
     samples_vae = model_vae.sample(x, n_samples=n_samples, n_steps=10)
     assert samples_vae.shape == (batch, n_samples, n_param_pred)
 
+    # external encoder without scaler_X must raise
+    with pytest.raises(AssertionError):
+        ProbParamFM(
+            vf_hidden_list=[32], sim_config=sim_config, encoder_model=enc
+        )
+
     # discharge-chargecc with external encoder must raise
     with pytest.raises(NotImplementedError):
         ProbParamFM(
             vf_hidden_list=[32],
+            sim_config=sim_config,
             encoder_model=enc,
+            scaler_X=scaler_X,
             cyc_mode="discharge-chargecc",
-            n_param_pred=n_param_pred,
         )
 
     # encoder_model without latent_dim must raise
     with pytest.raises(ValueError):
         ProbParamFM(
             vf_hidden_list=[32],
+            sim_config=sim_config,
             encoder_model=nn.Linear(16, 8),
-            n_param_pred=n_param_pred,
+            scaler_X=scaler_X,
         )
 
     # --- Prior matching ---
-    n_param_pred_pm = 6  # must match the YAML
-    sim_config = "batfit/default_exps/spm_discharge.yaml"
     model_pm = ProbParamFM(
         input_shape=(n_channels, n_points),
         chan_list=[8],
         fc_list=[16],
         vf_hidden_list=[32],
-        n_param_pred=n_param_pred_pm,
         sim_config=sim_config,
         use_prior_matching=True,
     )
@@ -371,39 +364,33 @@ def test_ProbParamFM():
     with pytest.raises(RuntimeError):
         model_pm.sample_prior(8, device=torch.device("cpu"))
 
-    Y_prior = torch.rand(50, n_param_pred_pm)  # simulates scaled Y_train
-    model_pm.set_prior_data(Y_prior)
+    Y_prior_u = torch.rand(50, n_param_pred)  # labels scaled to [0, 1]
+    model_pm.set_prior_data(Y_prior_u)
+    # the prior is stored in the flow space: (u - 0.5) * sqrt(12)
+    Y_prior_flow = (Y_prior_u - 0.5) * np.sqrt(12.0)
+    assert torch.allclose(model_pm.Y_prior, Y_prior_flow)
     prior_samples = model_pm.sample_prior(8, device=torch.device("cpu"))
-    assert prior_samples.shape == (8, n_param_pred_pm)
+    assert prior_samples.shape == (8, n_param_pred)
     # every row must be one of the registered training samples
     for row in prior_samples:
         assert any(
-            torch.allclose(row, Y_prior[i]) for i in range(len(Y_prior))
+            torch.allclose(row, Y_prior_flow[i])
+            for i in range(len(Y_prior_flow))
         )
 
     x_pm = torch.rand(batch, n_channels, n_points)
     samples_pm = model_pm.sample(x_pm, n_samples=n_samples, n_steps=10)
-    assert samples_pm.shape == (batch, n_samples, n_param_pred_pm)
-
-    # use_prior_matching=True without sim_config must raise
-    with pytest.raises(ValueError):
-        ProbParamFM(
-            input_shape=(n_channels, n_points),
-            chan_list=[8],
-            fc_list=[16],
-            vf_hidden_list=[32],
-            n_param_pred=n_param_pred,
-            use_prior_matching=True,
-        )
+    assert samples_pm.shape == (batch, n_samples, n_param_pred)
 
 
 def test_ProbProtParamFM():
     batch = 4
     n_points = 64
     n_channels = 2
-    n_param_pred = 3
+    n_param_pred = 6
     n_prot_params = 3
     n_samples = 5
+    sim_config = "batfit/default_exps/spm_chirp.yaml"
 
     x = torch.rand(batch, n_channels, n_points)
     prot_params = torch.rand(batch, n_prot_params)
@@ -417,10 +404,12 @@ def test_ProbProtParamFM():
         fc_list=[16],
         fc_prot_list=[32],
         vf_hidden_list=[32],
-        n_prot_params=n_prot_params,
+        sim_config=sim_config,
         cyc_mode="chirp",
-        n_param_pred=n_param_pred,
     )
+    # parameter counts read from the config
+    assert model.n_param_pred == n_param_pred
+    assert model.n_prot_params == n_prot_params
     velocity = model(x, prot_params, z_t, t)
     assert velocity.shape == (batch, n_param_pred)
 
@@ -434,9 +423,8 @@ def test_ProbProtParamFM():
         fc_list=[16],
         fc_prot_list=[],
         vf_hidden_list=[32],
-        n_prot_params=n_prot_params,
+        sim_config=sim_config,
         cyc_mode="chirp",
-        n_param_pred=n_param_pred,
     )
     velocity2 = model_noprot(x, prot_params, z_t, t)
     assert velocity2.shape == (batch, n_param_pred)
@@ -454,40 +442,114 @@ def test_ProbProtParamFM():
             fc_list=[16],
             fc_prot_list=[],
             vf_hidden_list=[32],
-            n_prot_params=n_prot_params,
+            sim_config=sim_config,
             cyc_mode="discharge-chargecc",
-            n_param_pred=n_param_pred,
+        )
+
+    # a config without protocol parameters is rejected
+    with pytest.raises(AssertionError):
+        ProbProtParamFM(
+            input_shape=(n_channels, n_points),
+            chan_list=[8],
+            fc_list=[16],
+            fc_prot_list=[],
+            vf_hidden_list=[32],
+            sim_config="batfit/default_exps/spm_discharge.yaml",
         )
 
     # --- Prior matching ---
-    n_param_pred_pm = 6  # must match the YAML
-    sim_config = "batfit/default_exps/spm_discharge.yaml"
     model_pm = ProbProtParamFM(
         input_shape=(n_channels, n_points),
         chan_list=[8],
         fc_list=[16],
         fc_prot_list=[32],
         vf_hidden_list=[32],
-        n_prot_params=n_prot_params,
-        cyc_mode="discharge",
-        n_param_pred=n_param_pred_pm,
         sim_config=sim_config,
         use_prior_matching=True,
     )
     with pytest.raises(RuntimeError):
         model_pm.sample_prior(8, device=torch.device("cpu"))
 
-    Y_prior_prot = torch.rand(50, n_param_pred_pm)
-    model_pm.set_prior_data(Y_prior_prot)
+    model_pm.set_prior_data(torch.rand(50, n_param_pred))
     prior_samples = model_pm.sample_prior(8, device=torch.device("cpu"))
-    assert prior_samples.shape == (8, n_param_pred_pm)
+    assert prior_samples.shape == (8, n_param_pred)
 
-    x_pm = torch.rand(batch, n_channels, n_points)
-    prot_pm = torch.rand(batch, n_prot_params)
     samples_pm = model_pm.sample(
-        x_pm, prot_pm, n_samples=n_samples, n_steps=10
+        x, prot_params, n_samples=n_samples, n_steps=10
     )
-    assert samples_pm.shape == (batch, n_samples, n_param_pred_pm)
+    assert samples_pm.shape == (batch, n_samples, n_param_pred)
+
+
+def test_to_physical_fm():
+    model = ProbParamFM(
+        input_shape=(2, 64),
+        chan_list=[8],
+        fc_list=[16],
+        vf_hidden_list=[32],
+        sim_config="batfit/default_exps/spm_discharge.yaml",
+    )
+    low, high = model.scaler_Y.low, model.scaler_Y.high
+    half_width = np.sqrt(3.0)  # flow-space image of the bounds
+    # flow space: -sqrt(3) -> lower bound, 0 -> middle, +sqrt(3) -> upper
+    # bound, beyond +sqrt(3) -> clamped to the upper bound
+    z = torch.stack(
+        [
+            torch.full((6,), -half_width),
+            torch.zeros(6),
+            torch.full((6,), half_width),
+            torch.full((6,), 5.0),
+        ]
+    ).unsqueeze(
+        0
+    )  # (batch=1, n_samples=4, n_param_pred=6)
+    samples = model.to_physical(z)
+    assert samples.shape == (1, 4, 6)
+    assert torch.allclose(samples[0, 0], low, atol=1e-5)
+    assert torch.allclose(samples[0, 1], 0.5 * (low + high), atol=1e-5)
+    assert torch.allclose(samples[0, 2], high, atol=1e-5)
+    assert torch.allclose(samples[0, 3], high)
+
+
+def test_sample_physical():
+    torch.manual_seed(0)
+    batch = 3
+    n_points = 64
+    X = np.random.rand(10, 2, n_points).astype("float32") * 0.5 + 3.5
+    scaler_X = ZScoreScaler.fit(X, axis=(0, 2))
+    model = ProbProtParamFM(
+        input_shape=(2, n_points),
+        chan_list=[8],
+        fc_list=[16],
+        fc_prot_list=[8],
+        vf_hidden_list=[16],
+        sim_config="batfit/default_exps/spm_chirp.yaml",
+        scaler_X=scaler_X,
+    )
+    model.eval()
+    x = torch.from_numpy(X[:batch])
+    # physical protocol parameters inside the configured bounds
+    p = model.scaler_P.inverse_transform(torch.rand(batch, 3))
+
+    with torch.no_grad():
+        torch.manual_seed(1)
+        samples = model.sample_physical(x, p, n_samples=7, n_steps=5)
+        # same result as scaling by hand, sampling, then to_physical
+        torch.manual_seed(1)
+        samples_flow = model.sample(
+            scaler_X.transform(x),
+            model.scaler_P.transform(p),
+            n_samples=7,
+            n_steps=5,
+        )
+        samples_ref = model.to_physical(samples_flow)
+    assert samples.shape == (batch, 7, 6)
+    assert torch.allclose(samples, samples_ref)
+    assert torch.all(samples >= model.scaler_Y.low)
+    assert torch.all(samples <= model.scaler_Y.high)
+
+    # protocol models require protocol parameters
+    with pytest.raises(AssertionError):
+        model.sample_physical(x)
 
 
 def test__SelfAttentionBlock():
@@ -604,7 +666,7 @@ def test_ProbParamFM_attention():
     batch = 4
     n_points = 64
     n_channels = 2
-    n_param_pred = 3
+    n_param_pred = 6
     n_samples = 5
 
     model = ProbParamFM(
@@ -612,8 +674,8 @@ def test_ProbParamFM_attention():
         chan_list=[8],
         fc_list=[16],
         vf_hidden_list=[32],
+        sim_config="batfit/default_exps/spm_discharge.yaml",
         cyc_mode="discharge",
-        n_param_pred=n_param_pred,
         num_attn_heads=4,
         attn_dropout=0.0,
     )
@@ -633,9 +695,10 @@ def test_ProbProtParamFM_attention():
     batch = 4
     n_points = 64
     n_channels = 2
-    n_param_pred = 3
+    n_param_pred = 6
     n_prot_params = 3
     n_samples = 5
+    sim_config = "batfit/default_exps/spm_chirp.yaml"
 
     model = ProbProtParamFM(
         input_shape=(n_channels, n_points),
@@ -643,9 +706,8 @@ def test_ProbProtParamFM_attention():
         fc_list=[16],
         fc_prot_list=[32],
         vf_hidden_list=[32],
-        n_prot_params=n_prot_params,
+        sim_config=sim_config,
         cyc_mode="chirp",
-        n_param_pred=n_param_pred,
         num_attn_heads=4,
         attn_dropout=0.0,
     )
@@ -661,8 +723,7 @@ def test_ProbProtParamFM_attention():
     assert samples.shape == (batch, n_samples, n_param_pred)
 
     # Prior matching via set_prior_data/sample_prior (inherited from base)
-    Y_prior = torch.rand(50, n_param_pred)
-    model.set_prior_data(Y_prior)
+    model.set_prior_data(torch.rand(50, n_param_pred))
     prior_samples = model.sample_prior(8, device=torch.device("cpu"))
     assert prior_samples.shape == (8, n_param_pred)
 
@@ -674,7 +735,6 @@ def test_ProbProtParamFM_attention():
             fc_list=[16],
             fc_prot_list=[],
             vf_hidden_list=[32],
-            n_prot_params=n_prot_params,
-            n_param_pred=n_param_pred,
+            sim_config=sim_config,
             num_attn_heads=3,
         )
