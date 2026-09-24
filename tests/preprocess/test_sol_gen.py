@@ -181,14 +181,19 @@ def test_merge_combined_sols():
 
 
 def test_warn_if_cutoff_not_reached():
-    # last output point a couple of mV before the cutoff: no warning
-    sol = SimpleNamespace(vars={"voltage_V": np.array([3.5, 3.9, 4.098])})
-    assert not warn_if_cutoff_not_reached(sol, cutoff=4.1)
-    # P2D-like 2D voltage stopped short of the cutoff: warning
-    sol = SimpleNamespace(vars={"voltage_V": np.array([[3.5], [4.08]])})
-    assert warn_if_cutoff_not_reached(sol, cutoff=4.1)
-    # discharge cutoff within the tolerance
-    sol = SimpleNamespace(vars={"voltage_V": np.array([3.6, 3.0005])})
-    assert not warn_if_cutoff_not_reached(sol, cutoff=3.0)
+    voltage = {"voltage_V": np.array([3.5, 3.9, 4.098])}
+    # StepSolution whose voltage limit fired (status 2): no warning, even if
+    # the last stored voltage is a few mV off the cutoff
+    sol = SimpleNamespace(status=2, vars=voltage)
+    assert not warn_if_cutoff_not_reached(sol)
+    # StepSolution that ran to the end of its time span: warning
+    sol = SimpleNamespace(status=1, vars=voltage)
+    assert warn_if_cutoff_not_reached(sol)
+    # CycleSolution: the status of the last step decides (P2D-like 2D voltage)
+    voltage_2d = {"voltage_V": np.array([[3.5], [4.08]])}
+    sol = SimpleNamespace(status=[1, 1, 1, 2], vars=voltage_2d)
+    assert not warn_if_cutoff_not_reached(sol)
+    sol = SimpleNamespace(status=[1, 1, 2, 1], vars=voltage_2d)
+    assert warn_if_cutoff_not_reached(sol)
     # failed simulation: nothing to check
-    assert not warn_if_cutoff_not_reached(None, cutoff=4.1)
+    assert not warn_if_cutoff_not_reached(None)

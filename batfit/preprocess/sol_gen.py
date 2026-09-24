@@ -498,22 +498,18 @@ def robust_LHRH(
     return rootsol
 
 
-def warn_if_cutoff_not_reached(
-    rootsol, cutoff: float, atol: float = 5e-3
-) -> bool:
-    """Warn when a solution ends away from its voltage cutoff.
+def warn_if_cutoff_not_reached(rootsol) -> bool:
+    """Warn when the last step of a solution did not end on its voltage limit.
+
+    The solver status of a BatMODS-lite step is 2 when one of its events
+    (here the voltage cutoff) fired; any other status means the step ran
+    until the end of its time span, i.e. its time budget was exhausted.
 
     Parameters
     ----------
     rootsol
-        BatMODS-lite solution exposing ``vars["voltage_V"]``, or None
-        (failed simulation, nothing to check).
-    cutoff : float
-        Voltage cutoff the last step should have reached (V).
-    atol : float
-        Tolerance on the final voltage (V). The last stored output point
-        sits a few mV before the exact cutoff crossing, so the tolerance
-        must exceed that gap.
+        BatMODS-lite ``StepSolution`` (one ``status``) or ``CycleSolution``
+        (one status per step), or None (failed simulation, nothing to check).
 
     Returns
     -------
@@ -522,12 +518,13 @@ def warn_if_cutoff_not_reached(
     """
     if rootsol is None:
         return False
-    final_voltage = float(np.ravel(rootsol.vars["voltage_V"])[-1])
-    if abs(final_voltage - cutoff) <= atol:
+    # status 2: "Detected one or more events."
+    if int(np.ravel(rootsol.status)[-1]) == 2:
         return False
+    final_voltage = float(np.ravel(rootsol.vars["voltage_V"])[-1])
     logger.warning(
-        f"Solution ended at {final_voltage:.4f} V, not at the {cutoff} V "
-        f"cutoff: the step time budget was exhausted"
+        f"Solution ended at {final_voltage:.4f} V before its voltage cutoff: "
+        f"the step time budget was exhausted"
     )
     return True
 
@@ -652,8 +649,7 @@ def single_run(
             print(f"All sim failed for {deg_param_sample}")
         else:
             print(f"Success for {deg_param_sample}")
-        cutoff = sim_params["vmin"] if C_rate > 0 else sim_params["vmax"]
-        warn_if_cutoff_not_reached(rootsol, cutoff)
+        warn_if_cutoff_not_reached(rootsol)
 
     elif cyc_mode.lower() in ["chirp"]:
         assert prot_param_sample is not None
@@ -676,7 +672,7 @@ def single_run(
             print(
                 f"Success for {deg_param_sample} and protocol {prot_param_sample}"
             )
-        warn_if_cutoff_not_reached(rootsol, sim_params["vmax"])
+        warn_if_cutoff_not_reached(rootsol)
     elif cyc_mode.lower() in ["diffcap", "hppc", "prehppc", "posthppc"]:
         if cyc_mode.lower() == "diffcap":
             rootsol = robust_DiffCap(
