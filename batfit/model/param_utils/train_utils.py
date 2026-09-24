@@ -6,7 +6,6 @@ import torch
 from prettyPlot.progressBar import print_progress_bar
 
 from batfit import logger
-from batfit.model.paramNN import ProbProtParamCNN
 from batfit.utils.torch_utils import (
     get_device_type,
     get_num_parameters,
@@ -89,6 +88,41 @@ def _noisy_input(
     return model._encode(signal.to(device))
 
 
+def _unpack_batch(
+    model: torch.nn.Module,
+    batch: list[torch.Tensor],
+    device: torch.device,
+) -> tuple[
+    torch.Tensor, torch.Tensor | None, torch.Tensor | None, torch.Tensor
+]:
+    """Split an NPE batch into signal, protocol, end time and labels.
+
+    Batches are ``(X, Y)``, ``(X, P, Y)``, ``(X, T, Y)`` or ``(X, P, T, Y)``
+    (see :func:`batfit.utils.torch_dataset_builder.make_npe_dataset_from_np`):
+    P is present for protocol models, T with
+    ``signal_scaling="time_dependent_zscore"``, labels are always last.
+
+    Parameters
+    ----------
+    model: torch.nn.Module
+        NPE model, providing ``scaler_P`` and ``with_end_time``
+    batch: list[torch.Tensor]
+        Batch from an NPE DataLoader
+    device: torch.device
+        Device to move the protocol parameters, end time and labels to
+
+    Returns
+    -------
+    tuple
+        ``(x, p, t_end, y)``: the signal (left on its device, to be noised),
+        the protocol parameters and end time (None when unused) and the
+        labels
+    """
+    p = batch[1].to(device) if model.scaler_P is not None else None
+    t_end = batch[-2].to(device) if model.with_end_time else None
+    return batch[0], p, t_end, batch[-1].to(device)
+
+
 def _gauss_npe_batch_loss(
     model: torch.nn.Module,
     batch: list[torch.Tensor],
@@ -97,13 +131,13 @@ def _gauss_npe_batch_loss(
 ) -> torch.Tensor:
     """Compute the loss of one batch in the scaled parameter space.
 
-    Batches are ``(X, Y)``, or ``(X, P, Y)`` for :class:`ProbProtParamCNN`.
+    ``batch_in`` is the noised signal; the other inputs are read from
+    ``batch`` with :func:`_unpack_batch`.
     """
-    if isinstance(model, ProbProtParamCNN):
-        mu, gamma = model(batch_in, batch[1].to(device))
-    else:
-        mu, gamma = model(batch_in)
-    return model.loss_fn(mu, gamma, batch[-1].to(device))
+    _, p, t_end, y = _unpack_batch(model, batch, device)
+    inputs = [batch_in] if p is None else [batch_in, p]
+    mu, gamma = model(*inputs, t_end=t_end)
+    return model.loss_fn(mu, gamma, y)
 
 
 def _reshape_noise_args(
@@ -148,6 +182,8 @@ def learning_rate_schedule(
     float
         Learning rate for ``epoch``
     """
+    # a run shorter than 2 epochs gives epoch_end = 0 (num_epochs * 3 // 4)
+    epoch_end = max(epoch_end, 1)
     epoch_delay = epoch_end // 10
     if epoch < epoch_delay:
         return lr_beg
