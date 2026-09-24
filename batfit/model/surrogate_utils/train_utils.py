@@ -37,6 +37,8 @@ def create_model_from_log(model_obj_file, model_state_dict_file, verbose=True):
 
 
 def learning_rate_schedule(epoch, epoch_end, lr_beg, lr_end):
+    # a run shorter than 2 epochs gives epoch_end = 0 (num_epochs * 3 // 4)
+    epoch_end = max(epoch_end, 1)
     epoch_delay = epoch_end // 10
     if epoch < epoch_delay:
         return lr_beg
