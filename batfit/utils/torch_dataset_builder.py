@@ -57,11 +57,11 @@ def make_npe_dataset_from_np(
     The data is split (reusing ``data_split.npz`` when present), then the
     signal is scaled (fitted on train) and the degradation parameters Y (and
     protocol parameters P) are scaled to ``[0, 1]`` from the bounds of
-    ``sim_params``. 
+    ``sim_params``.
 
     With ``signal_scaling="zscore"`` the (time, voltage)
     signal X is z-scored per channel and batches are ``(X, Y)``, or
-    ``(X, P, Y)`` with protocol parameters. 
+    ``(X, P, Y)`` with protocol parameters.
     With ``"time_dependent_zscore"`` X is the voltage, z-scored per time point,
     and the end times T are a separate z-scored input: batches are
     ``(X, T, Y)`` or ``(X, P, T, Y)``. Labels are always last. Scaling is

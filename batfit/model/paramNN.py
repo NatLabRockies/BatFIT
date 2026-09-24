@@ -11,6 +11,8 @@ from .param_utils.model_utils import (
     _build_output_heads,
     _ProbParamBase,
     _ProbParamFMBase,
+    encoder_channels,
+    signal_scaler_shape,
 )
 
 
@@ -33,16 +35,20 @@ class ProbParamCNN(_ProbParamBase):
         param_margin: float = 0.05,
         num_attn_heads: int = 0,
         attn_dropout: float = 0.0,
+        signal_scaling: str = "zscore",
+        scaler_T: ZScoreScaler | None = None,
     ):
         logger.info("Creating probabilistic CNN model")
         super(ProbParamCNN, self).__init__(
             loss_fn=loss_fn,
             sim_config=sim_config,
-            scaler_X_shape=(1, input_shape[0], 1),
+            scaler_X_shape=signal_scaler_shape(input_shape, signal_scaling),
             cyc_mode=cyc_mode,
             encoder_model=encoder_model,
             scaler_X=scaler_X,
             param_margin=param_margin,
+            signal_scaling=signal_scaling,
+            scaler_T=scaler_T,
         )
         self.leaky_relu_slope = leaky_relu_slope
         self.chan_list = chan_list
@@ -54,7 +60,7 @@ class ProbParamCNN(_ProbParamBase):
             input_shape_0 = input_shape[0] // 2
             input_shape_1 = input_shape[1]
         else:
-            input_shape_0 = input_shape[0]
+            input_shape_0 = encoder_channels(input_shape, signal_scaling)
             input_shape_1 = input_shape[1]
 
         self.cnn_layers, self.cnn_layers_aux, fc_list_end = _build_cnn_encoder(
@@ -68,15 +74,33 @@ class ProbParamCNN(_ProbParamBase):
             attn_dropout=attn_dropout,
         )
 
+        # the heads also see the end time with time_dependent_zscore
         self.model_mu_layers, self.model_gamma_layers = _build_output_heads(
-            fc_list_end,
+            fc_list_end + self.n_end_time,
             fc_mu_list,
             fc_gamma_list,
             self.output_dim,
             self.param_margin,
         )
 
-    def forward(self, x):
+    def forward(
+        self, x: torch.Tensor, t_end: torch.Tensor | None = None
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Predict the scaled posterior mean and std.
+
+        Parameters
+        ----------
+        x: torch.Tensor
+            Scaled signal, shape ``(batch, channels, time)``
+        t_end: torch.Tensor | None
+            Scaled end time, shape ``(batch, 1)``; required with
+            ``signal_scaling="time_dependent_zscore"``
+
+        Returns
+        -------
+        tuple[torch.Tensor, torch.Tensor]
+            Scaled posterior means and standard deviations ``(mu, gamma)``
+        """
         if self.cyc_mode.lower() == "discharge-chargecc":
             nchans = x.shape[1]
             x_dis, x_chcc = torch.split(x, nchans // 2, dim=1)
@@ -90,6 +114,7 @@ class ProbParamCNN(_ProbParamBase):
             gamma = self.model_gamma_layers(x_conc)
         else:
             x = self.cnn_layers(x)
+            x = self._append_end_time(x, t_end)
 
             mu = self.model_mu_layers(x)
             gamma = self.model_gamma_layers(x)
@@ -98,7 +123,14 @@ class ProbParamCNN(_ProbParamBase):
 
 
 class ProbParamFCNN(_ProbParamBase):
-    """FCNN encoder for electrochemical signal"""
+    """FCNN encoder for electrochemical signal.
+
+    With ``signal_scaling="zscore"`` the input is a flat feature vector of
+    shape ``(batch, input_shape[0])`` (e.g. an encoded signal). With
+    ``"time_dependent_zscore"``, ``input_shape`` is the physical signal shape
+    ``(2, n_points)``: the voltage ``(batch, 1, n_points)`` is flattened
+    through the hidden layers and the end time is fused before the heads.
+    """
 
     def __init__(
         self,
@@ -112,21 +144,31 @@ class ProbParamFCNN(_ProbParamBase):
         encoder_model=None,
         scaler_X: ZScoreScaler | None = None,
         param_margin: float = 0.05,
+        signal_scaling: str = "zscore",
+        scaler_T: ZScoreScaler | None = None,
     ):
         logger.info("Creating probabilistic FCNN model")
+        if signal_scaling == "time_dependent_zscore":
+            # physical (2, n_points) signal: flattened voltage as features
+            assert len(input_shape) == 2, "input_shape must be (2, n_points)"
+            scaler_X_shape = signal_scaler_shape(input_shape, signal_scaling)
+            n_features = input_shape[1]
+        else:
+            scaler_X_shape = (1, input_shape[0])
+            n_features = input_shape[0]
         super(ProbParamFCNN, self).__init__(
             loss_fn=loss_fn,
             sim_config=sim_config,
-            scaler_X_shape=(1, input_shape[0]),
+            scaler_X_shape=scaler_X_shape,
             cyc_mode=cyc_mode,
             encoder_model=encoder_model,
             scaler_X=scaler_X,
             param_margin=param_margin,
+            signal_scaling=signal_scaling,
+            scaler_T=scaler_T,
         )
         self.hidden_list = hidden_list
-        elementary_fcnn = _build_hidden_fcnn_layers(
-            input_shape[0], hidden_list
-        )
+        elementary_fcnn = _build_hidden_fcnn_layers(n_features, hidden_list)
         self.fcnn = []
         for ihidden, hidden in enumerate(elementary_fcnn):
             self.fcnn.append(elementary_fcnn[ihidden])
@@ -143,8 +185,9 @@ class ProbParamFCNN(_ProbParamBase):
         else:
             fc_list_end = hidden_list[-1]
 
+        # the heads also see the end time with time_dependent_zscore
         self.model_mu_layers, self.model_gamma_layers = _build_output_heads(
-            fc_list_end,
+            fc_list_end + self.n_end_time,
             fc_mu_list,
             fc_gamma_list,
             self.output_dim,
@@ -155,7 +198,25 @@ class ProbParamFCNN(_ProbParamBase):
         if self.cyc_mode.lower() == "discharge-chargecc":
             self.fcnn_layers_aux = nn.Sequential(*self.fcnn_aux)
 
-    def forward(self, x):
+    def forward(
+        self, x: torch.Tensor, t_end: torch.Tensor | None = None
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Predict the scaled posterior mean and std.
+
+        Parameters
+        ----------
+        x: torch.Tensor
+            Scaled input: ``(batch, features)``, or the voltage
+            ``(batch, 1, n_points)`` with ``"time_dependent_zscore"``
+        t_end: torch.Tensor | None
+            Scaled end time, shape ``(batch, 1)``; required with
+            ``signal_scaling="time_dependent_zscore"``
+
+        Returns
+        -------
+        tuple[torch.Tensor, torch.Tensor]
+            Scaled posterior means and standard deviations ``(mu, gamma)``
+        """
         if self.cyc_mode.lower() == "discharge-chargecc":
             nchans = x.shape[1]
             x_dis, x_chcc = torch.split(x, nchans // 2, dim=1)
@@ -168,7 +229,10 @@ class ProbParamFCNN(_ProbParamBase):
             mu = self.model_mu_layers(x_conc)
             gamma = self.model_gamma_layers(x_conc)
         else:
+            if self.with_end_time:
+                x = torch.flatten(x, start_dim=1)
             x = self.fcnn_layers(x)
+            x = self._append_end_time(x, t_end)
 
             mu = self.model_mu_layers(x)
             gamma = self.model_gamma_layers(x)
@@ -196,6 +260,8 @@ class ProbProtParamCNN(_ProbParamBase):
         param_margin: float = 0.05,
         num_attn_heads: int = 0,
         attn_dropout: float = 0.0,
+        signal_scaling: str = "zscore",
+        scaler_T: ZScoreScaler | None = None,
     ):
         logger.info(
             "Creating probabilistic CNN model with protocol parameters"
@@ -208,12 +274,14 @@ class ProbProtParamCNN(_ProbParamBase):
         super(ProbProtParamCNN, self).__init__(
             loss_fn=loss_fn,
             sim_config=sim_config,
-            scaler_X_shape=(1, input_shape[0], 1),
+            scaler_X_shape=signal_scaler_shape(input_shape, signal_scaling),
             cyc_mode=cyc_mode,
             encoder_model=encoder_model,
             scaler_X=scaler_X,
             param_margin=param_margin,
             with_prot=True,
+            signal_scaling=signal_scaling,
+            scaler_T=scaler_T,
         )
         self.leaky_relu_slope = leaky_relu_slope
         self.chan_list = chan_list
@@ -224,7 +292,7 @@ class ProbProtParamCNN(_ProbParamBase):
 
         # Conv encoder that process electrochem signal
         self.cnn_layers, _, _ = _build_cnn_encoder(
-            input_shape[0],
+            encoder_channels(input_shape, signal_scaling),
             input_shape[1],
             chan_list,
             fc_list,
@@ -234,8 +302,8 @@ class ProbProtParamCNN(_ProbParamBase):
             attn_dropout=attn_dropout,
         )
 
-        # After CNN output + prot_params concatenation
-        prot_input_size = fc_list[-1] + self.n_prot_params
+        # After CNN output + prot_params (+ end time) concatenation
+        prot_input_size = fc_list[-1] + self.n_prot_params + self.n_end_time
         _prot_layers = []
         if fc_prot_list:
             prot_fc = _build_hidden_fcnn_layers(prot_input_size, fc_prot_list)
@@ -256,7 +324,10 @@ class ProbProtParamCNN(_ProbParamBase):
         )
 
     def forward(
-        self, x: torch.Tensor, prot_params: torch.Tensor
+        self,
+        x: torch.Tensor,
+        prot_params: torch.Tensor,
+        t_end: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Forward pass combining electrochemical signal and protocol parameters.
 
@@ -266,6 +337,9 @@ class ProbProtParamCNN(_ProbParamBase):
             Electrochemical signal, shape ``(batch, channels, time)``
         prot_params: torch.Tensor
             Protocol parameters, shape ``(batch, n_prot_params)``
+        t_end: torch.Tensor | None
+            Scaled end time, shape ``(batch, 1)``; required with
+            ``signal_scaling="time_dependent_zscore"``
 
         Returns
         -------
@@ -274,6 +348,7 @@ class ProbProtParamCNN(_ProbParamBase):
         """
         x = self.cnn_layers(x)
         x = torch.cat((x, prot_params), dim=1)
+        x = self._append_end_time(x, t_end)
         x = self.prot_layers(x)
 
         mu = self.model_mu_layers(x)
@@ -327,6 +402,8 @@ class ProbParamFM(_ProbParamFMBase):
         use_prior_matching: bool = False,
         num_attn_heads: int = 0,
         attn_dropout: float = 0.0,
+        signal_scaling: str = "zscore",
+        scaler_T: ZScoreScaler | None = None,
     ):
         """
         Parameters
@@ -363,6 +440,13 @@ class ProbParamFM(_ProbParamFMBase):
             ``encoder_model`` is provided
         attn_dropout: float
             Dropout inside MultiheadAttention
+        signal_scaling: str
+            ``"zscore"`` or ``"time_dependent_zscore"``; the latter feeds the
+            voltage to the CNN and the end time to the context (CNN mode
+            only)
+        scaler_T: ZScoreScaler, optional
+            Fitted end-time scaler of ``"time_dependent_zscore"``; None
+            creates an identity placeholder
         """
         _cnn_mode = encoder_model is None
         if _cnn_mode and (
@@ -381,12 +465,21 @@ class ProbParamFM(_ProbParamFMBase):
         super().__init__(
             sim_config=sim_config,
             scaler_X_shape=(
-                None if input_shape is None else (1, input_shape[0], 1)
+                None
+                if input_shape is None
+                else signal_scaler_shape(input_shape, signal_scaling)
             ),
             cyc_mode=cyc_mode,
             scaler_X=scaler_X,
             use_prior_matching=use_prior_matching,
+            signal_scaling=signal_scaling,
+            scaler_T=scaler_T,
         )
+        if self.with_end_time and not _cnn_mode:
+            raise NotImplementedError(
+                "time_dependent_zscore is not supported with an external "
+                "encoder_model"
+            )
         self.vf_hidden_list = vf_hidden_list
         self.leaky_relu_slope = leaky_relu_slope
 
@@ -397,7 +490,7 @@ class ProbParamFM(_ProbParamFMBase):
             input_shape_0 = (
                 input_shape[0] // 2
                 if cyc_mode.lower() == "discharge-chargecc"
-                else input_shape[0]
+                else encoder_channels(input_shape, signal_scaling)
             )
             self.cnn_layers, self.cnn_layers_aux, emb_dim = _build_cnn_encoder(
                 input_shape_0,
@@ -423,8 +516,9 @@ class ProbParamFM(_ProbParamFMBase):
             emb_dim = encoder_model.latent_dim
 
         # Velocity field MLP
-        # Input: [z_t (n_param_pred) | t (1) | embedding (emb_dim)]
-        vf_input_dim = self.n_param_pred + 1 + emb_dim
+        # Input: [z_t (n_param_pred) | t (1) | embedding (emb_dim)
+        #         | end time (n_end_time)]
+        vf_input_dim = self.n_param_pred + 1 + emb_dim + self.n_end_time
         vf_fc = _build_hidden_fcnn_layers(vf_input_dim, vf_hidden_list)
         _vf = []
         for layer in vf_fc:
@@ -454,6 +548,7 @@ class ProbParamFM(_ProbParamFMBase):
         x: torch.Tensor,
         z_t: torch.Tensor,
         t: torch.Tensor,
+        t_end: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Predict the velocity u(z_t, t | x) of the conditional flow.
 
@@ -466,13 +561,16 @@ class ProbParamFM(_ProbParamFMBase):
             ``(batch, n_param_pred)``
         t: torch.Tensor
             Flow time in [0, 1], shape ``(batch,)``
+        t_end: torch.Tensor | None
+            Scaled end time, shape ``(batch, 1)``; required with
+            ``signal_scaling="time_dependent_zscore"``
 
         Returns
         -------
         torch.Tensor
             Predicted velocity, shape ``(batch, n_param_pred)``
         """
-        context = self._encode(x)
+        context = self._append_end_time(self._encode(x), t_end)
         return self._velocity_forward(z_t, t, context)
 
     def sample(
@@ -480,6 +578,7 @@ class ProbParamFM(_ProbParamFMBase):
         x: torch.Tensor,
         n_samples: int,
         n_steps: int = 100,
+        t_end: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Sample posterior p(params | x).
 
@@ -491,13 +590,16 @@ class ProbParamFM(_ProbParamFMBase):
             Number of posterior samples per observation
         n_steps: int
             Number of ODE integration steps
+        t_end: torch.Tensor | None
+            Scaled end time, shape ``(batch, 1)``; required with
+            ``signal_scaling="time_dependent_zscore"``
 
         Returns
         -------
         torch.Tensor
             Posterior samples, shape ``(batch, n_samples, n_param_pred)``
         """
-        context = self._encode(x)
+        context = self._append_end_time(self._encode(x), t_end)
         return self._sample_from_context(
             context, x.shape[0], n_samples, n_steps, x.device
         )
@@ -534,6 +636,8 @@ class ProbProtParamFM(_ProbParamFMBase):
         use_prior_matching: bool = False,
         num_attn_heads: int = 0,
         attn_dropout: float = 0.0,
+        signal_scaling: str = "zscore",
+        scaler_T: ZScoreScaler | None = None,
     ):
         """
         Parameters
@@ -568,6 +672,13 @@ class ProbProtParamFM(_ProbParamFMBase):
             CNN conv layer; must divide ``chan_list[-1]``
         attn_dropout: float
             Dropout inside MultiheadAttention
+        signal_scaling: str
+            ``"zscore"`` or ``"time_dependent_zscore"``; the latter feeds the
+            voltage to the CNN and fuses the end time with the protocol
+            parameters
+        scaler_T: ZScoreScaler, optional
+            Fitted end-time scaler of ``"time_dependent_zscore"``; None
+            creates an identity placeholder
         """
         if cyc_mode.lower() == "discharge-chargecc":
             raise NotImplementedError(
@@ -580,11 +691,13 @@ class ProbProtParamFM(_ProbParamFMBase):
         )
         super().__init__(
             sim_config=sim_config,
-            scaler_X_shape=(1, input_shape[0], 1),
+            scaler_X_shape=signal_scaler_shape(input_shape, signal_scaling),
             cyc_mode=cyc_mode,
             scaler_X=scaler_X,
             use_prior_matching=use_prior_matching,
             with_prot=True,
+            signal_scaling=signal_scaling,
+            scaler_T=scaler_T,
         )
         self.leaky_relu_slope = leaky_relu_slope
         self.chan_list = chan_list
@@ -596,7 +709,7 @@ class ProbProtParamFM(_ProbParamFMBase):
 
         # CNN encoder for the electrochemical signal
         self.cnn_layers, _, _ = _build_cnn_encoder(
-            input_shape[0],
+            encoder_channels(input_shape, signal_scaling),
             input_shape[1],
             chan_list,
             fc_list,
@@ -606,8 +719,9 @@ class ProbProtParamFM(_ProbParamFMBase):
             attn_dropout=attn_dropout,
         )
 
-        # Protocol fusion: [cnn_emb | prot_params] -> optional FC -> context
-        prot_input_size = fc_list[-1] + self.n_prot_params
+        # Protocol fusion: [cnn_emb | prot_params | end time] -> optional FC
+        # -> context
+        prot_input_size = fc_list[-1] + self.n_prot_params + self.n_end_time
         _prot_layers = []
         if fc_prot_list:
             prot_fc = _build_hidden_fcnn_layers(prot_input_size, fc_prot_list)
@@ -631,11 +745,16 @@ class ProbProtParamFM(_ProbParamFMBase):
         self.vf_layers = nn.Sequential(*_vf)
 
     def _encode_context(
-        self, x: torch.Tensor, prot_params: torch.Tensor
+        self,
+        x: torch.Tensor,
+        prot_params: torch.Tensor,
+        t_end: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """Encode signal and protocol parameters into a context vector."""
+        """Encode signal, protocol parameters (and end time) into a context
+        vector."""
         cnn_emb = self.cnn_layers(x)
         fused = torch.cat((cnn_emb, prot_params), dim=1)
+        fused = self._append_end_time(fused, t_end)
         return self.prot_layers(fused)
 
     def forward(
@@ -644,6 +763,7 @@ class ProbProtParamFM(_ProbParamFMBase):
         prot_params: torch.Tensor,
         z_t: torch.Tensor,
         t: torch.Tensor,
+        t_end: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Predict the velocity u(z_t, t | x, prot_params) of the conditional flow.
 
@@ -658,13 +778,16 @@ class ProbProtParamFM(_ProbParamFMBase):
             ``(batch, n_param_pred)``
         t: torch.Tensor
             Flow time in [0, 1], shape ``(batch,)``
+        t_end: torch.Tensor | None
+            Scaled end time, shape ``(batch, 1)``; required with
+            ``signal_scaling="time_dependent_zscore"``
 
         Returns
         -------
         torch.Tensor
             Predicted velocity, shape ``(batch, n_param_pred)``
         """
-        context = self._encode_context(x, prot_params)
+        context = self._encode_context(x, prot_params, t_end)
         return self._velocity_forward(z_t, t, context)
 
     def sample(
@@ -673,6 +796,7 @@ class ProbProtParamFM(_ProbParamFMBase):
         prot_params: torch.Tensor,
         n_samples: int,
         n_steps: int = 100,
+        t_end: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Sample from the approximate posterior p(params | x, prot_params).
 
@@ -686,13 +810,16 @@ class ProbProtParamFM(_ProbParamFMBase):
             Number of posterior samples per observation
         n_steps: int
             Number of ODE integration steps
+        t_end: torch.Tensor | None
+            Scaled end time, shape ``(batch, 1)``; required with
+            ``signal_scaling="time_dependent_zscore"``
 
         Returns
         -------
         torch.Tensor
             Posterior samples, shape ``(batch, n_samples, n_param_pred)``
         """
-        context = self._encode_context(x, prot_params)
+        context = self._encode_context(x, prot_params, t_end)
         return self._sample_from_context(
             context, x.shape[0], n_samples, n_steps, x.device
         )
