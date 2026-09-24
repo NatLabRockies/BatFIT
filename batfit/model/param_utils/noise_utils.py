@@ -108,6 +108,52 @@ def make_noise_levels(
     return noise_levels, a_min, a_max
 
 
+def make_signal_noise_levels(
+    model: torch.nn.Module,
+    target_mode: str,
+    noise_levels: list,
+    cyc_mode: str,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Build the noise levels and clip bounds of a model's signal input.
+
+    Wraps :func:`make_noise_levels` with the ``vmin``/``vmax`` of the model's
+    experiment config. With ``signal_scaling="time_dependent_zscore"`` the
+    model input is the voltage only, so the time channel is dropped (the end
+    time is not noised).
+
+    Parameters
+    ----------
+    model: torch.nn.Module
+        NPE model providing ``sim_params`` and ``with_end_time``
+    target_mode: str
+        Signal channels of the data (e.g. ``"phi"``)
+    noise_levels: list
+        Noise amplitude of each of the 4 raw channels
+    cyc_mode: str
+        Cycling mode of the signal
+
+    Returns
+    -------
+    tuple
+        ``(noise_levels, a_min, a_max)`` for the model input channels, each
+        of shape ``(1, n_channels, 1)``
+    """
+    levels, a_min, a_max = make_noise_levels(
+        target_mode=target_mode,
+        noise_levels=noise_levels,
+        cyc_mode=cyc_mode,
+        vmin=model.sim_params["vmin"],
+        vmax=model.sim_params["vmax"],
+    )
+    if not model.with_end_time:
+        return levels, a_min, a_max
+    # channel 0 is time, channel 1 voltage (see from_sol_dict_to_xy)
+    assert (
+        target_mode.lower() == "phi"
+    ), "time_dependent_zscore requires target_mode 'phi'"
+    return levels[:, 1:, :], a_min[:, 1:, :], a_max[:, 1:, :]
+
+
 def make_bias_tensor(
     target_mode: str,
     cyc_mode: str,
