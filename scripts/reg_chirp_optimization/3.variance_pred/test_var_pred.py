@@ -2,7 +2,6 @@ import os
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
-import pickle
 import sys
 
 import matplotlib
@@ -11,7 +10,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from train_var_pred import _detect_sigma_mode
 
 from batfit import logger
 from batfit.basicutilityc import ReadInput as ri
@@ -95,38 +93,13 @@ def parity_plot(inp) -> None:
     device = torch.device(get_device_type())
     model.to(device)
     model.eval()
-    amp_par = model.amp_par.to(device)
 
-    # Detect how sigma targets were parameterised at dataset generation
-    sigma_mode = _detect_sigma_mode(inp.var_pred_save_path)
-    logger.info(f"sigma_mode={sigma_mode}")
-
-    p_val = torch.from_numpy(A["P_val"])
-    mu_val = torch.from_numpy(A["Mu_val"])
-
+    # physical inputs -> physical sigma (the model holds its scalers)
+    p_val = torch.from_numpy(A["P_val"]).to(device)
+    mu_val = torch.from_numpy(A["Mu_val"]).to(device)
     with torch.no_grad():
-        sigma_out = model(p_val.to(device), mu_val.to(device)).cpu().numpy()
-
-    # Convert both predicted and stored sigma to physical space
-    if sigma_mode == "log_sigma":
-        with open(
-            os.path.join(inp.var_pred_save_path, "scaler_logsigma.pkl"), "rb"
-        ) as f:
-            scaler_logsigma = pickle.load(f)
-        sigma_pred = np.exp(scaler_logsigma.inverse_transform(sigma_out))
-        sigma_true = np.exp(scaler_logsigma.inverse_transform(A["Sigma_val"]))
-    elif sigma_mode == "scale_sigma":
-        with open(
-            os.path.join(inp.var_pred_save_path, "scaler_sigma.pkl"), "rb"
-        ) as f:
-            scaler_sigma = pickle.load(f)
-        sigma_pred = scaler_sigma.inverse_transform(sigma_out)
-        sigma_true = scaler_sigma.inverse_transform(A["Sigma_val"])
-    else:
-        sigma_pred = model.inv_transform_gamma(
-            torch.from_numpy(sigma_out), model.amp_par
-        ).numpy()
-        sigma_true = A["Sigma_val"]
+        sigma_pred = model.predict_physical(p_val, mu_val).cpu().numpy()
+    sigma_true = A["Sigma_val"]
 
     # Parameter names from sim config
     sim_params = make_params(inp.sim_config)

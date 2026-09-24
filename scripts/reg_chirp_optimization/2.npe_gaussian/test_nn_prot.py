@@ -3,7 +3,6 @@
 import os
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
-import pickle
 import sys
 
 import numpy as np
@@ -14,7 +13,6 @@ from train_nn_prot import define_model
 from batfit import logger
 from batfit.basicutilityc import ReadInput as ri
 from batfit.model.param_utils.noise_utils import apply_noise, make_noise_levels
-from batfit.utils.data_utils import scale_input_from_scaler
 from batfit.utils.torch_utils import find_best_model_file, get_device_type
 
 
@@ -32,12 +30,15 @@ def test_perf(inp):
         return
 
     A = np.load(split_file)
-    X_scaled = scale_input_from_scaler(
-        A["X_val"], os.path.join(data_path, "scaler_X.pkl")
-    )
-    with open(inp.scaler_P_path, "rb") as f:
-        scaler_P = pickle.load(f)
-    P_scaled = scaler_P.transform(A["P_val"]).astype("float32")
+    # the checkpoint carries the model's scalers
+    model = define_model(inp)
+    best_model_file = find_best_model_file(inp.models_dir)
+    logger.info(f"Loading {best_model_file}")
+    model.load_state_dict(torch.load(best_model_file, weights_only=True))
+    scaler_X = model.scaler_X
+
+    X_scaled = scaler_X.transform(A["X_val"])
+    P_scaled = model.scaler_P.transform(A["P_val"])
     Y_val = A["Y_val"]
 
     noise_levels, a_min, a_max = make_noise_levels(
@@ -49,12 +50,9 @@ def test_perf(inp):
             2.01 * 2,
         ],
         cyc_mode=inp.cyc_mode,
+        vmin=model.sim_params["vmin"],
+        vmax=model.sim_params["vmax"],
     )
-
-    model, scaler_X = define_model(inp)
-    best_model_file = find_best_model_file(inp.models_dir)
-    logger.info(f"Loading {best_model_file}")
-    model.load_state_dict(torch.load(best_model_file, weights_only=True))
 
     device = torch.device(get_device_type())
     model.to(device)
@@ -81,14 +79,10 @@ def test_perf(inp):
                 a_min=a_min,
                 a_max=a_max,
             )
-            mu, sigma = model(batch_in.to(device), batch[1].to(device))
-            if model.constrain_output:
-                mu = model.inv_transform_mu(
-                    mu.cpu(), model.min_par.numpy(), model.amp_par.numpy()
-                )
-                sigma = model.inv_transform_gamma(
-                    sigma.cpu(), model.amp_par.numpy()
-                )
+            mu_scaled, sigma_scaled = model(
+                batch_in.to(device), batch[1].to(device)
+            )
+            mu, sigma = model.to_physical(mu_scaled, sigma_scaled)
             mu_preds.append(mu.cpu().numpy())
             sigma_preds.append(sigma.cpu().numpy())
             truth_all.append(batch[2].numpy())

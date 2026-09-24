@@ -4,29 +4,29 @@ import os
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
-import pickle
 import shutil
 import sys
 
 import numpy as np
-import torch
 
 from batfit import logger
 from batfit.basicutilityc import ReadInput as ri
 from batfit.model.param_utils.noise_utils import make_noise_levels
 from batfit.model.param_utils.train_fm_utils import train_fm_model
 from batfit.model.paramNN import ProbParamFM
+from batfit.preprocess.sim_setup import make_params
 from batfit.utils.data_utils import assemble_all_data
-from batfit.utils.torch_utils import get_num_parameters, make_dataset_from_np
+from batfit.utils.torch_utils import (
+    get_num_parameters,
+    make_npe_dataset_from_np,
+)
 
 
-def make_data_loaders(
-    inp,
-) -> tuple["torch.utils.data.DataLoader", "torch.utils.data.DataLoader"]:
-    """Assemble discharge signals and build train/test DataLoaders.
+def make_data_loaders(inp) -> tuple[dict, dict]:
+    """Assemble discharge signals and build the scaled DataLoaders.
 
     :param inp: parsed recipe (DotMap)
-    :return: (train_data_loader, test_data_loader)
+    :return: (loaders, scalers): train/test/val DataLoaders and the scalers
     """
     assemble_all_data(
         inp.data_path,
@@ -42,46 +42,44 @@ def make_data_loaders(
     Y_data = tmp["Y_data"]
 
     batch_size = min(inp.batch_size, int(Y_data.shape[0] * 0.8))
-    return make_dataset_from_np(
-        batch_size=batch_size,
+    return make_npe_dataset_from_np(
+        make_params(inp.sim_config),
         np_data=X_data,
         np_data_label=Y_data,
-        scale=True,
-        scale_y=True,
+        batch_size=batch_size,
         save_path=inp.data_path,
     )
 
 
-def define_model(inp) -> tuple["ProbParamFM", object]:
-    """Instantiate ProbParamFM and load the signal scaler.
+def define_model(inp, scaler_X=None):
+    """Instantiate ProbParamFM.
 
     :param inp: parsed recipe
-    :return: (model, scaler_X)
+    :param scaler_X: fitted signal scaler; None leaves a placeholder that
+        load_state_dict fills
+    :return: the model
     """
     model = ProbParamFM(
         input_shape=(2, inp.n_points),
         chan_list=[inp.num_channels] * inp.num_convs,
         fc_list=[inp.num_fc_units] * inp.num_fc_hidden,
         vf_hidden_list=[inp.num_vf_units] * inp.num_vf_hidden,
-        cyc_mode=inp.cyc_mode,
-        n_param_pred=inp.n_param_pred,
         sim_config=inp.sim_config,
+        cyc_mode=inp.cyc_mode,
+        scaler_X=scaler_X,
         use_prior_matching=inp.use_prior_matching,
     )
     logger.info(f"Trainable parameters: {get_num_parameters(model)}")
-    with open(os.path.join(inp.data_path, "scaler_X.pkl"), "rb") as f:
-        scaler_X = pickle.load(f)
-    return model, scaler_X
+    return model
 
 
-def do_training(inp, model, train_data_loader, test_data_loader, scaler_X):
+def do_training(inp, model, train_data_loader, test_data_loader):
     """Run the FM training loop.
 
     :param inp: parsed recipe
     :param model: ProbParamFM
     :param train_data_loader: training DataLoader
     :param test_data_loader: test DataLoader
-    :param scaler_X: signal normalisation scaler
     """
     noise_levels, a_min, a_max = make_noise_levels(
         target_mode=inp.target_mode,
@@ -92,6 +90,8 @@ def do_training(inp, model, train_data_loader, test_data_loader, scaler_X):
             2.01 * 2,
         ],
         cyc_mode=inp.cyc_mode,
+        vmin=model.sim_params["vmin"],
+        vmax=model.sim_params["vmax"],
     )
     train_fm_model(
         model,
@@ -99,7 +99,6 @@ def do_training(inp, model, train_data_loader, test_data_loader, scaler_X):
         test_data_loader=test_data_loader,
         learning_rate=inp.lr,
         num_epochs=inp.epochs,
-        scaler_X=scaler_X,
         noise_levels=noise_levels,
         a_min=a_min,
         a_max=a_max,
@@ -112,18 +111,18 @@ def do_training(inp, model, train_data_loader, test_data_loader, scaler_X):
 
 if __name__ == "__main__":
     inp = ri.basic_input(sys.argv[1])
-    loaders = make_data_loaders(inp)
+    loaders, scalers = make_data_loaders(inp)
     train_dl, test_dl = loaders["train"], loaders["test"]
-    model, scaler_X = define_model(inp)
+    model = define_model(inp, scaler_X=scalers["X"])
 
-    # Register scaled training labels as the empirical prior for prior matching.
-    # data_scaled_y.npz is written by make_data_loaders (scale_y=True).
-    data_scaled = np.load(os.path.join(inp.data_path, "data_scaled_y.npz"))
-    Y_train_scaled = torch.tensor(data_scaled["Y_train"], dtype=torch.float32)
+    # Register the training labels (scaled to [0, 1], last tensor of the
+    # train loader) as the empirical prior for prior matching. With
+    # use_prior_matching=False the prior is registered but unused.
+    Y_train_scaled = loaders["train"].dataset.tensors[-1]
     model.set_prior_data(Y_train_scaled)
     logger.info(
         f"Empirical prior registered: {Y_train_scaled.shape[0]} training samples"
     )
 
-    do_training(inp, model, train_dl, test_dl, scaler_X)
+    do_training(inp, model, train_dl, test_dl)
     shutil.copy(sys.argv[1], os.path.join(inp.models_dir, "recipe.yml"))

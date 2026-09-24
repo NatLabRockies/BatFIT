@@ -269,7 +269,7 @@ jobs:
         run: |
           cd scripts/reg_chirp_optimization/3.variance_pred
           bash run_spm.sh
-          if [ ! -f "var_pred_data_spm/scaler_logsigma.pkl" ]; then
+          if [ ! -f "var_pred_data_spm/var_pred_dataset.npz" ]; then
             exit 1
           fi
           if [ ! -f "var_pred_spm/models/model_best.pt" ]; then

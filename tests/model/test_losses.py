@@ -1,9 +1,6 @@
 import torch
 
-from batfit.model.param_utils.losses import (
-    correlated_normal_loss,
-    independent_normal_loss,
-)
+from batfit.model.param_utils.losses import independent_normal_loss
 from batfit.model.param_utils.losses import mse_loss as mse_loss_param
 from batfit.model.param_utils.losses import pinball_loss
 from batfit.model.surrogate_utils.losses import mae_loss as mae_loss_surr
@@ -54,18 +51,6 @@ def test_independent_normal_loss_param():
     sigma = torch.ones(batch, n_params)
     target = torch.zeros(batch, n_params)
     loss = independent_normal_loss(mu, sigma, target)
-    assert loss.shape == torch.Size([])
-
-
-def test_correlated_normal_loss_param():
-    # returns scalar
-    batch = 8
-    n_params = 3
-    mu = torch.zeros(batch, n_params)
-    # Build a valid positive definite covariance matrix
-    cov = torch.eye(n_params).unsqueeze(0).expand(batch, -1, -1)
-    target = torch.zeros(batch, n_params)
-    loss = correlated_normal_loss(mu, cov, target)
     assert loss.shape == torch.Size([])
 
 

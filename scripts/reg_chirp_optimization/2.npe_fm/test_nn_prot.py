@@ -3,7 +3,6 @@
 import os
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
-import pickle
 import sys
 
 import numpy as np
@@ -14,7 +13,6 @@ from batfit import logger
 from batfit.basicutilityc import ReadInput as ri
 from batfit.model.param_utils.noise_utils import apply_noise, make_noise_levels
 from batfit.model.param_utils.train_utils import create_model_from_log
-from batfit.utils.data_utils import scale_input_from_scaler
 from batfit.utils.torch_utils import find_best_model_file, get_device_type
 
 
@@ -60,18 +58,21 @@ def test_perf(inp):
         return
 
     A = np.load(split_file)
-    X_scaled = scale_input_from_scaler(
-        A["X_val"], os.path.join(data_path, "scaler_X.pkl")
-    )
-    with open(inp.scaler_P_path, "rb") as f:
-        scaler_P = pickle.load(f)
-    P_scaled = scaler_P.transform(A["P_val"]).astype("float32")
     Y_val = A["Y_val"]
 
-    # Training uses scale_y=True, so model.sample() returns posterior samples
-    # in z-scored parameter space; scaler_Y brings them back to physical units.
-    with open(os.path.join(data_path, "scaler_Y.pkl"), "rb") as f:
-        scaler_Y = pickle.load(f)
+    # model.pkl was pickled (by train_fm_model) right after train_nn_prot.py
+    # called set_prior_data(), so it already has the correct architecture and a
+    # correctly populated Y_prior buffer; load_state_dict then only needs to
+    # overwrite it with the trained weights -- no manual buffer reconstruction.
+    best_model_file = find_best_model_file(inp.models_dir)
+    model = create_model_from_log(
+        os.path.join(inp.models_dir, "model.pkl"), best_model_file
+    )
+
+    # the model carries its signal (and protocol) scalers
+    scaler_X = model.scaler_X
+    X_scaled = scaler_X.transform(A["X_val"])
+    P_scaled = model.scaler_P.transform(A["P_val"])
 
     noise_levels, a_min, a_max = make_noise_levels(
         target_mode=inp.target_mode,
@@ -82,18 +83,8 @@ def test_perf(inp):
             2.01 * 2,
         ],
         cyc_mode=inp.cyc_mode,
-    )
-
-    with open(inp.scaler_path, "rb") as f:
-        scaler_X = pickle.load(f)
-
-    # model.pkl was pickled (by train_fm_model) right after train_nn_prot.py
-    # called set_prior_data(), so it already has the correct architecture and a
-    # correctly populated Y_prior buffer; load_state_dict then only needs to
-    # overwrite it with the trained weights -- no manual buffer reconstruction.
-    best_model_file = find_best_model_file(inp.models_dir)
-    model = create_model_from_log(
-        os.path.join(inp.models_dir, "model.pkl"), best_model_file
+        vmin=model.sim_params["vmin"],
+        vmax=model.sim_params["vmax"],
     )
 
     device = torch.device(get_device_type())
@@ -110,7 +101,7 @@ def test_perf(inp):
         shuffle=False,
     )
 
-    samples_z_all, truth_all = [], []
+    samples_phys_all, truth_all = [], []
 
     with torch.no_grad():
         for batch in val_loader:
@@ -127,22 +118,16 @@ def test_perf(inp):
                 n_samples=inp.n_samples,
                 n_steps=inp.n_ode_steps,
             )
-            samples_z_all.append(samps.cpu().numpy())
+            # flow-space samples -> physical units, clamped to the bounds
+            samples_phys = model.to_physical(samps)
+            samples_phys_all.append(samples_phys.cpu().numpy())
             truth_all.append(batch[2].numpy())
 
-    samples_z = np.vstack(
-        samples_z_all
-    )  # (n_val, n_samples, n_params), z-scored
+    # (n_val, n_samples, n_params), physical
+    samples_physical = np.vstack(samples_phys_all)
     truth = np.vstack(truth_all)  # physical
 
-    # Inverse-transform every posterior sample (not mu/sigma separately) so
-    # sigma never gets the training-set mean incorrectly added to it.
-    n_val, n_samples, n_params = samples_z.shape
-    samples_physical = (
-        scaler_Y.inverse_transform(samples_z.reshape(-1, n_params))
-        .reshape(n_val, n_samples, n_params)
-        .astype("float32")
-    )
+    n_val, n_samples, n_params = samples_physical.shape
     mu_preds = samples_physical.mean(axis=1)
     sigma_preds = samples_physical.std(axis=1)
 

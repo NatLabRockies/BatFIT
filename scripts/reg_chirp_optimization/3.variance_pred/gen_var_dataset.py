@@ -14,19 +14,16 @@ import os
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
-import pickle
 import sys
 
 import numpy as np
 import torch
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 from batfit import logger
 from batfit.basicutilityc import ReadInput as ri
 from batfit.model.param_utils.noise_utils import apply_noise, make_noise_levels
 from batfit.model.param_utils.train_utils import create_model_from_log
 from batfit.model.paramNN import ProbProtParamFM
-from batfit.utils.data_utils import scale_input_from_scaler
 from batfit.utils.torch_utils import find_best_model_file, get_device_type
 
 
@@ -35,22 +32,16 @@ def _load_npe(inp):
     model_pkl = os.path.join(inp.npe_models_dir, "model.pkl")
     best_pt = find_best_model_file(inp.npe_models_dir)
     logger.info(f"Loading NPE from {best_pt}")
+    # the NPE carries its own signal/protocol/parameter scalers
     model = create_model_from_log(
         model_obj_file=model_pkl,
         model_state_dict_file=best_pt,
     )
-    with open(inp.scaler_path, "rb") as f:
-        scaler_X = pickle.load(f)
-
-    scaler_Y = None
-    if isinstance(model, ProbProtParamFM):
-        with open(os.path.join(inp.data_path, "scaler_Y.pkl"), "rb") as f:
-            scaler_Y = pickle.load(f)
 
     device = torch.device(get_device_type())
     model.to(device)
     model.eval()
-    return model, scaler_X, scaler_Y, device
+    return model, device
 
 
 def _process_split(
@@ -58,9 +49,6 @@ def _process_split(
     P_np: np.ndarray,
     Y_np: np.ndarray,
     model,
-    scaler_X,
-    scaler_Y,
-    scaler_P,
     noise_levels: torch.Tensor,
     a_min: torch.Tensor,
     a_max: torch.Tensor,
@@ -80,7 +68,7 @@ def _process_split(
         noisy copy directly.
       - For ProbProtParamFM: draws n_samples posterior samples per noisy
         copy via model.sample(...), then takes their mean/std (after
-        scaler_Y.inverse_transform) as that copy's (mu_k, sigma_k).
+        model.to_physical) as that copy's (mu_k, sigma_k).
       - Averages (mu_k, sigma_k) over the n_noise dimension.
     """
     N = X_np.shape[0]
@@ -97,11 +85,11 @@ def _process_split(
         B = X_batch.shape[0]
 
         # Scale X with the NPE's z-score scaler
-        X_scaled = scaler_X.transform(X_batch)  # (B, channels, time)
+        X_scaled = model.scaler_X.transform(X_batch)  # (B, channels, time)
         X_tensor = torch.from_numpy(X_scaled)  # float32
 
-        # Scale P with the NPE's MinMax scaler
-        P_scaled = scaler_P.transform(P_batch).astype("float32")
+        # Scale P to [0, 1] with the NPE's protocol scaler
+        P_scaled = model.scaler_P.transform(P_batch).astype("float32")
         P_tensor = torch.from_numpy(P_scaled)
 
         # Tile to (B * n_noise, …) for vectorised noise application
@@ -117,30 +105,27 @@ def _process_split(
         )  # (B*n_noise, n_prot)
 
         # Each of the B*n_noise copies gets independent noise
-        X_noisy = apply_noise(X_tiled, scaler_X, noise_levels, a_min, a_max)
+        X_noisy = apply_noise(
+            X_tiled, model.scaler_X, noise_levels, a_min, a_max
+        )
 
         with torch.no_grad():
             if isinstance(model, ProbProtParamFM):
-                samples_z = model.sample(
+                samples_flow = model.sample(
                     X_noisy.to(device),
                     P_tiled.to(device),
                     n_samples=n_samples,
                     n_steps=n_ode_steps,
-                )  # (B*n_noise, n_samples, n_deg), z-scored
-                samples_phys = scaler_Y.inverse_transform(
-                    samples_z.cpu().numpy().reshape(-1, n_deg)
-                ).reshape(B * n_noise, n_samples, n_deg)
+                )  # (B*n_noise, n_samples, n_deg), flow space
+                samples_phys = model.to_physical(samples_flow)
+                samples_phys = samples_phys.cpu().numpy()
                 mu_np = samples_phys.mean(axis=1)  # (B*n_noise, n_deg)
                 sigma_np = samples_phys.std(axis=1)  # (B*n_noise, n_deg)
             else:
-                mu_s, sigma_s = model(X_noisy.to(device), P_tiled.to(device))
-                if model.constrain_output:
-                    mu_s, sigma_s = model.inv_transform_output(
-                        mu_s,
-                        sigma_s,
-                        model.min_par.to(device),
-                        model.amp_par.to(device),
-                    )
+                mu_scaled, sigma_scaled = model(
+                    X_noisy.to(device), P_tiled.to(device)
+                )
+                mu_s, sigma_s = model.to_physical(mu_scaled, sigma_scaled)
                 mu_np = mu_s.cpu().numpy()  # (B*n_noise, n_deg)
                 sigma_np = sigma_s.cpu().numpy()  # (B*n_noise, n_deg)
 
@@ -181,11 +166,7 @@ def gen_var_dataset(inp) -> None:
         f"val={X_val.shape[0]}"
     )
 
-    # Load the NPE's P scaler (used inside _process_split to scale P before the NPE)
-    with open(inp.scaler_P_path, "rb") as f:
-        scaler_P_npe = pickle.load(f)
-
-    model, scaler_X, scaler_Y, device = _load_npe(inp)
+    model, device = _load_npe(inp)
 
     noise_levels, a_min, a_max = make_noise_levels(
         target_mode=inp.target_mode,
@@ -196,6 +177,8 @@ def gen_var_dataset(inp) -> None:
             2.01 * 2,
         ],
         cyc_mode=inp.cyc_mode,
+        vmin=model.sim_params["vmin"],
+        vmax=model.sim_params["vmax"],
     )
 
     # n_samples/n_ode_steps only apply to a ProbProtParamFM NPE; CNN recipes
@@ -214,9 +197,6 @@ def gen_var_dataset(inp) -> None:
 
     shared = dict(
         model=model,
-        scaler_X=scaler_X,
-        scaler_Y=scaler_Y,
-        scaler_P=scaler_P_npe,
         noise_levels=noise_levels,
         a_min=a_min,
         a_max=a_max,
@@ -235,92 +215,33 @@ def gen_var_dataset(inp) -> None:
     logger.info("Processing val split …")
     P_va, mu_va, sigma_va = _process_split(X_val, P_val, Y_val, **shared)
 
-    # Fit scalers on train only
-    scaler_P_vp = MinMaxScaler()
-    scaler_P_vp.fit(P_tr)
-    scaler_mu = MinMaxScaler()
-    scaler_mu.fit(mu_tr)
-
-    save_path = inp.var_pred_save_path
-    with open(os.path.join(save_path, "scaler_P_varpred.pkl"), "wb") as f:
-        pickle.dump(scaler_P_vp, f)
-    with open(os.path.join(save_path, "scaler_mu.pkl"), "wb") as f:
-        pickle.dump(scaler_mu, f)
-
-    # Two optional (mutually exclusive) sigma target reparameterisations:
-    #   scale_sigma — MinMax per parameter to [0, 1]; Sigmoid head trained
-    #     directly on the scaled sigma (historical behaviour).
-    #   log_sigma — z-scored log(sigma) (StandardScaler on log(sigma_train));
-    #     MSE then acts as a relative-error loss, removing the constant
-    #     absolute-error floor that inflates relative error at small sigma,
-    #     and each parameter contributes with unit variance to the loss.
-    #     train_var_pred.py detects scaler_logsigma.pkl and switches the
-    #     model to a linear output head.
-    log_sigma: bool = getattr(inp, "log_sigma", False)
-    assert not (
-        inp.scale_sigma and log_sigma
-    ), "scale_sigma and log_sigma are mutually exclusive"
-    if inp.scale_sigma:
-        scaler_sigma = MinMaxScaler()
-        scaler_sigma.fit(sigma_tr)
-        with open(os.path.join(save_path, "scaler_sigma.pkl"), "wb") as f:
-            pickle.dump(scaler_sigma, f)
-        sigma_tr = scaler_sigma.transform(sigma_tr).astype("float32")
-        sigma_te = scaler_sigma.transform(sigma_te).astype("float32")
-        sigma_va = scaler_sigma.transform(sigma_va).astype("float32")
-        logger.info("sigma MinMax-scaled per parameter (scale_sigma=true)")
-    elif log_sigma:
-        assert (
-            sigma_tr.min() > 0 and sigma_te.min() > 0 and sigma_va.min() > 0
-        ), "sigma must be strictly positive to train on log sigma"
-        scaler_logsigma = StandardScaler()
-        scaler_logsigma.fit(np.log(sigma_tr))
-        with open(os.path.join(save_path, "scaler_logsigma.pkl"), "wb") as f:
-            pickle.dump(scaler_logsigma, f)
-        sigma_tr = scaler_logsigma.transform(np.log(sigma_tr)).astype(
-            "float32"
-        )
-        sigma_te = scaler_logsigma.transform(np.log(sigma_te)).astype(
-            "float32"
-        )
-        sigma_va = scaler_logsigma.transform(np.log(sigma_va)).astype(
-            "float32"
-        )
-        logger.info(
-            "sigma log-transformed and z-scored per parameter (log_sigma=true)"
-        )
-
-    logger.info(f"Scalers saved to {save_path}")
-
-    P_tr_sc = scaler_P_vp.transform(P_tr).astype("float32")
-    mu_tr_sc = scaler_mu.transform(mu_tr).astype("float32")
-    P_te_sc = scaler_P_vp.transform(P_te).astype("float32")
-    mu_te_sc = scaler_mu.transform(mu_te).astype("float32")
-    P_va_sc = scaler_P_vp.transform(P_va).astype("float32")
-    mu_va_sc = scaler_mu.transform(mu_va).astype("float32")
-
-    dataset_file = os.path.join(save_path, "var_pred_dataset.npz")
+    # Physical values: the variance estimator holds its own scalers (bounds of
+    # the config for P and mu, log-sigma z-score fitted by train_var_pred.py)
+    assert (
+        sigma_tr.min() > 0 and sigma_te.min() > 0 and sigma_va.min() > 0
+    ), "sigma must be strictly positive to train on log sigma"
+    dataset_file = os.path.join(inp.var_pred_save_path, "var_pred_dataset.npz")
     np.savez(
         dataset_file,
-        P_train=P_tr_sc,
-        Mu_train=mu_tr_sc,
+        P_train=P_tr,
+        Mu_train=mu_tr,
         Sigma_train=sigma_tr,
-        P_test=P_te_sc,
-        Mu_test=mu_te_sc,
+        P_test=P_te,
+        Mu_test=mu_te,
         Sigma_test=sigma_te,
-        P_val=P_va_sc,
-        Mu_val=mu_va_sc,
+        P_val=P_va,
+        Mu_val=mu_va,
         Sigma_val=sigma_va,
     )
     logger.info(f"Variance predictor dataset saved to {dataset_file}")
     logger.info(
-        f"  train: P={P_tr_sc.shape}, mu={mu_tr_sc.shape}, sigma={sigma_tr.shape}"
+        f"  train: P={P_tr.shape}, mu={mu_tr.shape}, sigma={sigma_tr.shape}"
     )
     logger.info(
-        f"  test:  P={P_te_sc.shape}, mu={mu_te_sc.shape}, sigma={sigma_te.shape}"
+        f"  test:  P={P_te.shape}, mu={mu_te.shape}, sigma={sigma_te.shape}"
     )
     logger.info(
-        f"  val:   P={P_va_sc.shape}, mu={mu_va_sc.shape}, sigma={sigma_va.shape}"
+        f"  val:   P={P_va.shape}, mu={mu_va.shape}, sigma={sigma_va.shape}"
     )
 
 

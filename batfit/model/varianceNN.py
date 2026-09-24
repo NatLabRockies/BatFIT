@@ -4,262 +4,217 @@ import torch.nn as nn
 
 from batfit import logger
 from batfit.preprocess.sim_setup import make_params
+from batfit.utils.scalers import BoundedScaler, ZScoreScaler
 
 
-class VariancePredFCNN(nn.Module):
-    """Deterministic MLP predicting NPE sigma given scaled (prot_params, deg_mean).
+class _VariancePredBase(nn.Module):
+    """Base class of the amortized NPE-sigma estimators.
+
+    The network predicts the NPE posterior standard deviation of every
+    degradation parameter as a z-scored ``log(sigma)`` (``scaler_logsigma``,
+    fitted on the training sigmas)
+    The inputs are scaled to ``[0, 1]`` from the bounds of
+    ``sim_config``: the degradation-parameter mean with ``scaler_Y`` and, for
+    protocol models, the protocol parameters with ``scaler_P``.
 
     Parameters
     ----------
-    n_prot: int
-        Number of protocol parameters
-    n_deg: int
-        Number of degradation parameters
     hidden_list: list[int]
-        Widths of the hidden FC layers
+        Widths of the hidden Tanh layers
     sim_config: str
-        Path to the simulation YAML config; required to build min_par and
-        amp_par for sigma rescaling
-    output_activation: str
-        ``"sigmoid"`` (default, historical behaviour) or ``"linear"``
-        (unbounded output for z-scored log-sigma targets)
+        Experiment configuration; provides the parameters (and so their
+        numbers ``n_deg``, ``n_prot``) and their bounds
+    scaler_logsigma: ZScoreScaler | None
+        Z-score of ``log(sigma)`` fitted on the training set; None creates an
+        identity placeholder, to be filled by ``load_state_dict``
+    with_prot: bool
+        Condition on the protocol parameters
     """
 
     def __init__(
         self,
-        n_prot: int,
-        n_deg: int,
         hidden_list: list[int],
         sim_config: str,
-        output_activation: str = "sigmoid",
+        scaler_logsigma: ZScoreScaler | None,
+        with_prot: bool,
     ) -> None:
         super().__init__()
-        logger.info("Creating variance predictor MLP")
-        assert output_activation in ("sigmoid", "linear"), (
-            f"output_activation must be 'sigmoid' or 'linear', "
-            f"got {output_activation}"
-        )
-        self.n_prot = n_prot
-        self.n_deg = n_deg
         self.hidden_list = hidden_list
         self.sim_config = sim_config
-        self.output_activation = output_activation
+        self.sim_params = make_params(sim_config)
 
-        sim_params = make_params(sim_config)
-        self.max_par = torch.from_numpy(
-            np.array(
-                [
-                    sim_params["deg_" + name + "_max"]
-                    for name in sim_params["deg_param_names"]
-                ]
-            ).astype("float32")
-        )
-        self.min_par = torch.from_numpy(
-            np.array(
-                [
-                    sim_params["deg_" + name + "_min"]
-                    for name in sim_params["deg_param_names"]
-                ]
-            ).astype("float32")
-        )
-        self.amp_par = self.max_par - self.min_par
+        self.scaler_Y = BoundedScaler.from_sim_params(self.sim_params, "deg")
+        self.n_deg = len(self.sim_params["deg_param_names"])
+        if with_prot:
+            self.scaler_P = BoundedScaler.from_sim_params(
+                self.sim_params, "prot"
+            )
+            self.n_prot = len(self.sim_params["prot_param_names"])
+        else:
+            self.scaler_P = None
+            self.n_prot = 0
+        if scaler_logsigma is None:
+            # identity placeholder, overwritten when loading a checkpoint
+            shape = (1, self.n_deg)
+            scaler_logsigma = ZScoreScaler(np.zeros(shape), np.ones(shape))
+        self.scaler_logsigma = scaler_logsigma
 
+        # linear head: the target (z-scored log sigma) is unbounded
         layers: list[nn.Module] = []
-        in_dim = n_prot + n_deg
+        in_dim = self.n_prot + self.n_deg
         for hidden_dim in hidden_list:
             layers.append(nn.Linear(in_dim, hidden_dim))
             layers.append(nn.Tanh())
             in_dim = hidden_dim
-        layers.append(nn.Linear(in_dim, n_deg))
-        if output_activation == "sigmoid":
-            # Sigmoid mirrors constrain_output=True in ProbProtParamCNN;
-            # physical sigma is recovered by inv_transform_gamma.
-            layers.append(nn.Sigmoid())
+        layers.append(nn.Linear(in_dim, self.n_deg))
         self.layers = nn.Sequential(*layers)
+
+    def to_physical(self, sigma_scaled: torch.Tensor) -> torch.Tensor:
+        """Map the network output (z-scored log sigma) to physical sigma.
+
+        Differentiable, so it can be used inside a gradient-based protocol
+        optimisation.
+
+        Parameters
+        ----------
+        sigma_scaled: torch.Tensor
+            Output of ``forward``, shape ``(batch, n_deg)``
+
+        Returns
+        -------
+        torch.Tensor
+            Physical sigma, shape ``(batch, n_deg)``
+        """
+        return torch.exp(self.scaler_logsigma.inverse_transform(sigma_scaled))
+
+
+class VariancePredFCNN(_VariancePredBase):
+    """MLP predicting NPE sigma from protocol parameters and the NPE mean.
+
+    Parameters
+    ----------
+    hidden_list: list[int]
+        Widths of the hidden Tanh layers
+    sim_config: str
+        Experiment configuration; must declare protocol parameters
+    scaler_logsigma: ZScoreScaler | None
+        Z-score of ``log(sigma)`` fitted on the training set; None creates an
+        identity placeholder, to be filled by ``load_state_dict``
+    """
+
+    def __init__(
+        self,
+        hidden_list: list[int],
+        sim_config: str,
+        scaler_logsigma: ZScoreScaler | None = None,
+    ) -> None:
+        logger.info("Creating variance predictor MLP")
+        super().__init__(
+            hidden_list, sim_config, scaler_logsigma, with_prot=True
+        )
 
     def forward(
         self,
         prot_params: torch.Tensor,
         mu: torch.Tensor,
     ) -> torch.Tensor:
-        """Return the sigma prediction in the network's trained target space.
+        """Predict the z-scored log sigma from scaled inputs.
 
         Parameters
         ----------
         prot_params: torch.Tensor
-            MinMax-scaled protocol params, shape ``(batch, n_prot)``
+            Protocol parameters scaled with ``scaler_P``, shape
+            ``(batch, n_prot)``
         mu: torch.Tensor
-            MinMax-scaled degradation param mean, shape ``(batch, n_deg)``
+            Degradation-parameter mean scaled with ``scaler_Y``, shape
+            ``(batch, n_deg)``
 
         Returns
         -------
         torch.Tensor
-            Shape ``(batch, n_deg)``. With ``output_activation="sigmoid"``,
-            values in (0, 1); multiply by amp_par via inv_transform_gamma
-            (or invert the sigma MinMaxScaler when trained with scale_sigma)
-            to obtain physical sigma. With ``output_activation="linear"``,
-            z-scored log sigma; invert with scaler_logsigma and exponentiate.
+            Z-scored log sigma, shape ``(batch, n_deg)``; see
+            :meth:`to_physical`
         """
         x = torch.cat([prot_params, mu], dim=-1)
         return self.layers(x)
 
-    def inv_transform_gamma(
-        self,
-        gamma_sigmoid: torch.Tensor,
-        amp_par: torch.Tensor,
+    def predict_physical(
+        self, prot_params: torch.Tensor, mu: torch.Tensor
     ) -> torch.Tensor:
-        """Convert sigmoid output to physical sigma (mirrors _ProbParamBase).
+        """Predict physical sigma from physical protocol parameters and mean.
 
         Parameters
         ----------
-        gamma_sigmoid: torch.Tensor
-            Sigmoid output of ``forward()``, shape ``(batch, n_deg)``
-        amp_par: torch.Tensor
-            Parameter amplitude tensor, shape ``(n_deg,)``
+        prot_params: torch.Tensor
+            Protocol parameters, shape ``(batch, n_prot)``
+        mu: torch.Tensor
+            Degradation-parameter mean, shape ``(batch, n_deg)``
 
         Returns
         -------
         torch.Tensor
             Physical sigma, shape ``(batch, n_deg)``
         """
-        return gamma_sigmoid * amp_par
-
-    def transform_gamma(
-        self,
-        gamma_physical: torch.Tensor,
-        amp_par: torch.Tensor,
-    ) -> torch.Tensor:
-        """Convert physical sigma to sigmoid-space target for loss computation.
-
-        Parameters
-        ----------
-        gamma_physical: torch.Tensor
-            Physical sigma values, shape ``(batch, n_deg)``
-        amp_par: torch.Tensor
-            Parameter amplitude tensor, shape ``(n_deg,)``
-
-        Returns
-        -------
-        torch.Tensor
-            Normalised sigma in (0, 1), shape ``(batch, n_deg)``
-        """
-        return gamma_physical / amp_par
+        prot_params_scaled = self.scaler_P.transform(prot_params)
+        mu_scaled = self.scaler_Y.transform(mu)
+        sigma_scaled = self(prot_params_scaled, mu_scaled)
+        return self.to_physical(sigma_scaled)
 
 
-class VariancePredNoProtFCNN(nn.Module):
-    """Deterministic MLP predicting NPE sigma given scaled (deg_mean).
+class VariancePredNoProtFCNN(_VariancePredBase):
+    """MLP predicting NPE sigma from the NPE mean only (no protocol).
 
     Parameters
     ----------
-    n_deg: int
-        Number of degradation parameters
     hidden_list: list[int]
-        Widths of the hidden FC layers
+        Widths of the hidden Tanh layers
     sim_config: str
-        Path to the simulation YAML config; required to build min_par and
-        amp_par for sigma rescaling
+        Experiment configuration providing the parameter bounds
+    scaler_logsigma: ZScoreScaler | None
+        Z-score of ``log(sigma)`` fitted on the training set; None creates an
+        identity placeholder, to be filled by ``load_state_dict``
     """
 
     def __init__(
         self,
-        n_deg: int,
         hidden_list: list[int],
         sim_config: str,
+        scaler_logsigma: ZScoreScaler | None = None,
     ) -> None:
-        super().__init__()
-        logger.info("Creating variance predictor MLP")
-        self.n_deg = n_deg
-        self.hidden_list = hidden_list
-        self.sim_config = sim_config
-
-        sim_params = make_params(sim_config)
-        self.max_par = torch.from_numpy(
-            np.array(
-                [
-                    sim_params["deg_" + name + "_max"]
-                    for name in sim_params["deg_param_names"]
-                ]
-            ).astype("float32")
+        logger.info("Creating variance predictor MLP (no protocol)")
+        super().__init__(
+            hidden_list, sim_config, scaler_logsigma, with_prot=False
         )
-        self.min_par = torch.from_numpy(
-            np.array(
-                [
-                    sim_params["deg_" + name + "_min"]
-                    for name in sim_params["deg_param_names"]
-                ]
-            ).astype("float32")
-        )
-        self.amp_par = self.max_par - self.min_par
 
-        layers: list[nn.Module] = []
-        in_dim = n_deg
-        for hidden_dim in hidden_list:
-            layers.append(nn.Linear(in_dim, hidden_dim))
-            layers.append(nn.Tanh())
-            in_dim = hidden_dim
-        layers.append(nn.Linear(in_dim, n_deg))
-        # Sigmoid mirrors constrain_output=True in ProbProtParamCNN;
-        # physical sigma is recovered by inv_transform_gamma.
-        layers.append(nn.Sigmoid())
-        self.layers = nn.Sequential(*layers)
-
-    def forward(
-        self,
-        mu: torch.Tensor,
-    ) -> torch.Tensor:
-        """Return sigmoid-scaled sigma given scaled protocol and deg-param mean.
+    def forward(self, mu: torch.Tensor) -> torch.Tensor:
+        """Predict the z-scored log sigma from the scaled mean.
 
         Parameters
         ----------
         mu: torch.Tensor
-            MinMax-scaled degradation param mean, shape ``(batch, n_deg)``
+            Degradation-parameter mean scaled with ``scaler_Y``, shape
+            ``(batch, n_deg)``
 
         Returns
         -------
         torch.Tensor
-            Sigmoid output in (0, 1), shape ``(batch, n_deg)``; multiply by
-            amp_par via inv_transform_gamma to obtain physical sigma
+            Z-scored log sigma, shape ``(batch, n_deg)``; see
+            :meth:`to_physical`
         """
         return self.layers(mu)
 
-    def inv_transform_gamma(
-        self,
-        gamma_sigmoid: torch.Tensor,
-        amp_par: torch.Tensor,
-    ) -> torch.Tensor:
-        """Convert sigmoid output to physical sigma (mirrors _ProbParamBase).
+    def predict_physical(self, mu: torch.Tensor) -> torch.Tensor:
+        """Predict physical sigma from the physical mean.
 
         Parameters
         ----------
-        gamma_sigmoid: torch.Tensor
-            Sigmoid output of ``forward()``, shape ``(batch, n_deg)``
-        amp_par: torch.Tensor
-            Parameter amplitude tensor, shape ``(n_deg,)``
+        mu: torch.Tensor
+            Degradation-parameter mean, shape ``(batch, n_deg)``
 
         Returns
         -------
         torch.Tensor
             Physical sigma, shape ``(batch, n_deg)``
         """
-        return gamma_sigmoid * amp_par
-
-    def transform_gamma(
-        self,
-        gamma_physical: torch.Tensor,
-        amp_par: torch.Tensor,
-    ) -> torch.Tensor:
-        """Convert physical sigma to sigmoid-space target for loss computation.
-
-        Parameters
-        ----------
-        gamma_physical: torch.Tensor
-            Physical sigma values, shape ``(batch, n_deg)``
-        amp_par: torch.Tensor
-            Parameter amplitude tensor, shape ``(n_deg,)``
-
-        Returns
-        -------
-        torch.Tensor
-            Normalised sigma in (0, 1), shape ``(batch, n_deg)``
-        """
-        return gamma_physical / amp_par
+        sigma_scaled = self(self.scaler_Y.transform(mu))
+        return self.to_physical(sigma_scaled)

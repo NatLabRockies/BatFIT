@@ -1,3 +1,4 @@
+import json
 import os
 import pickle
 import tempfile
@@ -5,6 +6,7 @@ import tempfile
 import torch
 import torch.nn as nn
 
+from batfit.utils.scalers import BoundedScaler
 from batfit.utils.torch_utils import (
     find_best_model_file,
     get_device_type,
@@ -54,6 +56,30 @@ def test_save_load_model():
         model = load_model(model, state_dict_file=f"{tmp_dir}/model_0.pt")
 
     assert torch.allclose(model.weight.data.cpu(), initial_weight.cpu())
+
+    # save_model_obj also writes scaling.json, only for models with scalers
+    model_scaled = nn.Sequential(nn.Linear(2, 1))
+    model_scaled.scaler_Y = BoundedScaler([0.0], [2.0])
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        save_model(
+            step=0,
+            model=model_scaled,
+            log_folder=tmp_dir,
+            save_model_obj=True,
+            save_model_weights=False,
+        )
+        with open(os.path.join(tmp_dir, "scaling.json")) as f:
+            scaling = json.load(f)
+        assert scaling["scalers"]["scaler_Y"]["high"] == [2.0]
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        save_model(
+            step=0,
+            model=nn.Linear(2, 1),
+            log_folder=tmp_dir,
+            save_model_obj=True,
+            save_model_weights=False,
+        )
+        assert os.listdir(tmp_dir) == ["model.pkl"]
 
 
 def test_find_best_model_file():

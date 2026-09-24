@@ -8,9 +8,30 @@ def make_noise_levels(
     target_mode: str,
     noise_levels: list,
     cyc_mode: str,
-    vmin: float = 3.0,
-    vmax: float = 4.1,
+    vmin: float,
+    vmax: float,
 ):
+    """Build per-channel noise levels and post-noise clip bounds.
+
+    Parameters
+    ----------
+    target_mode: str
+        Signal channels used (e.g. ``"phi"``)
+    noise_levels: list
+        Noise amplitude of each of the 4 raw channels
+    cyc_mode: str
+        Cycling mode of the signal
+    vmin: float
+        Lower voltage clip, the ``vmin`` of the experiment config
+    vmax: float
+        Upper voltage clip, the ``vmax`` of the experiment config
+
+    Returns
+    -------
+    tuple
+        ``(noise_levels, a_min, a_max)`` for the selected channels, each of
+        shape ``(1, n_channels, 1)``
+    """
     noise_levels_single = torch.tensor(noise_levels).view(1, 4, 1)
     noise_levels_dis = torch.tensor(noise_levels).view(1, 4, 1)
     noise_levels_chcc = torch.tensor(noise_levels).view(1, 4, 1)

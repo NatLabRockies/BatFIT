@@ -6,11 +6,6 @@ import torch
 from prettyPlot.progressBar import print_progress_bar
 
 from batfit import logger
-from batfit.model.surrogateNN import SurrogateFCNN
-from batfit.utils.data_utils import (
-    scale_input_from_scaler,
-    unscale_dataset_from_scaler,
-)
 from batfit.utils.torch_utils import (
     get_device_type,
     get_num_parameters,
@@ -31,8 +26,6 @@ def create_model_from_log(model_obj_file, model_state_dict_file, verbose=True):
         )
     with open(model_obj_file, "rb") as f:
         model = pickle.load(f)
-    if not hasattr(model, "dependent_outputs"):
-        model.dependent_outputs = False
     num_parameters = get_num_parameters(model)
     if verbose:
         print(f"\tNo. Trainable Parameters: {num_parameters}")
@@ -41,34 +34,6 @@ def create_model_from_log(model_obj_file, model_state_dict_file, verbose=True):
             model, model_state_dict_file, enable_cuda=False, enable_mps=False
         )
     return model
-
-
-def forward_pass(model, np_data_in, scaler_X_file, scaler_Y_file, scale_y):
-    model.eval()
-    model.to("cpu")
-
-    X_scaled = scale_input_from_scaler(np_data_in, scaler_X_file)
-    with torch.no_grad():
-        if isinstance(model, SurrogateFCNN):
-            pred_scaled = model(torch.from_numpy(X_scaled))
-            if model.constrain_output:
-                pred_unscaled = model.inv_transform_output(
-                    pred_scaled,
-                    model.min_v,
-                    model.amp_v,
-                )
-            else:
-                pred_unscaled = pred_scaled
-
-            pred_unscaled = pred_unscaled.numpy()
-            inp_unscaled, _ = unscale_dataset_from_scaler(
-                X_scaled, pred_scaled, scaler_X_file, scaler_Y_file
-            )
-
-        else:
-            raise NotImplementedError
-
-    return pred_unscaled
 
 
 def learning_rate_schedule(epoch, epoch_end, lr_beg, lr_end):
@@ -194,13 +159,8 @@ def train_model(
             batch_in = batch[0]
             # Compute loss
             try:
+                # loss in the scaled voltage space
                 pred = model(batch_in.to(device))
-                if model.constrain_output:
-                    pred = model.inv_transform_output(
-                        pred,
-                        model.min_v,
-                        model.amp_v,
-                    )
                 loss = model.loss_fn(pred, batch[1].to(device))
                 # Do backprop and optimizer step
                 if ~(torch.isnan(loss) | torch.isinf(loss)):
@@ -336,13 +296,8 @@ def compute_test_loss(
             current_step = step + 1
             batch_in = batch[0]
             # Compute loss
+            # loss in the scaled voltage space
             pred = model(batch_in.to(device))
-            if model.constrain_output:
-                pred = model.inv_transform_output(
-                    pred,
-                    model.min_v,
-                    model.amp_v,
-                )
             loss = model.loss_fn(pred, batch[1].to(device))
             loss_ave += loss.item() * batch_in.shape[0]
             num_el += batch_in.shape[0]

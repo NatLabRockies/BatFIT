@@ -2,11 +2,9 @@
 nochirp_npe_models_dir: ../2.npe_fm/models_spm_nochirp
 chirp_npe_models_dir: ../2.npe_fm/models_spm_chirp
 var_pred_models_dir: ../3.variance_pred/var_pred_spm/models
-var_pred_save_path: ../3.variance_pred/var_pred_data_spm
 
 # --- Data ---
 nochirp_data_path: ../1.gen_data/data_spm_nochirp
-chirp_data_path: ../1.gen_data/data_spm_chirp
 sim_config: spm_chirp.yaml       # chirp config: supplies protocol bounds + names
 cyc_mode: chargecc               # observations are the plain (nochirp) charge
 target_mode: phi

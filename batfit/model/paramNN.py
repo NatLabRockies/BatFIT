@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 
 from batfit import logger
+from batfit.utils.scalers import ZScoreScaler
 
 from .param_utils.model_utils import (
     _build_cnn_encoder,
@@ -24,25 +25,24 @@ class ProbParamCNN(_ProbParamBase):
         fc_mu_list,
         fc_gamma_list,
         loss_fn,
+        sim_config: str,
         leaky_relu_slope=0.2,
         cyc_mode="discharge",
-        n_param_pred=6,
-        dependent_outputs=False,
-        constrain_output=False,
         encoder_model=None,
-        sim_config=None,
+        scaler_X: ZScoreScaler | None = None,
+        param_margin: float = 0.05,
         num_attn_heads: int = 0,
         attn_dropout: float = 0.0,
     ):
         logger.info("Creating probabilistic CNN model")
         super(ProbParamCNN, self).__init__(
             loss_fn=loss_fn,
-            cyc_mode=cyc_mode,
-            n_param_pred=n_param_pred,
-            dependent_outputs=dependent_outputs,
-            constrain_output=constrain_output,
-            encoder_model=encoder_model,
             sim_config=sim_config,
+            scaler_X_shape=(1, input_shape[0], 1),
+            cyc_mode=cyc_mode,
+            encoder_model=encoder_model,
+            scaler_X=scaler_X,
+            param_margin=param_margin,
         )
         self.leaky_relu_slope = leaky_relu_slope
         self.chan_list = chan_list
@@ -73,8 +73,7 @@ class ProbParamCNN(_ProbParamBase):
             fc_mu_list,
             fc_gamma_list,
             self.output_dim,
-            self.dependent_outputs,
-            self.constrain_output,
+            self.param_margin,
         )
 
     def forward(self, x):
@@ -95,9 +94,6 @@ class ProbParamCNN(_ProbParamBase):
             mu = self.model_mu_layers(x)
             gamma = self.model_gamma_layers(x)
 
-        if self.dependent_outputs:
-            gamma = self._cholesky_cov(gamma)
-
         return mu, gamma
 
 
@@ -111,22 +107,21 @@ class ProbParamFCNN(_ProbParamBase):
         fc_mu_list,
         fc_gamma_list,
         loss_fn,
+        sim_config: str,
         cyc_mode="discharge",
-        n_param_pred=6,
-        dependent_outputs=False,
-        constrain_output=False,
         encoder_model=None,
-        sim_config=None,
+        scaler_X: ZScoreScaler | None = None,
+        param_margin: float = 0.05,
     ):
         logger.info("Creating probabilistic FCNN model")
         super(ProbParamFCNN, self).__init__(
             loss_fn=loss_fn,
-            cyc_mode=cyc_mode,
-            n_param_pred=n_param_pred,
-            dependent_outputs=dependent_outputs,
-            constrain_output=constrain_output,
-            encoder_model=encoder_model,
             sim_config=sim_config,
+            scaler_X_shape=(1, input_shape[0]),
+            cyc_mode=cyc_mode,
+            encoder_model=encoder_model,
+            scaler_X=scaler_X,
+            param_margin=param_margin,
         )
         self.hidden_list = hidden_list
         elementary_fcnn = _build_hidden_fcnn_layers(
@@ -153,8 +148,7 @@ class ProbParamFCNN(_ProbParamBase):
             fc_mu_list,
             fc_gamma_list,
             self.output_dim,
-            self.dependent_outputs,
-            self.constrain_output,
+            self.param_margin,
         )
 
         self.fcnn_layers = nn.Sequential(*self.fcnn)
@@ -179,9 +173,6 @@ class ProbParamFCNN(_ProbParamBase):
             mu = self.model_mu_layers(x)
             gamma = self.model_gamma_layers(x)
 
-        if self.dependent_outputs:
-            gamma = self._cholesky_cov(gamma)
-
         return mu, gamma
 
 
@@ -197,14 +188,12 @@ class ProbProtParamCNN(_ProbParamBase):
         fc_mu_list: list[int],
         fc_gamma_list: list[int],
         loss_fn,
-        n_prot_params: int,
+        sim_config: str,
         leaky_relu_slope: float = 0.2,
         cyc_mode: str = "chirp",
-        n_param_pred: int = 6,
-        dependent_outputs: bool = False,
-        constrain_output: bool = False,
         encoder_model=None,
-        sim_config=None,
+        scaler_X: ZScoreScaler | None = None,
+        param_margin: float = 0.05,
         num_attn_heads: int = 0,
         attn_dropout: float = 0.0,
     ):
@@ -218,18 +207,18 @@ class ProbProtParamCNN(_ProbParamBase):
             )
         super(ProbProtParamCNN, self).__init__(
             loss_fn=loss_fn,
-            cyc_mode=cyc_mode,
-            n_param_pred=n_param_pred,
-            dependent_outputs=dependent_outputs,
-            constrain_output=constrain_output,
-            encoder_model=encoder_model,
             sim_config=sim_config,
+            scaler_X_shape=(1, input_shape[0], 1),
+            cyc_mode=cyc_mode,
+            encoder_model=encoder_model,
+            scaler_X=scaler_X,
+            param_margin=param_margin,
+            with_prot=True,
         )
         self.leaky_relu_slope = leaky_relu_slope
         self.chan_list = chan_list
         self.fc_list = fc_list
         self.fc_prot_list = fc_prot_list
-        self.n_prot_params = n_prot_params
 
         assert len(chan_list) < int(np.log(input_shape[1]) / np.log(2))
 
@@ -246,7 +235,7 @@ class ProbProtParamCNN(_ProbParamBase):
         )
 
         # After CNN output + prot_params concatenation
-        prot_input_size = fc_list[-1] + n_prot_params
+        prot_input_size = fc_list[-1] + self.n_prot_params
         _prot_layers = []
         if fc_prot_list:
             prot_fc = _build_hidden_fcnn_layers(prot_input_size, fc_prot_list)
@@ -263,8 +252,7 @@ class ProbProtParamCNN(_ProbParamBase):
             fc_mu_list,
             fc_gamma_list,
             self.output_dim,
-            self.dependent_outputs,
-            self.constrain_output,
+            self.param_margin,
         )
 
     def forward(
@@ -282,7 +270,7 @@ class ProbProtParamCNN(_ProbParamBase):
         Returns
         -------
         tuple[torch.Tensor, torch.Tensor]
-            Predicted parameter means and variances/covariance ``(mu, gamma)``
+            Scaled posterior means and standard deviations ``(mu, gamma)``
         """
         x = self.cnn_layers(x)
         x = torch.cat((x, prot_params), dim=1)
@@ -290,9 +278,6 @@ class ProbProtParamCNN(_ProbParamBase):
 
         mu = self.model_mu_layers(x)
         gamma = self.model_gamma_layers(x)
-
-        if self.dependent_outputs:
-            gamma = self._cholesky_cov(gamma)
 
         return mu, gamma
 
@@ -323,20 +308,22 @@ class ProbParamFM(_ProbParamFMBase):
     Inference
     ---------
     Call ``sample(x, n_samples)`` to draw posterior samples by integrating the
-    learned ODE from N(0, I) to t=1 with the midpoint method.
+    learned ODE from the base distribution to t=1 with the midpoint method,
+    then :meth:`to_physical` to map them to physical units (or
+    :meth:`sample_physical` from a physical signal).
     """
 
     def __init__(
         self,
         vf_hidden_list: list[int],
+        sim_config: str,
         input_shape: tuple[int, int] | None = None,
         chan_list: list[int] | None = None,
         fc_list: list[int] | None = None,
         encoder_model: nn.Module | None = None,
         leaky_relu_slope: float = 0.2,
         cyc_mode: str = "discharge",
-        n_param_pred: int = 6,
-        sim_config: str | None = None,
+        scaler_X: ZScoreScaler | None = None,
         use_prior_matching: bool = False,
         num_attn_heads: int = 0,
         attn_dropout: float = 0.0,
@@ -346,6 +333,9 @@ class ProbParamFM(_ProbParamFMBase):
         ----------
         vf_hidden_list: list[int]
             Hidden dims of the velocity field MLP
+        sim_config: str
+            Experiment configuration; provides the degradation parameters
+            (and so ``n_param_pred``) and their bounds
         input_shape: tuple[int, int], optional
             ``(n_channels, n_time_points)``; required in CNN mode
         chan_list: list[int], optional
@@ -360,11 +350,9 @@ class ProbParamFM(_ProbParamFMBase):
         cyc_mode: str
             Cycling mode; ``"discharge-chargecc"`` uses dual CNN encoders
             (CNN mode only)
-        n_param_pred: int
-            Number of degradation parameters to estimate
-        sim_config: str, optional
-            Path to sim config YAML for physical scaling; None skips
-            scaling init
+        scaler_X: ZScoreScaler, optional
+            Fitted signal scaler; None creates an identity placeholder
+            (filled by ``load_state_dict``), which requires ``input_shape``
         use_prior_matching: bool
             If True, use the empirical training-data distribution as the
             base (requires calling :meth:`set_prior_data` before training);
@@ -391,9 +379,12 @@ class ProbParamFM(_ProbParamFMBase):
 
         logger.info("Creating flow matching CNN model (ProbParamFM)")
         super().__init__(
-            cyc_mode=cyc_mode,
-            n_param_pred=n_param_pred,
             sim_config=sim_config,
+            scaler_X_shape=(
+                None if input_shape is None else (1, input_shape[0], 1)
+            ),
+            cyc_mode=cyc_mode,
+            scaler_X=scaler_X,
             use_prior_matching=use_prior_matching,
         )
         self.vf_hidden_list = vf_hidden_list
@@ -433,13 +424,13 @@ class ProbParamFM(_ProbParamFMBase):
 
         # Velocity field MLP
         # Input: [z_t (n_param_pred) | t (1) | embedding (emb_dim)]
-        vf_input_dim = n_param_pred + 1 + emb_dim
+        vf_input_dim = self.n_param_pred + 1 + emb_dim
         vf_fc = _build_hidden_fcnn_layers(vf_input_dim, vf_hidden_list)
         _vf = []
         for layer in vf_fc:
             _vf.append(layer)
             _vf.append(nn.Tanh())
-        _vf.append(nn.Linear(vf_hidden_list[-1], n_param_pred))
+        _vf.append(nn.Linear(vf_hidden_list[-1], self.n_param_pred))
         self.vf_layers = nn.Sequential(*_vf)
 
     def _encode(self, x: torch.Tensor) -> torch.Tensor:
@@ -524,7 +515,9 @@ class ProbProtParamFM(_ProbParamFMBase):
     Inference
     ---------
     Call ``sample(x, prot_params, n_samples)`` to draw posterior samples by
-    integrating the learned ODE from N(0, I) to t=1 with the midpoint method.
+    integrating the learned ODE from the base distribution to t=1 with the
+    midpoint method, then :meth:`to_physical` to map them to physical units
+    (or :meth:`sample_physical` from physical inputs).
     """
 
     def __init__(
@@ -534,11 +527,10 @@ class ProbProtParamFM(_ProbParamFMBase):
         fc_list: list[int],
         fc_prot_list: list[int],
         vf_hidden_list: list[int],
-        n_prot_params: int,
+        sim_config: str,
         leaky_relu_slope: float = 0.2,
         cyc_mode: str = "chirp",
-        n_param_pred: int = 6,
-        sim_config: str | None = None,
+        scaler_X: ZScoreScaler | None = None,
         use_prior_matching: bool = False,
         num_attn_heads: int = 0,
         attn_dropout: float = 0.0,
@@ -557,17 +549,16 @@ class ProbProtParamFM(_ProbParamFMBase):
             fusion (prot_params concatenated directly to the CNN embedding)
         vf_hidden_list: list[int]
             Hidden dims of the velocity field MLP
-        n_prot_params: int
-            Number of protocol parameters
+        sim_config: str
+            Experiment configuration; provides the degradation and protocol
+            parameters (and so their numbers) and their bounds
         leaky_relu_slope: float
             Negative slope for LeakyReLU in the CNN
         cyc_mode: str
             Cycling mode; ``"discharge-chargecc"`` is not supported
-        n_param_pred: int
-            Number of degradation parameters to estimate
-        sim_config: str, optional
-            Path to sim config YAML for physical scaling; None skips
-            scaling init
+        scaler_X: ZScoreScaler, optional
+            Fitted signal scaler; None creates an identity placeholder
+            (filled by ``load_state_dict``)
         use_prior_matching: bool
             If True, use the empirical training-data distribution as the
             base (requires calling :meth:`set_prior_data` before training);
@@ -588,17 +579,18 @@ class ProbProtParamFM(_ProbParamFMBase):
             "(ProbProtParamFM)"
         )
         super().__init__(
-            cyc_mode=cyc_mode,
-            n_param_pred=n_param_pred,
             sim_config=sim_config,
+            scaler_X_shape=(1, input_shape[0], 1),
+            cyc_mode=cyc_mode,
+            scaler_X=scaler_X,
             use_prior_matching=use_prior_matching,
+            with_prot=True,
         )
         self.leaky_relu_slope = leaky_relu_slope
         self.chan_list = chan_list
         self.fc_list = fc_list
         self.fc_prot_list = fc_prot_list
         self.vf_hidden_list = vf_hidden_list
-        self.n_prot_params = n_prot_params
 
         assert len(chan_list) < int(np.log(input_shape[1]) / np.log(2))
 
@@ -615,7 +607,7 @@ class ProbProtParamFM(_ProbParamFMBase):
         )
 
         # Protocol fusion: [cnn_emb | prot_params] -> optional FC -> context
-        prot_input_size = fc_list[-1] + n_prot_params
+        prot_input_size = fc_list[-1] + self.n_prot_params
         _prot_layers = []
         if fc_prot_list:
             prot_fc = _build_hidden_fcnn_layers(prot_input_size, fc_prot_list)
@@ -629,13 +621,13 @@ class ProbProtParamFM(_ProbParamFMBase):
 
         # Velocity field MLP
         # Input: [z_t (n_param_pred) | t (1) | context (context_dim)]
-        vf_input_dim = n_param_pred + 1 + context_dim
+        vf_input_dim = self.n_param_pred + 1 + context_dim
         vf_fc = _build_hidden_fcnn_layers(vf_input_dim, vf_hidden_list)
         _vf = []
         for layer in vf_fc:
             _vf.append(layer)
             _vf.append(nn.Tanh())
-        _vf.append(nn.Linear(vf_hidden_list[-1], n_param_pred))
+        _vf.append(nn.Linear(vf_hidden_list[-1], self.n_param_pred))
         self.vf_layers = nn.Sequential(*_vf)
 
     def _encode_context(

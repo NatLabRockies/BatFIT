@@ -1,14 +1,14 @@
 # DATA
 cyc_mode: chargecc
 data_path: ../1.gen_data/data_p2d_nochirp
-n_param_pred: 6
 n_points: 128                # HPC: 512 (must match gen -n_points_reduce)
 noise_factor: 1.0
-scaler_path: ../1.gen_data/data_p2d_nochirp/scaler_X.pkl
 sim_config: p2d_nochirp.yaml
 target_mode: phi
 
 # ARCH
+# margin of the mu head beyond the [0, 1] parameter bounds
+param_margin: 0.05
 num_channels: 64             # HPC: 512
 num_convs: 2                 # HPC: 6
 num_fc_hidden: 1

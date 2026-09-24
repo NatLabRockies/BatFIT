@@ -1,7 +1,6 @@
 import os
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"  # Enable MPS fallback
-import pickle
 from pathlib import Path
 
 import numpy as np
@@ -16,6 +15,7 @@ from batfit.model.surrogate_utils.train_utils import (
     train_model as train_model_surr,
 )
 from batfit.model.surrogateNN import SurrogateFCNN
+from batfit.preprocess.sim_setup import make_params
 from batfit.utils.data_utils import *
 from batfit.utils.torch_utils import *
 
@@ -36,41 +36,32 @@ def make_data_loaders(inp):
         cyc_mode=cyc_mode,
         save_path=data_root_folder,
     )
-    loaders = make_surrogate_dataset_from_np(
-        batch_size=inp.batch_size,
+    loaders, scalers = make_surrogate_dataset_from_np(
+        make_params(inp.sim_config),
         np_data=X_data,
         np_data_label=Y_data,
-        scale=True,
-        scale_y=False,
+        batch_size=inp.batch_size,
         save_path=data_root_folder,
     )
 
-    return loaders
+    return loaders, scalers
 
 
-def define_model(inp):
-    data_root_folder = inp.data_path
-    n_points = inp.n_points
-    n_param_pred = inp.n_param_pred
-    cyc_mode = inp.cyc_mode
-
+def define_model(inp, scaler_t=None):
+    """Instantiate the surrogate; scaler_t=None leaves a placeholder that
+    load_state_dict fills from the checkpoint."""
     model = SurrogateFCNN(
         fc_list=inp.fc_units,
-        loss_fn=mae_loss_surr,
-        n_param_pred=n_param_pred,
         sim_config=inp.sim_config,
-        cyc_mode=cyc_mode,
-        constrain_output=inp.constrain_output,
+        loss_fn=mae_loss_surr,
+        cyc_mode=inp.cyc_mode,
+        scaler_t=scaler_t,
+        voltage_margin=getattr(inp, "voltage_margin", 0.5),
     )
     num_parameters = get_num_parameters(model)
     print(f"No. Trainable Parameters: {num_parameters}")
 
-    with open(
-        os.path.join(inp.data_path, "scaler_surrogate_X.pkl"), "rb"
-    ) as f:
-        scaler_X = pickle.load(f)
-
-    return model, scaler_X
+    return model
 
 
 def do_training(inp, model, train_data_loader, test_data_loader):
@@ -94,7 +85,7 @@ if __name__ == "__main__":
     import sys
 
     inp = ri.basic_input(sys.argv[1])
-    loaders = make_data_loaders(inp)
-    model, scaler_X = define_model(inp)
+    loaders, scalers = make_data_loaders(inp)
+    model = define_model(inp, scaler_t=scalers["t"])
     do_training(inp, model, loaders["train"], loaders["test"])
     shutil.copy(sys.argv[1], os.path.join(inp.models_dir, "recipe.yml"))

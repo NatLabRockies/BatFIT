@@ -1,61 +1,80 @@
+import numpy as np
 import torch
 
-from batfit.model.varianceNN import VariancePredFCNN
+from batfit.model.varianceNN import VariancePredFCNN, VariancePredNoProtFCNN
+from batfit.utils.scalers import ZScoreScaler
 
 
 def test_VariancePredFCNN():
     batch = 8
     n_prot = 3
     n_deg = 6
-    hidden_list = [32, 16]
     sim_config = "batfit/default_exps/spm_chirp.yaml"
 
+    # log-sigma z-score fitted on training sigmas
+    sigma_train = np.random.rand(40, n_deg).astype("float32") * 0.1 + 1e-3
+    scaler_logsigma = ZScoreScaler.fit(np.log(sigma_train), axis=0)
     model = VariancePredFCNN(
-        n_prot=n_prot,
-        n_deg=n_deg,
-        hidden_list=hidden_list,
+        hidden_list=[32, 16],
         sim_config=sim_config,
+        scaler_logsigma=scaler_logsigma,
     )
+    # numbers of parameters read from the config
+    assert model.n_prot == n_prot
+    assert model.n_deg == n_deg
+    # scalers are submodules, saved in the state dict
+    keys = set(model.state_dict())
+    assert {"scaler_P.low", "scaler_Y.low", "scaler_logsigma.means"} <= keys
 
     prot_params = torch.rand(batch, n_prot)
     mu = torch.rand(batch, n_deg)
+    sigma_scaled = model(prot_params, mu)
+    # linear head: unbounded z-scored log sigma
+    assert sigma_scaled.shape == (batch, n_deg)
+    assert isinstance(model.layers[-1], torch.nn.Linear)
 
-    sigma_sigmoid = model(prot_params, mu)
+    # predict_physical: physical inputs -> physical sigma
+    p_phys = model.scaler_P.inverse_transform(prot_params)
+    mu_phys = model.scaler_Y.inverse_transform(mu)
+    sigma_phys = model.predict_physical(p_phys, mu_phys)
+    assert torch.allclose(sigma_phys, model.to_physical(sigma_scaled))
+    assert sigma_phys.min().item() > 0.0
 
-    # Output shape
-    assert sigma_sigmoid.shape == (batch, n_deg)
-    # Sigmoid output strictly in (0, 1)
-    assert sigma_sigmoid.min().item() > 0.0
-    assert sigma_sigmoid.max().item() < 1.0
+    # gradients flow from physical sigma back to the protocol parameters
+    p_req = prot_params.clone().requires_grad_(True)
+    model.to_physical(model(p_req, mu)).sum().backward()
+    assert p_req.grad is not None
 
-    # inv_transform_gamma recovers physical sigma (positive)
-    sigma_physical = model.inv_transform_gamma(sigma_sigmoid, model.amp_par)
-    assert sigma_physical.shape == (batch, n_deg)
-    assert sigma_physical.min().item() > 0.0
 
-    # transform_gamma is the inverse of inv_transform_gamma
-    sigma_roundtrip = model.inv_transform_gamma(
-        model.transform_gamma(sigma_physical, model.amp_par), model.amp_par
+def test_VariancePredNoProtFCNN():
+    batch = 5
+    n_deg = 6
+    model = VariancePredNoProtFCNN(
+        hidden_list=[16],
+        sim_config="batfit/default_exps/spm_discharge.yaml",
     )
-    assert torch.allclose(sigma_physical, sigma_roundtrip, atol=1e-5)
+    assert model.n_prot == 0
+    assert model.scaler_P is None
+    mu = torch.rand(batch, n_deg)
+    sigma_scaled = model(mu)
+    assert sigma_scaled.shape == (batch, n_deg)
+    mu_phys = model.scaler_Y.inverse_transform(mu)
+    sigma_phys = model.predict_physical(mu_phys)
+    assert torch.allclose(sigma_phys, model.to_physical(sigma_scaled))
 
-    # Gradients flow through the full forward + rescale path
-    loss = sigma_physical.sum()
-    loss.backward()
-    for p in model.parameters():
-        assert p.grad is not None
 
-    # output_activation="linear": no final Sigmoid, unbounded output
-    model_lin = VariancePredFCNN(
-        n_prot=n_prot,
-        n_deg=n_deg,
-        hidden_list=hidden_list,
-        sim_config=sim_config,
-        output_activation="linear",
+def test_to_physical_variance():
+    n_deg = 6
+    log_sigma = np.log(np.random.rand(30, n_deg) * 0.1 + 1e-3)
+    scaler_logsigma = ZScoreScaler.fit(log_sigma.astype("float32"), axis=0)
+    model = VariancePredFCNN(
+        hidden_list=[8],
+        sim_config="batfit/default_exps/spm_chirp.yaml",
+        scaler_logsigma=scaler_logsigma,
     )
-    assert not isinstance(model_lin.layers[-1], torch.nn.Sigmoid)
-    out_lin = model_lin(prot_params, mu)
-    assert out_lin.shape == (batch, n_deg)
-    out_lin.sum().backward()
-    for p in model_lin.parameters():
-        assert p.grad is not None
+    # exact inverse of z-scoring log sigma
+    sigma = torch.tensor(np.exp(log_sigma[:4]), dtype=torch.float32)
+    z = scaler_logsigma.transform(torch.log(sigma))
+    assert torch.allclose(model.to_physical(z), sigma, rtol=1e-5)
+    # strictly positive by construction
+    assert model.to_physical(torch.randn(3, n_deg)).min().item() > 0.0

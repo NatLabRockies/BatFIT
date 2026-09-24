@@ -49,12 +49,12 @@ def norm_coverage(n):
 
 
 def load_model(inp):
-    model, scaler = define_model(inp)
+    model = define_model(inp)
     best_model_file = find_best_model_file(inp.models_dir)
     logger.info(f"Loading {best_model_file}")
     model.load_state_dict(torch.load(best_model_file, weights_only=True))
     model.eval()
-    return model, scaler
+    return model
 
 
 def load_surrogates(inp):
@@ -67,70 +67,42 @@ def load_surrogates(inp):
         surr_base, inp_discharge.models_dir
     )
     inp_discharge.data_path = os.path.join(surr_base, inp_discharge.data_path)
-    tmp_d = load_model(inp_discharge)
+    surrogate = load_model(inp_discharge)
     models["discharge"] = {
-        "torch_model": tmp_d[0],
-        "scaler": tmp_d[1],
-        "sim_params": make_params(inp_discharge.sim_config),
+        "torch_model": surrogate,
+        "sim_params": surrogate.sim_params,
     }
     return models
 
 
-class TorchScaler(torch.nn.Module):
-    def __init__(self, scaler):
-        super(TorchScaler, self).__init__()
-        self.means = torch.tensor(scaler.means)
-        self.stds = torch.tensor(scaler.stds)
-
-    def transform(self, data):
-        transformed_data = (data - self.means) / self.stds
-        return transformed_data
-
-    def inverse_transform(self, transformed_data):
-        data = transformed_data * self.stds + self.means
-        return data
-
-
-# device = torch.device(get_device_type())
-
-
 class ForwardModel(torch.nn.Module):
-    def __init__(self, model: torch.nn.Module, t_tens: torch.Tensor, scaler):
+    """Wrap the surrogate as ``voltage(deg_params)`` over a fixed time grid."""
+
+    def __init__(self, model: torch.nn.Module, t_tens: torch.Tensor):
         super(ForwardModel, self).__init__()
         self.model = model
         self.n_param_pred = model.n_param_pred
-        self.means = scaler.means
-        self.stds = 1.0 / scaler.stds
-        self.t_tens_shape = t_tens.shape
-        self.t_tens = t_tens
+        # torch2jax intercepts every torch call while tracing, including
+        # .shape on plain tensors: keep the time grid as numpy and its size
+        # as an int, and rebuild the tensor inside forward
+        self.t_np = t_tens.numpy()
+        self.n_times = t_tens.shape[0]
 
     def forward(self, degradation_parameters: list):
-        t_tens = torch.tensor(self.t_tens)
-        means = torch.tensor(self.means)
-        stds = torch.tensor(self.stds)
+        t_tens = torch.tensor(self.t_np)
         degradation_parameters = torch.tensor(degradation_parameters).view(
             1, -1
         )
+        # same physical parameters at every time step of the grid
         degradation_parameters = degradation_parameters.expand(
-            self.t_tens_shape[0], -1
+            self.n_times, -1
         )
-        x_input = torch.cat((t_tens, degradation_parameters), dim=1)
-        x_input = (x_input - means) * stds
-
-        # x_input = x_input.to(device)
-        # self.model = self.model.to(device)
-        output = self.model(x_input)
-        # self.model = self.model.to("cpu")
-        # x_input = x_input.to("cpu")
-        # output = output.to("cpu")
-        if self.model.constrain_output:
-            output = self.model.inv_transform_output(
-                output, float(self.model.min_v), float(self.model.amp_v)
-            )
-        return output[:, 0]
+        voltage = self.model.predict_physical(t_tens, degradation_parameters)
+        return voltage[:, 0]
 
 
-def load_synthetic_data(inp):
+def load_synthetic_data(inp, sim_params):
+    """Noisy validation observations; noise clipped to the config's vmin/vmax."""
     t = {}
     phi = {}
     truth = {}
@@ -143,6 +115,8 @@ def load_synthetic_data(inp):
             2.01 * 2,
         ],
         cyc_mode=inp.cyc_mode,
+        vmin=sim_params["vmin"],
+        vmax=sim_params["vmax"],
     )
     data_path = inp.data_path_discharge
     # Same held-out validation slice used as observations in bayesCal; the MCMC
@@ -170,7 +144,7 @@ def compute_fit_error(inp, samples, models):
         total_data_t,
         total_data_phi,
         total_truth,
-    ) = load_synthetic_data(inp)
+    ) = load_synthetic_data(inp, models["discharge"]["sim_params"])
     voltage_err = {}
     for key in models:
         voltage_err[key] = np.zeros(samples.shape[:2])
@@ -199,7 +173,6 @@ def compute_fit_error(inp, samples, models):
             forw_dis = ForwardModel(
                 models["discharge"]["torch_model"],
                 t_tens["discharge"],
-                models["discharge"]["scaler"],
             )
             forward_dict["discharge"] = forw_dis
 
@@ -209,8 +182,10 @@ def compute_fit_error(inp, samples, models):
         for key in models:
             size_inpt[key] = models[key]["torch_model"].n_param_pred
             p = np.random.normal(size=(size_inpt[key],)).astype(np.float32)
+            # full state dict: torch2jax needs the weights AND the buffers
+            # (the surrogate's scalers)
             jax_params_dict[key] = {
-                k: t2j(v) for k, v in forward_dict[key].named_parameters()
+                k: t2j(v) for k, v in forward_dict[key].state_dict().items()
             }
             jax_func_dict[key] = lambda p: t2j(forward_dict[key])(
                 p, state_dict=jax_params_dict[key]
@@ -264,7 +239,7 @@ if __name__ == "__main__":
         total_data_t,
         total_data_phi,
         total_truth,
-    ) = load_synthetic_data(inp)
+    ) = load_synthetic_data(inp, models["discharge"]["sim_params"])
 
     cycle_types = list(models.keys())
 

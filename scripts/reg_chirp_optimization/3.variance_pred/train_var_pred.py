@@ -18,6 +18,7 @@ from prettyPlot.progressBar import print_progress_bar
 from batfit import logger
 from batfit.basicutilityc import ReadInput as ri
 from batfit.model.varianceNN import VariancePredFCNN
+from batfit.utils.scalers import ZScoreScaler
 from batfit.utils.torch_utils import (
     get_device_type,
     get_num_parameters,
@@ -29,29 +30,6 @@ from batfit.utils.torch_utils import (
     save_model,
     update_best_model,
 )
-
-
-def _detect_sigma_mode(var_pred_save_path: str) -> str:
-    """Detect how sigma targets were parameterised by gen_var_dataset.py.
-    log_sigma means z-scored log sigma, linear activation output
-    scale_sigma means MinMax-scaled sigma, Sigmoid head
-    """
-    has_log = os.path.isfile(
-        os.path.join(var_pred_save_path, "scaler_logsigma.pkl")
-    )
-    has_minmax = os.path.isfile(
-        os.path.join(var_pred_save_path, "scaler_sigma.pkl")
-    )
-    assert not (has_log and has_minmax), (
-        f"Both scaler_logsigma.pkl and scaler_sigma.pkl found in "
-        f"{var_pred_save_path}: target parameterisation is ambiguous. "
-        "Regenerate the dataset in a fresh var_pred_save_path."
-    )
-    if has_log:
-        return "log_sigma"
-    if has_minmax:
-        return "scale_sigma"
-    return "amp_par"
 
 
 def _lr_schedule(
@@ -66,28 +44,40 @@ def _lr_schedule(
     )
 
 
-def make_data_loaders(
-    inp,
-) -> tuple[torch.utils.data.DataLoader, torch.utils.data.DataLoader]:
-    """Load the variance predictor dataset and build train/test DataLoaders."""
+def load_dataset(inp) -> dict[str, np.ndarray]:
+    """Load the physical (P, mu, sigma) splits from var_pred_dataset.npz."""
     dataset_file = os.path.join(inp.var_pred_save_path, "var_pred_dataset.npz")
     assert os.path.isfile(dataset_file), (
         f"var_pred_dataset.npz not found at {dataset_file}; "
         "run gen_var_dataset.py first"
     )
     A = np.load(dataset_file)
-    assert "P_train" in A, "P_train missing from var_pred_dataset.npz"
-    assert "Mu_train" in A, "Mu_train missing from var_pred_dataset.npz"
-    assert "Sigma_train" in A, "Sigma_train missing from var_pred_dataset.npz"
-    assert "P_test" in A, "P_test missing from var_pred_dataset.npz"
-    assert "Mu_test" in A, "Mu_test missing from var_pred_dataset.npz"
-    assert "Sigma_test" in A, "Sigma_test missing from var_pred_dataset.npz"
+    for split in ("train", "test"):
+        for name in ("P", "Mu", "Sigma"):
+            key = f"{name}_{split}"
+            assert key in A, f"{key} missing from var_pred_dataset.npz"
+    return {key: A[key] for key in A.files}
 
-    def _loader(p, mu, sigma, shuffle):
+
+def make_data_loaders(
+    inp, data: dict[str, np.ndarray], model: VariancePredFCNN
+) -> tuple[torch.utils.data.DataLoader, torch.utils.data.DataLoader]:
+    """Scale the dataset with the model's scalers and build DataLoaders.
+
+    P and mu are scaled to [0, 1] from the config bounds; the targets are the
+    z-scored log sigma.
+    """
+
+    def _loader(split: str, shuffle: bool) -> torch.utils.data.DataLoader:
+        # in place on the loaded arrays: no copy of P and mu
+        p = model.scaler_P.transform_(data[f"P_{split}"])
+        mu = model.scaler_Y.transform_(data[f"Mu_{split}"])
+        log_sigma = np.log(data[f"Sigma_{split}"])
+        sigma_target = model.scaler_logsigma.transform_(log_sigma)
         ds = torch.utils.data.TensorDataset(
             torch.from_numpy(p),
             torch.from_numpy(mu),
-            torch.from_numpy(sigma),
+            torch.from_numpy(sigma_target),
         )
         return torch.utils.data.DataLoader(
             ds,
@@ -96,30 +86,24 @@ def make_data_loaders(
             drop_last=shuffle,
         )
 
-    train_loader = _loader(
-        A["P_train"], A["Mu_train"], A["Sigma_train"], shuffle=True
-    )
-    test_loader = _loader(
-        A["P_test"], A["Mu_test"], A["Sigma_test"], shuffle=False
-    )
+    train_loader = _loader("train", shuffle=True)
+    test_loader = _loader("test", shuffle=False)
     logger.info(
-        f"Train: {A['P_train'].shape[0]} samples  |  "
-        f"Test: {A['P_test'].shape[0]} samples"
+        f"Train: {data['P_train'].shape[0]} samples  |  "
+        f"Test: {data['P_test'].shape[0]} samples"
     )
     return train_loader, test_loader
 
 
-def define_model(inp) -> VariancePredFCNN:
-    """Instantiate VariancePredFCNN from recipe parameters."""
-    sigma_mode = _detect_sigma_mode(inp.var_pred_save_path)
+def define_model(
+    inp, scaler_logsigma: ZScoreScaler | None = None
+) -> VariancePredFCNN:
+    """Instantiate VariancePredFCNN; scaler_logsigma=None leaves a placeholder
+    that load_state_dict fills from the checkpoint."""
     model = VariancePredFCNN(
-        n_prot=inp.n_prot_params,
-        n_deg=inp.n_param_pred,
         hidden_list=inp.hidden_list,
         sim_config=inp.sim_config,
-        output_activation=(
-            "linear" if sigma_mode == "log_sigma" else "sigmoid"
-        ),
+        scaler_logsigma=scaler_logsigma,
     )
     logger.info(f"Trainable parameters: {get_num_parameters(model)}")
     return model
@@ -134,13 +118,8 @@ def train_model(
     device_type = get_device_type(enable_cuda=True, enable_mps=True)
     device = torch.device(device_type)
     model = model.to(device)
-    amp_par = model.amp_par.to(device)
 
-    # In scale_sigma/log_sigma modes the dataset targets are already
-    # transformed — the raw network output is the direct prediction target.
-    sigma_mode = _detect_sigma_mode(inp.var_pred_save_path)
-    logger.info(f"sigma_mode={sigma_mode}")
-
+    # loss on the z-scored log sigma: MSE then acts as a relative error
     mse = nn.MSELoss()
     lr_end = inp.lr / 100.0
     optimizer = torch.optim.Adamax(
@@ -158,16 +137,12 @@ def train_model(
     )
 
     def _eval_test_loss() -> float:
-        """Return the mean test-set MSE in the current sigma mode."""
+        """Return the mean test-set MSE on the z-scored log sigma."""
         model.eval()
         test_loss_acc, n_test = 0.0, 0
         with torch.no_grad():
             for p_batch, mu_batch, sigma_batch in test_loader:
-                sigma_out = model(p_batch.to(device), mu_batch.to(device))
-                if sigma_mode == "amp_par":
-                    sigma_pred = model.inv_transform_gamma(sigma_out, amp_par)
-                else:
-                    sigma_pred = sigma_out
+                sigma_pred = model(p_batch.to(device), mu_batch.to(device))
                 b = p_batch.shape[0]
                 test_loss_acc += (
                     mse(sigma_pred, sigma_batch.to(device)).item() * b
@@ -225,11 +200,7 @@ def train_model(
             current_step += 1
             optimizer.zero_grad()
 
-            sigma_out = model(p_batch.to(device), mu_batch.to(device))
-            if sigma_mode == "amp_par":
-                sigma_pred = model.inv_transform_gamma(sigma_out, amp_par)
-            else:
-                sigma_pred = sigma_out
+            sigma_pred = model(p_batch.to(device), mu_batch.to(device))
             loss = mse(sigma_pred, sigma_batch.to(device))
 
             if not (torch.isnan(loss) or torch.isinf(loss)):
@@ -295,7 +266,10 @@ def train_model(
 
 if __name__ == "__main__":
     inp = ri.basic_input(sys.argv[1])
-    train_loader, test_loader = make_data_loaders(inp)
-    model = define_model(inp)
+    data = load_dataset(inp)
+    # the log-sigma z-score is fitted on the training sigmas
+    scaler_logsigma = ZScoreScaler.fit(np.log(data["Sigma_train"]), axis=0)
+    model = define_model(inp, scaler_logsigma=scaler_logsigma)
+    train_loader, test_loader = make_data_loaders(inp, data, model)
     train_model(inp, model, train_loader, test_loader)
     shutil.copy(sys.argv[1], os.path.join(inp.models_dir, "recipe.yml"))
