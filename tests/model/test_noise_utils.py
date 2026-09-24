@@ -1,9 +1,12 @@
+import pytest
 import torch
 
 from batfit.model.param_utils.noise_utils import (
     apply_noise_unscaled,
     make_noise_levels,
+    make_signal_noise_levels,
 )
+from batfit.model.paramNN import ProbParamFM
 
 
 def test_make_noise_levels_shape():
@@ -56,3 +59,39 @@ def test_apply_noise_unscaled():
     assert out.shape == (batch, channels, length)
     assert out.max().item() <= 0.1 + 1e-6
     assert out.min().item() >= -0.1 - 1e-6
+
+
+def test_make_signal_noise_levels():
+    noise = [0.0, 0.01, 0.02, 0.03]
+    model = ProbParamFM(
+        input_shape=(2, 32),
+        chan_list=[8],
+        fc_list=[16],
+        vf_hidden_list=[16],
+        sim_config="batfit/default_exps/spm_discharge.yaml",
+    )
+    # zscore: (time, voltage) channels, voltage clipped at the config vmin
+    levels, a_min, a_max = make_signal_noise_levels(
+        model, "phi", noise, "discharge"
+    )
+    assert levels.shape == (1, 2, 1)
+    assert abs(a_min[0, 1, 0].item() - model.sim_params["vmin"]) < 1e-6
+
+    model_td = ProbParamFM(
+        input_shape=(2, 32),
+        chan_list=[8],
+        fc_list=[16],
+        vf_hidden_list=[16],
+        sim_config="batfit/default_exps/spm_discharge.yaml",
+        signal_scaling="time_dependent_zscore",
+    )
+    # time_dependent_zscore: voltage channel only
+    levels, a_min, a_max = make_signal_noise_levels(
+        model_td, "phi", noise, "discharge"
+    )
+    assert levels.shape == (1, 1, 1)
+    assert abs(levels[0, 0, 0].item() - 0.01) < 1e-6
+    assert abs(a_min[0, 0, 0].item() - model_td.sim_params["vmin"]) < 1e-6
+    # only the (time, voltage) signal can drop its time channel
+    with pytest.raises(AssertionError):
+        make_signal_noise_levels(model_td, "dvdq", noise, "discharge")
