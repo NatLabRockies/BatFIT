@@ -11,7 +11,10 @@ from scipy.stats import norm
 
 from batfit import logger
 from batfit.basicutilityc import ReadInput as ri
-from batfit.model.param_utils.noise_utils import apply_noise, make_noise_levels
+from batfit.model.param_utils.noise_utils import (
+    apply_noise_unscaled,
+    make_noise_levels,
+)
 from batfit.model.param_utils.train_utils import create_model_from_log
 from batfit.utils.torch_utils import find_best_model_file, get_device_type
 
@@ -69,10 +72,6 @@ def test_perf(inp):
         os.path.join(inp.models_dir, "model.pkl"), best_model_file
     )
 
-    # the model carries its signal (and protocol) scalers
-    scaler_X = model.scaler_X
-    X_scaled = scaler_X.transform(A["X_val"])
-
     noise_levels, a_min, a_max = make_noise_levels(
         target_mode=inp.target_mode,
         noise_levels=[
@@ -92,9 +91,9 @@ def test_perf(inp):
 
     val_loader = torch.utils.data.DataLoader(
         torch.utils.data.TensorDataset(
-            torch.from_numpy(X_scaled), torch.from_numpy(Y_val)
+            torch.from_numpy(A["X_val"]), torch.from_numpy(Y_val)
         ),
-        batch_size=min(X_scaled.shape[0], 256),
+        batch_size=min(Y_val.shape[0], 256),
         shuffle=False,
     )
 
@@ -102,20 +101,19 @@ def test_perf(inp):
 
     with torch.no_grad():
         for batch in val_loader:
-            batch_in = apply_noise(
+            # noise in physical space, then the physical API
+            batch_in = apply_noise_unscaled(
                 batch_in=batch[0],
-                scaler_X=scaler_X,
                 noise_levels=noise_levels,
                 a_min=a_min,
                 a_max=a_max,
             )
-            samps = model.sample(
+            # physical samples, clamped to the bounds
+            samples_phys = model.sample_physical(
                 batch_in.to(device),
                 n_samples=inp.n_samples,
                 n_steps=inp.n_ode_steps,
             )
-            # flow-space samples -> physical units, clamped to the bounds
-            samples_phys = model.to_physical(samps)
             samples_phys_all.append(samples_phys.cpu().numpy())
             truth_all.append(batch[1].numpy())
 

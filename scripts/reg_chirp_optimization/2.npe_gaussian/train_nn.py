@@ -13,7 +13,7 @@ from batfit.basicutilityc import ReadInput as ri
 from batfit.model.param_utils.losses import (
     independent_normal_loss as independent_normal_loss_param,
 )
-from batfit.model.param_utils.noise_utils import make_noise_levels
+from batfit.model.param_utils.noise_utils import make_signal_noise_levels
 from batfit.model.param_utils.train_utils import (
     train_model as train_model_param,
 )
@@ -52,11 +52,12 @@ def make_data_loaders(inp):
         test_split=0.1,
         val_split=0.1,
         save_path=data_root_folder,
+        signal_scaling=getattr(inp, "signal_scaling", "zscore"),
     )
     return loaders, scalers
 
 
-def define_model(inp, scaler_X=None):
+def define_model(inp, scaler_X=None, scaler_T=None):
     """Instantiate a ProbParamCNN from recipe parameters.
 
     scaler_X=None leaves a placeholder that load_state_dict fills.
@@ -72,6 +73,8 @@ def define_model(inp, scaler_X=None):
         sim_config=inp.sim_config,
         cyc_mode=inp.cyc_mode,
         scaler_X=scaler_X,
+        signal_scaling=getattr(inp, "signal_scaling", "zscore"),
+        scaler_T=scaler_T,
         param_margin=getattr(inp, "param_margin", 0.05),
     )
     num_parameters = get_num_parameters(model)
@@ -82,7 +85,8 @@ def define_model(inp, scaler_X=None):
 
 def do_training(inp, model, train_data_loader, test_data_loader):
     """Fit the model, selecting the best checkpoint on the test split."""
-    noise_levels, a_min, a_max = make_noise_levels(
+    noise_levels, a_min, a_max = make_signal_noise_levels(
+        model,
         target_mode=inp.target_mode,
         noise_levels=[
             0,
@@ -91,8 +95,6 @@ def do_training(inp, model, train_data_loader, test_data_loader):
             2.01 * 2,
         ],
         cyc_mode=inp.cyc_mode,
-        vmin=model.sim_params["vmin"],
-        vmax=model.sim_params["vmax"],
     )
 
     train_model_param(
@@ -114,6 +116,6 @@ def do_training(inp, model, train_data_loader, test_data_loader):
 if __name__ == "__main__":
     inp = ri.basic_input(sys.argv[1])
     loaders, scalers = make_data_loaders(inp)
-    model = define_model(inp, scaler_X=scalers["X"])
+    model = define_model(inp, scaler_X=scalers["X"], scaler_T=scalers.get("T"))
     do_training(inp, model, loaders["train"], loaders["test"])
     shutil.copy(sys.argv[1], os.path.join(inp.models_dir, "recipe.yml"))

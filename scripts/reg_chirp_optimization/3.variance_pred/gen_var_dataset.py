@@ -21,7 +21,8 @@ import torch
 
 from batfit import logger
 from batfit.basicutilityc import ReadInput as ri
-from batfit.model.param_utils.noise_utils import apply_noise, make_noise_levels
+from batfit.model.param_utils.noise_utils import make_noise_levels
+from batfit.model.param_utils.optim_utils import predict_mu_sigma
 from batfit.model.param_utils.train_utils import create_model_from_log
 from batfit.model.paramNN import ProbProtParamFM
 from batfit.utils.torch_utils import find_best_model_file, get_device_type
@@ -61,87 +62,27 @@ def _process_split(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Run the frozen NPE over one data split with noise augmentation.
 
-    For each batch of size B:
-      - Tiles X and P to (B * n_noise, …) so one forward pass covers
-        all noise realisations simultaneously.
-      - For ProbProtParamCNN: one forward pass gives (mu_k, sigma_k) per
-        noisy copy directly.
-      - For ProbProtParamFM: draws n_samples posterior samples per noisy
-        copy via model.sample(...), then takes their mean/std (after
-        model.to_physical) as that copy's (mu_k, sigma_k).
-      - Averages (mu_k, sigma_k) over the n_noise dimension.
+    Uses :func:`predict_mu_sigma` on the physical data: each curve gets
+    ``n_noise`` noise realisations, (mu, sigma) come from a forward pass
+    (Gaussian NPE) or the mean/std of posterior samples (FM NPE) and are
+    averaged over the realisations. With ``use_true_y`` the stored mu is
+    the ground truth instead.
     """
-    N = X_np.shape[0]
-    n_deg = Y_np.shape[1]
-
-    mu_list: list[np.ndarray] = []
-    sigma_list: list[np.ndarray] = []
-
-    for start in range(0, N, gen_batch_size):
-        end = min(start + gen_batch_size, N)
-        X_batch = X_np[start:end]  # (B, channels, time)
-        P_batch = P_np[start:end]  # (B, n_prot)
-        Y_batch = Y_np[start:end]  # (B, n_deg)
-        B = X_batch.shape[0]
-
-        # Scale X with the NPE's z-score scaler
-        X_scaled = model.scaler_X.transform(X_batch)  # (B, channels, time)
-        X_tensor = torch.from_numpy(X_scaled)  # float32
-
-        # Scale P to [0, 1] with the NPE's protocol scaler
-        P_scaled = model.scaler_P.transform(P_batch).astype("float32")
-        P_tensor = torch.from_numpy(P_scaled)
-
-        # Tile to (B * n_noise, …) for vectorised noise application
-        X_tiled = (
-            X_tensor.unsqueeze(1)
-            .expand(-1, n_noise, -1, -1)
-            .reshape(B * n_noise, X_tensor.shape[1], X_tensor.shape[2])
-        )  # (B*n_noise, channels, time)
-        P_tiled = (
-            P_tensor.unsqueeze(1)
-            .expand(-1, n_noise, -1)
-            .reshape(B * n_noise, P_tensor.shape[1])
-        )  # (B*n_noise, n_prot)
-
-        # Each of the B*n_noise copies gets independent noise
-        X_noisy = apply_noise(
-            X_tiled, model.scaler_X, noise_levels, a_min, a_max
-        )
-
-        with torch.no_grad():
-            if isinstance(model, ProbProtParamFM):
-                samples_flow = model.sample(
-                    X_noisy.to(device),
-                    P_tiled.to(device),
-                    n_samples=n_samples,
-                    n_steps=n_ode_steps,
-                )  # (B*n_noise, n_samples, n_deg), flow space
-                samples_phys = model.to_physical(samples_flow)
-                samples_phys = samples_phys.cpu().numpy()
-                mu_np = samples_phys.mean(axis=1)  # (B*n_noise, n_deg)
-                sigma_np = samples_phys.std(axis=1)  # (B*n_noise, n_deg)
-            else:
-                mu_scaled, sigma_scaled = model(
-                    X_noisy.to(device), P_tiled.to(device)
-                )
-                mu_s, sigma_s = model.to_physical(mu_scaled, sigma_scaled)
-                mu_np = mu_s.cpu().numpy()  # (B*n_noise, n_deg)
-                sigma_np = sigma_s.cpu().numpy()  # (B*n_noise, n_deg)
-
-        # Average over noise realisations
-        mu_np = mu_np.reshape(B, n_noise, n_deg).mean(axis=1)  # (B, n_deg)
-        sigma_np = sigma_np.reshape(B, n_noise, n_deg).mean(axis=1)
-
-        if use_true_y:
-            mu_list.append(Y_batch.astype("float32"))
-        else:
-            mu_list.append(mu_np.astype("float32"))
-        sigma_list.append(sigma_np.astype("float32"))
-
-    mu_out = np.vstack(mu_list)  # (N, n_deg)
-    sigma_out = np.vstack(sigma_list)  # (N, n_deg)
-    return P_np.astype("float32"), mu_out, sigma_out
+    mu_np, sigma_np = predict_mu_sigma(
+        X_np,
+        model,
+        noise_levels,
+        a_min,
+        a_max,
+        n_noise=n_noise,
+        device=device,
+        P=P_np.astype("float32"),
+        n_samples=n_samples,
+        n_ode_steps=n_ode_steps,
+        batch_size=gen_batch_size,
+    )
+    mu_out = Y_np.astype("float32") if use_true_y else mu_np
+    return P_np.astype("float32"), mu_out, sigma_np
 
 
 def gen_var_dataset(inp) -> None:

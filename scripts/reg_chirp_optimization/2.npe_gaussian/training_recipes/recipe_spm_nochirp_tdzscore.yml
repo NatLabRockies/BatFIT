@@ -1,0 +1,27 @@
+# DATA
+cyc_mode: chargecc
+data_path: ../1.gen_data/data_spm_nochirp
+n_points: 128                # HPC: 512 (must match gen -n_points_reduce)
+noise_factor: 1.0
+sim_config: spm_nochirp.yaml
+target_mode: phi
+# voltage z-scored per time point, end time as a separate input
+signal_scaling: time_dependent_zscore
+
+# ARCH
+# margin of the mu head beyond the [0, 1] parameter bounds
+param_margin: 0.05
+num_channels: 64             # HPC: 512
+num_convs: 2                 # HPC: 6
+num_fc_hidden: 1
+num_fc_units: 256            # HPC: 2048
+num_fc_gamma_mu_hidden: 2
+num_fc_gamma_mu_units: 256   # HPC: 2048
+
+# TRAIN
+batch_size: 32               # HPC: 2048
+epochs: 20                   # HPC: 700
+lr: 0.0001
+models_dir: models_spm_nochirp_tdzscore
+# Path to a checkpoint to restart from (weights only); null = from scratch.
+restart_from: null

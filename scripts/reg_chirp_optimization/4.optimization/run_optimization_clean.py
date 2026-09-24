@@ -111,9 +111,9 @@ def run_optimization_clean(inp) -> None:
         vmin=npe.sim_params["vmin"],
         vmax=npe.sim_params["vmax"],
     )
-    X_scaled = npe.scaler_X.transform(X_sel).astype("float32")
+    # physical signals: the NPE scales them with its own scalers
     mu_physical, sigma_nochirp = predict_mu_sigma(
-        X_scaled,
+        X_sel,
         npe,
         noise_levels,
         a_min,
@@ -134,7 +134,7 @@ def run_optimization_clean(inp) -> None:
     # --- Chirp NPE on the same signals at amplitude 0 ---
     # A chargecc charge is physically identical to a chirp charge with
     # amplitude 0, whatever time_start and length: the chirp NPE is fed the
-    # same observations (re-gridded and re-scaled for its pipeline) with
+    # same observations (re-gridded onto its input grid) with
     # n_amp0_draws random (time_start, length) draws, and sigma_amp0 is the
     # average over the draws. The per-draw sigmas quantify the sensitivity
     # of the chirp NPE to the physically irrelevant protocol input.
@@ -151,9 +151,6 @@ def run_optimization_clean(inp) -> None:
         sim_params["prot_length_min"],
         sim_params["prot_length_max"],
         n_amp0_draws,
-    )
-    P_amp0_scaled = chirp_npe.scaler_P.transform(P_amp0_draws).astype(
-        "float32"
     )
 
     noise_levels_chirp, a_min_chirp, a_max_chirp = make_noise_levels(
@@ -174,7 +171,6 @@ def run_optimization_clean(inp) -> None:
         os.path.join(inp.chirp_npe_models_dir, "recipe.yml")
     )
     X_chirp = interp_signal(X_sel, int(chirp_npe_recipe.n_points))
-    X_chirp_scaled = chirp_npe.scaler_X.transform(X_chirp).astype("float32")
     sigma_amp0_draws = np.zeros(
         (n_amp0_draws, n_curves, n_deg), dtype="float32"
     )
@@ -184,16 +180,16 @@ def run_optimization_clean(inp) -> None:
             f"time_start={P_amp0_draws[j, ts_idx]:.0f}s, "
             f"length={P_amp0_draws[j, len_idx]:.0f}s"
         )
-        P_tiled = np.tile(P_amp0_scaled[j : j + 1], (n_curves, 1))
+        P_tiled = np.tile(P_amp0_draws[j : j + 1], (n_curves, 1))
         _, sigma_amp0_draws[j] = predict_mu_sigma(
-            X_chirp_scaled,
+            X_chirp,
             chirp_npe,
             noise_levels_chirp,
             a_min_chirp,
             a_max_chirp,
             n_noise=inp.n_noise_npe,
             device=device,
-            P_scaled=P_tiled,
+            P=P_tiled,
             n_samples=getattr(inp, "n_samples", 1000),
             n_ode_steps=getattr(inp, "n_ode_steps", 100),
             batch_size=getattr(inp, "gen_batch_size", 256),

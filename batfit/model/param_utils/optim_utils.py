@@ -7,48 +7,45 @@ import scipy.optimize
 import torch
 
 from .model_utils import _ProbParamFMBase
-from .noise_utils import apply_noise
+from .noise_utils import apply_noise_unscaled
 
 
 def predict_mu_sigma(
-    X_scaled: np.ndarray,
+    X: np.ndarray,
     npe_model: torch.nn.Module,
     noise_levels: torch.Tensor,
     a_min: torch.Tensor,
     a_max: torch.Tensor,
     n_noise: int,
     device: torch.device,
-    P_scaled: np.ndarray = None,
+    P: np.ndarray | None = None,
     n_samples: int = 1000,
     n_ode_steps: int = 100,
-    batch_size: int = None,
-) -> tuple:
+    batch_size: int | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
     """Run a frozen NPE with noise averaging and return physical (mu, sigma).
 
-    Each curve is tiled n_noise times
-    (mu, sigma) are averaged over noise realisations.
-    Dispatches on the NPE architecture and conditioning:
+    Each physical curve is tiled n_noise times, noised in physical space and
+    passed through the NPE's physical API, which scales the inputs with the
+    model's own scalers (either signal scaling). (mu, sigma) are averaged
+    over the noise realisations:
 
-    - CNN-style NPE (``ProbParamCNN`` / ``ProbProtParamCNN``): one forward
-      pass gives scaled (mu, gamma), mapped to physical space by
-      ``npe_model.to_physical``.
-    - Flow-matching NPE (``ProbParamFM`` / ``ProbProtParamFM``): draws
-      n_samples posterior samples per noisy copy, mapped to physical space by
-      ``npe_model.to_physical``; their mean/std are used instead.
-    - ``P_scaled=None`` selects the protocol-free call signature
-      (``forward(x)`` / ``sample(x, ...)``); otherwise protocol parameters
-      are passed as the second argument.
+    - Gaussian NPE (``ProbParamCNN`` / ``ProbProtParamCNN``):
+      ``predict_physical`` gives (mu, sigma) directly.
+    - Flow-matching NPE (``ProbParamFM`` / ``ProbProtParamFM``):
+      ``sample_physical`` draws n_samples posterior samples per noisy copy;
+      their mean/std are used instead.
 
     Parameters
     ----------
-    X_scaled: np.ndarray
-        Signal z-scored with ``npe_model.scaler_X``, shape
-        ``(n_curves, channels, time)``
+    X: np.ndarray
+        Physical ``(time, voltage)`` signal, shape ``(n_curves, channels,
+        time)``
     npe_model: torch.nn.Module
-        Frozen NPE model; its ``scaler_X`` is used to apply noise in physical
-        space
+        Frozen NPE model
     noise_levels: torch.Tensor
-        Per-channel noise levels from make_noise_levels
+        Per-channel noise levels of the physical signal, from
+        make_noise_levels
     a_min: torch.Tensor
         Per-channel lower clip bound from make_noise_levels
     a_max: torch.Tensor
@@ -57,14 +54,13 @@ def predict_mu_sigma(
         Number of noise realisations averaged per curve
     device: torch.device
         Compute device
-    P_scaled: np.ndarray, optional
-        Protocol params scaled with ``npe_model.scaler_P``, shape
-        ``(n_curves, n_prot)``; None for an NPE trained without protocol
-        conditioning
+    P: np.ndarray, optional
+        Physical protocol parameters, shape ``(n_curves, n_prot)``; None for
+        an NPE trained without protocol conditioning
     n_samples: int
         FM only — posterior samples drawn per noisy copy
     n_ode_steps: int
-        FM only — ODE integration steps for model.sample()
+        FM only — ODE integration steps
     batch_size: int, optional
         Curves processed per forward pass (None = all at once)
 
@@ -73,7 +69,7 @@ def predict_mu_sigma(
     tuple
         ``(mu, sigma)`` in physical space, each shape ``(n_curves, n_deg)``
     """
-    n_curves = X_scaled.shape[0]
+    n_curves = X.shape[0]
     n_deg = npe_model.n_param_pred
     is_fm = isinstance(npe_model, _ProbParamFMBase)
     if batch_size is None:
@@ -84,40 +80,41 @@ def predict_mu_sigma(
     for start in range(0, n_curves, batch_size):
         end = min(start + batch_size, n_curves)
         B = end - start
-        x_t = torch.from_numpy(X_scaled[start:end])  # (B, C, T)
-        # Tile to (B * n_noise, ...) so one pass covers all realisations
+        x_t = torch.from_numpy(X[start:end])  # (B, C, T)
+        # Tile to (B * n_noise, ...) so one pass covers all realisations;
+        # cloned because the noise is added in place
         x_tiled = (
             x_t.unsqueeze(1)
             .expand(-1, n_noise, -1, -1)
             .reshape(B * n_noise, x_t.shape[1], x_t.shape[2])
+            .clone()
         )
-        x_noisy = apply_noise(
-            x_tiled, npe_model.scaler_X, noise_levels, a_min, a_max
-        )
-        args = [x_noisy.to(device)]
-        if P_scaled is not None:
-            p_t = torch.from_numpy(P_scaled[start:end])  # (B, n_prot)
+        x_noisy = apply_noise_unscaled(x_tiled, noise_levels, a_min, a_max)
+        p_tiled = None
+        if P is not None:
+            p_t = torch.from_numpy(P[start:end])  # (B, n_prot)
             p_tiled = (
                 p_t.unsqueeze(1)
                 .expand(-1, n_noise, -1)
                 .reshape(B * n_noise, p_t.shape[1])
+                .to(device)
             )
-            args.append(p_tiled.to(device))
 
         with torch.no_grad():
             if is_fm:
-                # args is [x] or [x, p], matching the model's sample
-                samples_flow = npe_model.sample(
-                    *args, n_samples=n_samples, n_steps=n_ode_steps
-                )  # (B*n_noise, n_samples, n_deg), flow space
-                samples_phys = npe_model.to_physical(samples_flow)
+                samples_phys = npe_model.sample_physical(
+                    x_noisy.to(device),
+                    p_tiled,
+                    n_samples=n_samples,
+                    n_steps=n_ode_steps,
+                )  # (B*n_noise, n_samples, n_deg), physical
                 samples_phys = samples_phys.cpu().numpy()
                 mu_np = samples_phys.mean(axis=1)
                 sigma_np = samples_phys.std(axis=1)
             else:
-                # args is [x] or [x, p], matching the model's forward
-                mu_scaled, sigma_scaled = npe_model(*args)
-                mu_s, sigma_s = npe_model.to_physical(mu_scaled, sigma_scaled)
+                mu_s, sigma_s = npe_model.predict_physical(
+                    x_noisy.to(device), p_tiled
+                )
                 mu_np = mu_s.cpu().numpy()
                 sigma_np = sigma_s.cpu().numpy()
 

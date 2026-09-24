@@ -28,10 +28,14 @@ def test_predict_mu_sigma():
     n_points = 32
     n_noise = 2
 
-    X = np.random.rand(n_curves, 2, n_points).astype("float32") + 3.0
-    # every NPE below carries this signal scaler, used to apply the noise
+    # physical (time, voltage) signals on linspace(0, t_end)
+    t_end = np.random.uniform(1000.0, 5000.0, (n_curves, 1))
+    grid = np.linspace(0.0, 1.0, n_points)
+    voltage = np.random.rand(n_curves, n_points) + 3.0
+    X = np.stack((t_end * grid, voltage), axis=1).astype("float32")
+    X_orig = X.copy()
+    # every NPE below carries its signal scaler and scales X itself
     scaler_x = ZScoreScaler.fit(X, axis=(0, 2))
-    X_scaled = scaler_x.transform(X)
     noise_levels, a_min, a_max = make_noise_levels(
         target_mode="phi",
         noise_levels=[0, 0.001, 0.001, 2.0],
@@ -61,7 +65,7 @@ def test_predict_mu_sigma():
         scaler_X=scaler_x,
     )
     cnn.eval()
-    mu, sigma = predict_mu_sigma(X_scaled, cnn, batch_size=2, **shared)
+    mu, sigma = predict_mu_sigma(X, cnn, batch_size=2, **shared)
     assert mu.shape == (n_curves, n_deg)
     assert sigma.shape == (n_curves, n_deg)
     assert mu.dtype == np.float32
@@ -72,7 +76,6 @@ def test_predict_mu_sigma():
 
     # --- CNN NPE with protocol conditioning ---
     n_prot = 3
-    P_scaled = np.random.rand(n_curves, n_prot).astype("float32")
     prot_cnn = ProbProtParamCNN(
         input_shape=(2, n_points),
         chan_list=[4],
@@ -86,9 +89,11 @@ def test_predict_mu_sigma():
         scaler_X=scaler_x,
     )
     prot_cnn.eval()
-    mu_p, sigma_p = predict_mu_sigma(
-        X_scaled, prot_cnn, P_scaled=P_scaled, **shared
+    # physical protocol parameters inside the configured bounds
+    P = prot_cnn.scaler_P.inverse_transform(
+        np.random.rand(n_curves, n_prot).astype("float32")
     )
+    mu_p, sigma_p = predict_mu_sigma(X, prot_cnn, P=P, **shared)
     assert mu_p.shape == (n_curves, n_deg)
     assert sigma_p.shape == (n_curves, n_deg)
 
@@ -104,7 +109,7 @@ def test_predict_mu_sigma():
     )
     fm.eval()
     mu_fm, sigma_fm = predict_mu_sigma(
-        X_scaled,
+        X,
         fm,
         n_samples=5,
         n_ode_steps=5,
@@ -117,6 +122,29 @@ def test_predict_mu_sigma():
     # posterior samples are clamped to the prior, so the mean is inside it
     assert np.all(mu_fm >= fm.scaler_Y.low.numpy() - 1e-5)
     assert np.all(mu_fm <= fm.scaler_Y.high.numpy() + 1e-5)
+
+    # --- time_dependent_zscore NPE: same physical inputs ---
+    cnn_td = ProbParamCNN(
+        input_shape=(2, n_points),
+        chan_list=[4],
+        fc_list=[8],
+        fc_mu_list=[8],
+        fc_gamma_list=[8],
+        loss_fn=independent_normal_loss,
+        sim_config="batfit/default_exps/spm_nochirp.yaml",
+        cyc_mode="chargecc",
+        scaler_X=ZScoreScaler.fit(X[:, 1:, :], axis=0, min_std=1e-3),
+        signal_scaling="time_dependent_zscore",
+        scaler_T=ZScoreScaler.fit(X[:, 0, -1:], axis=0),
+    )
+    cnn_td.eval()
+    mu_td, sigma_td = predict_mu_sigma(X, cnn_td, **shared)
+    assert mu_td.shape == (n_curves, n_deg)
+    assert np.all(sigma_td > 0)
+
+    # the noise never modifies the caller's signals, even without tiling
+    predict_mu_sigma(X, cnn, **{**shared, "n_noise": 1})
+    assert np.array_equal(X, X_orig)
 
 
 def test_evaluate_sigma():

@@ -12,7 +12,10 @@ from train_nn import define_model
 
 from batfit import logger
 from batfit.basicutilityc import ReadInput as ri
-from batfit.model.param_utils.noise_utils import apply_noise, make_noise_levels
+from batfit.model.param_utils.noise_utils import (
+    apply_noise_unscaled,
+    make_noise_levels,
+)
 from batfit.utils.torch_utils import find_best_model_file, get_device_type
 
 
@@ -35,9 +38,7 @@ def test_perf(inp):
     best_model_file = find_best_model_file(inp.models_dir)
     logger.info(f"Loading {best_model_file}")
     model.load_state_dict(torch.load(best_model_file, weights_only=True))
-    scaler_X = model.scaler_X
 
-    X_scaled = scaler_X.transform(A["X_val"])
     Y_val = A["Y_val"]
 
     noise_levels, a_min, a_max = make_noise_levels(
@@ -59,10 +60,10 @@ def test_perf(inp):
 
     val_loader = torch.utils.data.DataLoader(
         torch.utils.data.TensorDataset(
-            torch.from_numpy(X_scaled),
+            torch.from_numpy(A["X_val"]),
             torch.from_numpy(Y_val),
         ),
-        batch_size=min(X_scaled.shape[0], 256),
+        batch_size=min(Y_val.shape[0], 256),
         shuffle=False,
     )
 
@@ -70,15 +71,14 @@ def test_perf(inp):
 
     with torch.no_grad():
         for batch in val_loader:
-            batch_in = apply_noise(
+            # noise in physical space, then the physical API
+            batch_in = apply_noise_unscaled(
                 batch_in=batch[0],
-                scaler_X=scaler_X,
                 noise_levels=noise_levels,
                 a_min=a_min,
                 a_max=a_max,
             )
-            mu_scaled, sigma_scaled = model(batch_in.to(device))
-            mu, sigma = model.to_physical(mu_scaled, sigma_scaled)
+            mu, sigma = model.predict_physical(batch_in.to(device))
             mu_preds.append(mu.cpu().numpy())
             sigma_preds.append(sigma.cpu().numpy())
             truth_all.append(batch[1].numpy())
