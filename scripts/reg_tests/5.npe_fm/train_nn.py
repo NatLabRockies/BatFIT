@@ -11,7 +11,7 @@ import numpy as np
 
 from batfit import logger
 from batfit.basicutilityc import ReadInput as ri
-from batfit.model.param_utils.noise_utils import make_noise_levels
+from batfit.model.param_utils.noise_utils import make_signal_noise_levels
 from batfit.model.param_utils.train_fm_utils import train_fm_model
 from batfit.model.paramNN import ProbParamFM
 from batfit.preprocess.sim_setup import make_params
@@ -48,15 +48,18 @@ def make_data_loaders(inp) -> tuple[dict, dict]:
         np_data_label=Y_data,
         batch_size=batch_size,
         save_path=inp.data_path,
+        signal_scaling=getattr(inp, "signal_scaling", "zscore"),
     )
 
 
-def define_model(inp, scaler_X=None):
+def define_model(inp, scaler_X=None, scaler_T=None):
     """Instantiate ProbParamFM.
 
     :param inp: parsed recipe
     :param scaler_X: fitted signal scaler; None leaves a placeholder that
         load_state_dict fills
+    :param scaler_T: fitted end-time scaler (time_dependent_zscore only);
+        None leaves a placeholder
     :return: the model
     """
     model = ProbParamFM(
@@ -68,6 +71,8 @@ def define_model(inp, scaler_X=None):
         cyc_mode=inp.cyc_mode,
         scaler_X=scaler_X,
         use_prior_matching=inp.use_prior_matching,
+        signal_scaling=getattr(inp, "signal_scaling", "zscore"),
+        scaler_T=scaler_T,
     )
     logger.info(f"Trainable parameters: {get_num_parameters(model)}")
     return model
@@ -81,7 +86,8 @@ def do_training(inp, model, train_data_loader, test_data_loader):
     :param train_data_loader: training DataLoader
     :param test_data_loader: test DataLoader
     """
-    noise_levels, a_min, a_max = make_noise_levels(
+    noise_levels, a_min, a_max = make_signal_noise_levels(
+        model,
         target_mode=inp.target_mode,
         noise_levels=[
             0,
@@ -90,8 +96,6 @@ def do_training(inp, model, train_data_loader, test_data_loader):
             2.01 * 2,
         ],
         cyc_mode=inp.cyc_mode,
-        vmin=model.sim_params["vmin"],
-        vmax=model.sim_params["vmax"],
     )
     train_fm_model(
         model,
@@ -113,7 +117,9 @@ if __name__ == "__main__":
     inp = ri.basic_input(sys.argv[1])
     loaders, scalers = make_data_loaders(inp)
     train_dl, test_dl = loaders["train"], loaders["test"]
-    model = define_model(inp, scaler_X=scalers["X"])
+    model = define_model(
+        inp, scaler_X=scalers["X"], scaler_T=scalers.get("T")
+    )
 
     # Register the training labels (scaled to [0, 1], last tensor of the
     # train loader) as the empirical prior for prior matching. With

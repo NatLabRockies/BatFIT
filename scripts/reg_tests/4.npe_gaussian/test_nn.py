@@ -14,7 +14,6 @@ from batfit.basicutilityc import ReadInput as ri
 
 # from batfit.model.paramNN import *
 from batfit.model.param_utils.noise_utils import (
-    apply_noise,
     apply_noise_unscaled,
     make_noise_levels,
 )
@@ -123,18 +122,17 @@ def test_perf(inp, mode="val"):
         return
     A = np.load(os.path.join(data_path, "data_split.npz"))
 
-    # Make model (the checkpoint carries the signal scaler)
+    # Make model (the checkpoint carries the signal scalers)
     model = load_model(inp)
-    scaler = model.scaler_X
 
-    X_scaled = scaler.transform(A["X_val"])
+    # physical (time, voltage) signals: the model scales them itself
+    X_val = A["X_val"]
     Y_test = A["Y_val"]
-
-    input_data = torch.Tensor(X_scaled)
-    output_data = torch.Tensor(Y_test)
     test_data_loader = torch.utils.data.DataLoader(
-        torch.utils.data.TensorDataset(input_data, output_data),
-        batch_size=min(X_scaled.shape[0], 256),
+        torch.utils.data.TensorDataset(
+            torch.from_numpy(X_val), torch.from_numpy(Y_test)
+        ),
+        batch_size=min(X_val.shape[0], 256),
         shuffle=False,
     )
 
@@ -160,16 +158,15 @@ def test_perf(inp, mode="val"):
     # Forward pass
     with torch.no_grad():
         for ibatch, batch in enumerate(test_data_loader):
-            batch_in = apply_noise(
+            # noise in physical space, then the physical API
+            batch_in = apply_noise_unscaled(
                 batch_in=batch[0],
-                scaler_X=scaler,
                 noise_levels=noise_levels,
                 a_min=a_min,
                 a_max=a_max,
             )
-            mu_scaled, sigma_scaled = model(batch_in.to(device))
-            tmpmu_preds, tmpsigma_preds = model.to_physical(
-                mu_scaled, sigma_scaled
+            tmpmu_preds, tmpsigma_preds = model.predict_physical(
+                batch_in.to(device)
             )
 
             tmpsigma_preds = tmpsigma_preds.cpu().numpy()
@@ -180,7 +177,7 @@ def test_perf(inp, mode="val"):
             tmperr = abs(tmpmu_preds - tmptruth)
             tmpmu_preds = tmpmu_preds
             tmpsigma_preds = tmpsigma_preds
-            tmp_noisy_voltage = scaler.inverse_transform(batch_in).numpy()
+            tmp_noisy_voltage = batch_in.numpy()
 
             if ibatch == 0:
                 mu_preds = tmpmu_preds
