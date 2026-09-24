@@ -8,7 +8,6 @@ from flow_matching.path.scheduler import CondOTScheduler
 from prettyPlot.progressBar import print_progress_bar
 
 from batfit import logger
-from batfit.model.paramNN import ProbParamFM, ProbProtParamFM
 from batfit.utils.torch_utils import (
     get_device_type,
     load_model,
@@ -22,25 +21,15 @@ from batfit.utils.torch_utils import (
 
 from .losses import flow_matching_loss
 from .noise_utils import apply_noise
-from .train_utils import _reshape_noise_args, learning_rate_schedule
+from .train_utils import (
+    _reshape_noise_args,
+    _unpack_batch,
+    learning_rate_schedule,
+)
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-
-def _get_labels_idx(model: torch.nn.Module) -> int:
-    """Return the batch index that holds the degradation parameter labels.
-
-    For protocol models the batch is ``(X, P, Y)`` so labels are at index 2.
-    For plain models the batch is ``(X, Y)`` so labels are at index 1.
-    """
-    if isinstance(model, ProbProtParamFM):
-        return 2
-    elif isinstance(model, ProbParamFM):
-        return 1
-    else:
-        raise TypeError("_get_labels_idx should only be used for FM models")
 
 
 def _forward_fm(
@@ -51,13 +40,12 @@ def _forward_fm(
     t: torch.Tensor,
     device: torch.device,
 ) -> torch.Tensor:
-    """Call correct FM forward signature depending on model type."""
-    if isinstance(model, ProbProtParamFM):
-        return model(x_signal, batch[1].to(device), x_t, t)
-    elif isinstance(model, ProbParamFM):
-        return model(x_signal, x_t, t)
-    else:
-        raise TypeError("_forward_fm should only be used for FM models")
+    """Call the FM forward pass with the protocol parameters and end time of
+    the batch, when the model uses them."""
+    _, p, t_end, _ = _unpack_batch(model, batch, device)
+    if p is None:
+        return model(x_signal, x_t, t, t_end=t_end)
+    return model(x_signal, p, x_t, t, t_end=t_end)
 
 
 # ---------------------------------------------------------------------------
@@ -102,8 +90,9 @@ def train_fm_model(
 
     DataLoader batch format
     -----------------------
-    - ``ProbParamFM``: ``(X, Y)``
-    - ``ProbProtParamFM``: ``(X, P, Y)``
+    - ``ProbParamFM``: ``(X, Y)``, or ``(X, T, Y)`` with
+      ``signal_scaling="time_dependent_zscore"``
+    - ``ProbProtParamFM``: ``(X, P, Y)``, or ``(X, P, T, Y)``
 
     Parameters
     ----------
@@ -178,7 +167,6 @@ def train_fm_model(
     model = model.to(device)
 
     prob_path = AffineProbPath(scheduler=CondOTScheduler())
-    labels_idx = _get_labels_idx(model)
 
     loss_hist = np.array([])
     optimizer = torch.optim.Adamax(
@@ -264,7 +252,7 @@ def train_fm_model(
 
             # x_1 = degradation parameter labels (target for the flow), from
             # [0, 1] to the flow space where the target is close to the source
-            x_1 = model._u_to_flow(batch[labels_idx].to(device))
+            x_1 = model._u_to_flow(batch[-1].to(device))
             batch_size = x_1.shape[0]
 
             # Base point: prior or standard Gaussian
@@ -424,7 +412,6 @@ def compute_test_loss_fm(
 
     model = model.to(device)
     prob_path = AffineProbPath(scheduler=CondOTScheduler())
-    labels_idx = _get_labels_idx(model)
 
     total_steps = num_steps if num_steps is not None else len(test_data_loader)
     loss_sum = 0.0
@@ -452,7 +439,7 @@ def compute_test_loss_fm(
             )
             x_signal = batch_in.to(device)
             # labels from [0, 1] to the flow space, as in training
-            x_1 = model._u_to_flow(batch[labels_idx].to(device))
+            x_1 = model._u_to_flow(batch[-1].to(device))
             batch_size = x_1.shape[0]
 
             if model.use_prior_matching:
