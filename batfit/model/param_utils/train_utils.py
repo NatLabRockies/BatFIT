@@ -88,7 +88,7 @@ def _noisy_input(
     return model._encode(signal.to(device))
 
 
-def unpack_npe_batch(
+def _unpack_batch(
     model: torch.nn.Module,
     batch: list[torch.Tensor],
     device: torch.device,
@@ -132,9 +132,9 @@ def _gauss_npe_batch_loss(
     """Compute the loss of one batch in the scaled parameter space.
 
     ``batch_in`` is the noised signal; the other inputs are read from
-    ``batch`` with :func:`unpack_npe_batch`.
+    ``batch`` with :func:`_unpack_batch`.
     """
-    _, p, t_end, y = unpack_npe_batch(model, batch, device)
+    _, p, t_end, y = _unpack_batch(model, batch, device)
     inputs = [batch_in] if p is None else [batch_in, p]
     mu, gamma = model(*inputs, t_end=t_end)
     return model.loss_fn(mu, gamma, y)

@@ -23,8 +23,8 @@ from .losses import flow_matching_loss
 from .noise_utils import apply_noise
 from .train_utils import (
     _reshape_noise_args,
+    _unpack_batch,
     learning_rate_schedule,
-    unpack_npe_batch,
 )
 
 # ---------------------------------------------------------------------------
@@ -42,7 +42,7 @@ def _forward_fm(
 ) -> torch.Tensor:
     """Call the FM forward pass with the protocol parameters and end time of
     the batch, when the model uses them."""
-    _, p, t_end, _ = unpack_npe_batch(model, batch, device)
+    _, p, t_end, _ = _unpack_batch(model, batch, device)
     if p is None:
         return model(x_signal, x_t, t, t_end=t_end)
     return model(x_signal, p, x_t, t, t_end=t_end)
