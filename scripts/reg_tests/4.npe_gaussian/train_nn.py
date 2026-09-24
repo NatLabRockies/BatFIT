@@ -137,8 +137,6 @@ if __name__ == "__main__":
 
     inp = ri.basic_input(sys.argv[1])
     loaders, scalers = make_data_loaders(inp)
-    model = define_model(
-        inp, scaler_X=scalers["X"], scaler_T=scalers.get("T")
-    )
+    model = define_model(inp, scaler_X=scalers["X"], scaler_T=scalers.get("T"))
     do_training(inp, model, loaders["train"], loaders["test"])
     shutil.copy(sys.argv[1], os.path.join(inp.models_dir, "recipe.yml"))

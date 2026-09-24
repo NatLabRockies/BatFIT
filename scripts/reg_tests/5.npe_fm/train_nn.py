@@ -117,9 +117,7 @@ if __name__ == "__main__":
     inp = ri.basic_input(sys.argv[1])
     loaders, scalers = make_data_loaders(inp)
     train_dl, test_dl = loaders["train"], loaders["test"]
-    model = define_model(
-        inp, scaler_X=scalers["X"], scaler_T=scalers.get("T")
-    )
+    model = define_model(inp, scaler_X=scalers["X"], scaler_T=scalers.get("T"))
 
     # Register the training labels (scaled to [0, 1], last tensor of the
     # train loader) as the empirical prior for prior matching. With
