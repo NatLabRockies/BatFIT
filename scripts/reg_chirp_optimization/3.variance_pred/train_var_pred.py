@@ -36,6 +36,8 @@ def _lr_schedule(
     epoch: int, epoch_end: int, lr_beg: float, lr_end: float
 ) -> float:
     """Piecewise linear LR decay matching the NPE training schedule."""
+    # a run shorter than 2 epochs gives epoch_end = 0 (num_epochs * 3 // 4)
+    epoch_end = max(epoch_end, 1)
     epoch_delay = epoch_end // 10
     if epoch < epoch_delay:
         return lr_beg
