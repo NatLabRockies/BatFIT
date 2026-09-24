@@ -8,6 +8,7 @@ from flow_matching.utils import ModelWrapper
 
 from batfit.preprocess.sim_setup import make_params
 from batfit.utils.scalers import BoundedScaler, MarginSigmoid, ZScoreScaler
+from batfit.utils.signal_encoding import SIGNAL_SCALINGS, split_end_time
 
 from .losses import (
     gumbel_loss,
@@ -232,13 +233,59 @@ def _build_output_heads(
     return nn.Sequential(*_mu_layers), nn.Sequential(*_gamma_layers)
 
 
+def signal_scaler_shape(
+    input_shape: tuple[int, int], signal_scaling: str
+) -> tuple[int, int, int]:
+    """Shape of the placeholder signal-scaler statistics of a CNN model.
+
+    Parameters
+    ----------
+    input_shape : tuple[int, int]
+        ``(n_channels, n_time_points)`` of the physical signal.
+    signal_scaling : str
+        ``"zscore"`` (one statistic per channel) or
+        ``"time_dependent_zscore"`` (one statistic per time point of the
+        voltage).
+
+    Returns
+    -------
+    tuple[int, int, int]
+        ``(1, n_channels, 1)`` or ``(1, 1, n_time_points)``.
+    """
+    if signal_scaling == "time_dependent_zscore":
+        return (1, 1, input_shape[1])
+    return (1, input_shape[0], 1)
+
+
+def encoder_channels(input_shape: tuple[int, int], signal_scaling: str) -> int:
+    """Number of signal channels seen by the CNN encoder.
+
+    Parameters
+    ----------
+    input_shape : tuple[int, int]
+        ``(n_channels, n_time_points)`` of the physical signal.
+    signal_scaling : str
+        With ``"time_dependent_zscore"`` the time channel is replaced by the
+        end time, fused after the encoder.
+
+    Returns
+    -------
+    int
+        ``n_channels``, or ``n_channels - 1`` without the time channel.
+    """
+    if signal_scaling == "time_dependent_zscore":
+        return input_shape[0] - 1
+    return input_shape[0]
+
+
 class _NPEBase(nn.Module):
     """Base class of all parameter-inference (NPE) models.
 
     Shared by the Gaussian and FM models: builds the scalers and
     parameter counts from the experiment configuration. Sets ``sim_config``,
     ``sim_params``, ``scaler_Y`` (degradation parameters, ``[0, 1]``),
-    ``n_param_pred``, ``scaler_X`` and, for protocol models, ``scaler_P`` and
+    ``n_param_pred``, ``scaler_X``, ``scaler_T`` (end time, only with
+    ``"time_dependent_zscore"``) and, for protocol models, ``scaler_P`` and
     ``n_prot_params``.
 
     Parameters
@@ -253,6 +300,13 @@ class _NPEBase(nn.Module):
         ``(1, channels, 1)``; required when ``scaler_X`` is None
     with_prot: bool
         Build the protocol-parameter scaler
+    signal_scaling: str
+        ``"zscore"``: the (time, voltage) signal is z-scored per channel.
+        ``"time_dependent_zscore"``: the voltage is z-scored per time point
+        and the end time is a separate input, fused after the encoder
+    scaler_T: ZScoreScaler | None
+        Fitted end-time scaler (``"time_dependent_zscore"`` only); None
+        creates an identity placeholder
     """
 
     def __init__(
@@ -261,8 +315,14 @@ class _NPEBase(nn.Module):
         scaler_X: ZScoreScaler | None,
         scaler_X_shape: tuple[int, ...] | None,
         with_prot: bool,
+        signal_scaling: str = "zscore",
+        scaler_T: ZScoreScaler | None = None,
     ) -> None:
         super().__init__()
+        assert signal_scaling in SIGNAL_SCALINGS, (
+            f"Unknown signal_scaling {signal_scaling}, "
+            f"use one of {SIGNAL_SCALINGS}"
+        )
         self.sim_config = sim_config
         self.sim_params = make_params(sim_config)
         # one output per degradation parameter of the config
@@ -288,6 +348,63 @@ class _NPEBase(nn.Module):
                 np.zeros(scaler_X_shape), np.ones(scaler_X_shape)
             )
         self.scaler_X = scaler_X
+        self.signal_scaling = signal_scaling
+        self.with_end_time = signal_scaling == "time_dependent_zscore"
+        # number of end-time inputs fused after the encoder
+        self.n_end_time = 1 if self.with_end_time else 0
+        if self.with_end_time and scaler_T is None:
+            # identity placeholder, overwritten when loading a checkpoint
+            scaler_T = ZScoreScaler(np.zeros((1, 1)), np.ones((1, 1)))
+        self.scaler_T = scaler_T
+
+    def scale_signal(
+        self, x: np.ndarray | torch.Tensor
+    ) -> tuple[np.ndarray | torch.Tensor, ...]:
+        """Scale a physical ``(time, voltage)`` signal into network inputs.
+
+        Parameters
+        ----------
+        x: numpy.ndarray or torch.Tensor
+            Physical signal of shape ``(batch, channels, time)``
+
+        Returns
+        -------
+        tuple
+            ``(x_scaled,)`` for ``"zscore"``; ``(v_scaled, t_end_scaled)``
+            for ``"time_dependent_zscore"``, with the voltage of shape
+            ``(batch, 1, time)`` and the end time of shape ``(batch, 1)``
+        """
+        if not self.with_end_time:
+            return (self.scaler_X.transform(x),)
+        voltage, t_end = split_end_time(x)
+        return (
+            self.scaler_X.transform(voltage),
+            self.scaler_T.transform(t_end),
+        )
+
+    def _append_end_time(
+        self, h: torch.Tensor, t_end: torch.Tensor | None
+    ) -> torch.Tensor:
+        """Concatenate the scaled end time to an embedding when it is used.
+
+        Parameters
+        ----------
+        h: torch.Tensor
+            Embedding of shape ``(batch, features)``
+        t_end: torch.Tensor | None
+            Scaled end time of shape ``(batch, 1)``; required with
+            ``"time_dependent_zscore"``, must be None otherwise
+
+        Returns
+        -------
+        torch.Tensor
+            ``h``, or ``cat(h, t_end)`` of shape ``(batch, features + 1)``
+        """
+        if not self.with_end_time:
+            assert t_end is None, "t_end is only used by time_dependent_zscore"
+            return h
+        assert t_end is not None, "t_end is required by time_dependent_zscore"
+        return torch.cat((h, t_end), dim=1)
 
 
 class _ProbParamBase(_NPEBase, ABC):
@@ -312,6 +429,11 @@ class _ProbParamBase(_NPEBase, ABC):
         Margin of the mu head beyond the ``[0, 1]`` parameter bounds
     with_prot: bool
         Build the protocol-parameter scaler
+    signal_scaling: str
+        ``"zscore"`` or ``"time_dependent_zscore"`` (see :class:`_NPEBase`)
+    scaler_T: ZScoreScaler | None
+        Fitted end-time scaler of ``"time_dependent_zscore"``; None creates
+        an identity placeholder
 
     The numbers of predicted degradation parameters (``n_param_pred``) and of
     protocol parameters (``n_prot_params``) are read from ``sim_config``.
@@ -327,8 +449,26 @@ class _ProbParamBase(_NPEBase, ABC):
         scaler_X: ZScoreScaler | None = None,
         param_margin: float = 0.05,
         with_prot: bool = False,
+        signal_scaling: str = "zscore",
+        scaler_T: ZScoreScaler | None = None,
     ):
-        super().__init__(sim_config, scaler_X, scaler_X_shape, with_prot)
+        super().__init__(
+            sim_config,
+            scaler_X,
+            scaler_X_shape,
+            with_prot,
+            signal_scaling=signal_scaling,
+            scaler_T=scaler_T,
+        )
+        if self.with_end_time and cyc_mode.lower() == "discharge-chargecc":
+            raise NotImplementedError(
+                "time_dependent_zscore needs a single (time, voltage) signal"
+            )
+        if self.with_end_time and encoder_model is not None:
+            raise NotImplementedError(
+                "time_dependent_zscore is not supported with an external "
+                "encoder_model"
+            )
         assert loss_fn in [
             gumbel_loss,
             nll_loss,
@@ -391,12 +531,14 @@ class _ProbParamBase(_NPEBase, ABC):
         tuple[torch.Tensor, torch.Tensor]
             Physical ``(mu, sigma)``, shape ``(batch, n_param_pred)`` each
         """
-        x_scaled = self._encode(self.scaler_X.transform(x))
-        if self.scaler_P is None:
-            mu, sigma = self(x_scaled)
-        else:
+        signal = self.scale_signal(x)
+        inputs = [self._encode(signal[0])]
+        if self.scaler_P is not None:
             assert prot_params is not None, "prot_params is required"
-            mu, sigma = self(x_scaled, self.scaler_P.transform(prot_params))
+            inputs.append(self.scaler_P.transform(prot_params))
+        # the end time is only passed to models that use it
+        kwargs = {"t_end": signal[1]} if self.with_end_time else {}
+        mu, sigma = self(*inputs, **kwargs)
         return self.to_physical(mu, sigma)
 
     @abstractmethod
@@ -444,6 +586,11 @@ class _ProbParamFMBase(_NPEBase, ABC):
         :meth:`set_prior_data`) instead of N(0, I)
     with_prot: bool
         Build the protocol-parameter scaler
+    signal_scaling: str
+        ``"zscore"`` or ``"time_dependent_zscore"`` (see :class:`_NPEBase`)
+    scaler_T: ZScoreScaler | None
+        Fitted end-time scaler of ``"time_dependent_zscore"``; None creates
+        an identity placeholder
     """
 
     def __init__(
@@ -454,8 +601,21 @@ class _ProbParamFMBase(_NPEBase, ABC):
         scaler_X: ZScoreScaler | None = None,
         use_prior_matching: bool = False,
         with_prot: bool = False,
+        signal_scaling: str = "zscore",
+        scaler_T: ZScoreScaler | None = None,
     ):
-        super().__init__(sim_config, scaler_X, scaler_X_shape, with_prot)
+        super().__init__(
+            sim_config,
+            scaler_X,
+            scaler_X_shape,
+            with_prot,
+            signal_scaling=signal_scaling,
+            scaler_T=scaler_T,
+        )
+        if self.with_end_time and cyc_mode.lower() == "discharge-chargecc":
+            raise NotImplementedError(
+                "time_dependent_zscore needs a single (time, voltage) signal"
+            )
         self.cyc_mode = cyc_mode
         self.use_prior_matching = use_prior_matching
 
@@ -511,17 +671,16 @@ class _ProbParamFMBase(_NPEBase, ABC):
         torch.Tensor
             Physical samples, shape ``(batch, n_samples, n_param_pred)``
         """
-        x_scaled = self.scaler_X.transform(x)
-        if self.scaler_P is None:
-            samples = self.sample(
-                x_scaled, n_samples=n_samples, n_steps=n_steps
-            )
-        else:
+        signal = self.scale_signal(x)
+        inputs = [signal[0]]
+        if self.scaler_P is not None:
             assert prot_params is not None, "prot_params is required"
-            p_scaled = self.scaler_P.transform(prot_params)
-            samples = self.sample(
-                x_scaled, p_scaled, n_samples=n_samples, n_steps=n_steps
-            )
+            inputs.append(self.scaler_P.transform(prot_params))
+        # the end time is only passed to models that use it
+        kwargs = {"t_end": signal[1]} if self.with_end_time else {}
+        samples = self.sample(
+            *inputs, n_samples=n_samples, n_steps=n_steps, **kwargs
+        )
         return self.to_physical(samples)
 
     @property
