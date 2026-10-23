@@ -111,7 +111,7 @@ def min_test_loss(log_folder: str) -> float:
 
 
 def write_recipe(recipe_path: str, overrides: dict, out_path: str) -> None:
-    """Write a copy of a YAML recipe 
+    """Write a copy of a YAML recipe
     Also replace some entries, useful to not carry many recipes
 
     Parameters
