@@ -60,6 +60,7 @@ def train_model(
     log_folder: str = "train_log",
     log_freq: int = 100,
     save_freq: int = 1_000_000,
+    save_final: bool = True,
     restart_from: str | None = None,
     enable_cuda: bool = True,
     enable_mps: bool = True,
@@ -247,13 +248,14 @@ def train_model(
             if trial.should_prune():
                 raise optuna.exceptions.TrialPruned()
 
-    save_model(
-        step=total_steps,
-        model=model,
-        device_type=device_type,
-        log_folder=log_folder,
-        bypass="final",
-    )
+    if save_final:
+        save_model(
+            step=total_steps,
+            model=model,
+            device_type=device_type,
+            log_folder=log_folder,
+            bypass="final",
+        )
     return model, loss_hist
 
 
