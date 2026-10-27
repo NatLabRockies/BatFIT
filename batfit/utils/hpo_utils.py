@@ -162,3 +162,33 @@ def make_trial_loader(
         shuffle=shuffle,
         drop_last=drop_last,
     )
+
+
+def pyramid_units(max_units: int, n_levels: int) -> list[int]:
+    """Build symmetric hidden-layer widths that halve away from the middle layer.
+    
+    ``n_levels=3`` gives ``[M/4, M/2, M, M/2, M/4]``.
+
+    Parameters
+    ----------
+    max_units: int
+        Width ``M`` of the widest (middle) layer
+    n_levels: int
+        Number of distinct widths, at least 1
+
+    Returns
+    -------
+    list[int]
+        Widths of the ``2 * n_levels - 1`` hidden layers
+    """
+    assert n_levels >= 1, f"n_levels must be >= 1, got {n_levels}"
+    assert max_units % 2 ** (n_levels - 1) == 0, (
+        f"max_units={max_units} is not divisible by "
+        f"2**{n_levels - 1}={2 ** (n_levels - 1)}"
+    )
+    # widths from the outer layer up to the widest one
+    rising = []
+    for level in range(n_levels - 1, -1, -1):
+        rising.append(max_units // 2**level)
+    falling = rising[-2::-1]
+    return rising + falling
