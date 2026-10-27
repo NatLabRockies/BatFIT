@@ -10,6 +10,7 @@ from batfit.utils.hpo_utils import (
     create_or_load_study,
     make_trial_loader,
     min_test_loss,
+    pyramid_units,
     suggest_from_space,
     write_recipe,
 )
@@ -106,3 +107,17 @@ def test_make_trial_loader():
     )
     assert trial_loader.batch_size == n_samples
     assert len(trial_loader) == 1
+
+
+def test_pyramid_units():
+    assert pyramid_units(4096, 1) == [4096]
+    assert pyramid_units(4096, 2) == [2048, 4096, 2048]
+    assert pyramid_units(4096, 4) == [512, 1024, 2048, 4096, 2048, 1024, 512]
+    # smallest search-space value: 16 * 4 = 64 at 4 levels
+    assert pyramid_units(64, 4) == [8, 16, 32, 64, 32, 16, 8]
+
+    # widths not divisible down to the outer layer
+    with pytest.raises(AssertionError):
+        pyramid_units(100, 4)
+    with pytest.raises(AssertionError):
+        pyramid_units(64, 0)
